@@ -13,6 +13,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { isPackageInBarcodeOrArchive } from "@/lib/package-page-filter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -74,10 +75,11 @@ export default function OwnerPackages() {
   const [isScanning, setIsScanning] = useState(false);
   const [isActioning, setIsActioning] = useState(false);
 
-  const { data: packages, isLoading, refetch } = useListPackages({
+  const { data: allPackages, isLoading, refetch } = useListPackages({
     search: search || undefined,
     status: status === "all" ? undefined : (status as any),
   });
+  const packages = allPackages?.filter(isPackageInBarcodeOrArchive);
 
   const { data: batches } = useListBatches();
   const sortedBatches = [...(batches || [])].sort(
@@ -441,7 +443,7 @@ export default function OwnerPackages() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Monitor Paket</h1>
-          <p className="text-muted-foreground mt-1">Pantau seluruh data paket dalam sistem.</p>
+          <p className="text-muted-foreground mt-1">Pantau paket yang sudah tercatat di Barcode atau Arsip.</p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -463,6 +465,13 @@ export default function OwnerPackages() {
             Export Excel
           </Button>
         </div>
+      </div>
+
+      <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+        <span className="font-semibold">Sumber data:</span>{" "}
+        halaman ini hanya menampilkan paket yang sudah memiliki barcode
+        (tercatat di halaman Barcode) atau paket yang sudah diserahkan/diambil
+        (tercatat di halaman Arsip).
       </div>
 
       {/* Scan Verification Panel */}
