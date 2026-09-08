@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, packagesTable } from "@workspace/db";
+import { db, packagesTable, paymentsTable, transactionsTable } from "@workspace/db";
 import { requireAuth, requireRole } from "../middlewares/auth";
 
 const router = Router();
@@ -14,6 +14,8 @@ router.get("/", requireAuth, requireRole("owner"), async (req, res) => {
     let entries: { label: string; incoming: number; outgoing: number }[] = [];
     let periodLabel = "";
     let filteredPkgs = packages;
+    const transactions = await db.select().from(transactionsTable);
+    const payments = await db.select().from(paymentsTable);
 
     if (type === "daily") {
       const targetDate = date || now.toISOString().split("T")[0];
@@ -79,12 +81,68 @@ router.get("/", requireAuth, requireRole("owner"), async (req, res) => {
       }
     }
 
+    let periodStart = new Date("1970-01-01T00:00:00.000Z");
+    let periodEnd = new Date("2999-12-31T23:59:59.999Z");
+    if (type === "daily") {
+      const target = new Date(`${date || now.toISOString().split("T")[0]}T00:00:00`);
+      periodStart = target;
+      periodEnd = new Date(target.getTime() + 24 * 60 * 60 * 1000);
+    } else if (type === "monthly") {
+      let targetYear: number;
+      let targetMonth: number;
+      if (month && String(month).includes("-")) {
+        const [yearPart, monthPart] = String(month).split("-");
+        targetYear = Number(yearPart);
+        targetMonth = Number(monthPart) - 1;
+      } else {
+        targetYear = year ? Number(year) : now.getFullYear();
+        targetMonth = month ? Number(month) - 1 : now.getMonth();
+      }
+      periodStart = new Date(targetYear, targetMonth, 1);
+      periodEnd = new Date(targetYear, targetMonth + 1, 1);
+    } else if (type === "yearly") {
+      const targetYear = year ? Number(year) : now.getFullYear();
+      periodStart = new Date(targetYear, 0, 1);
+      periodEnd = new Date(targetYear + 1, 0, 1);
+    }
+    const inPeriod = (value: Date) => value >= periodStart && value < periodEnd;
+    const financialTransactions = transactions.filter(
+      (transaction) =>
+        inPeriod(transaction.createdAt) && transaction.transactionStatus === "AKTIF",
+    );
+    const financialPayments = payments.filter((payment) => inPeriod(payment.createdAt));
+    const amount = (value: unknown) => Number(value ?? 0);
+
     res.json({
       period: periodLabel,
       totalPackages: filteredPkgs.length,
       pickedUp: filteredPkgs.filter(p => p.status === "diserahkan").length,
       pending: filteredPkgs.filter(p => p.status === "pending").length,
       entries,
+      finance: {
+        transactionsValue: financialTransactions.reduce(
+          (sum, transaction) => sum + amount(transaction.total),
+          0,
+        ),
+        paymentsReceived: financialPayments.reduce(
+          (sum, payment) => sum + amount(payment.totalAmount),
+          0,
+        ),
+        newReceivables: financialTransactions.reduce(
+          (sum, transaction) => sum + amount(transaction.sisaPiutang),
+          0,
+        ),
+        oldReceivablesReceived: financialPayments
+          .filter((payment) => payment.paymentType === "PELUNASAN_PIUTANG")
+          .reduce((sum, payment) => sum + amount(payment.totalAmount), 0),
+        activeReceivables: transactions
+          .filter(
+            (transaction) =>
+              transaction.transactionStatus === "AKTIF" &&
+              transaction.paymentStatus !== "LUNAS",
+          )
+          .reduce((sum, transaction) => sum + amount(transaction.sisaPiutang), 0),
+      },
     });
   } catch (err) {
     req.log.error(err);

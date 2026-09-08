@@ -1,0 +1,330 @@
+import { Router } from "express";
+import {
+  db,
+  paymentsTable,
+  transactionsTable,
+} from "@workspace/db";
+import { and, desc, eq, like } from "drizzle-orm";
+import { requireActiveShift } from "../middlewares/shift";
+import { requireAuth, requireRole } from "../middlewares/auth";
+
+const router = Router();
+const paymentMethods = new Set(["tunai", "transfer"]);
+
+function amount(value: unknown, fieldName: string, allowZero = true): number {
+  const parsed = Number(value ?? 0);
+  if (
+    !Number.isFinite(parsed) ||
+    !Number.isInteger(parsed) ||
+    (allowZero ? parsed < 0 : parsed <= 0)
+  ) {
+    throw new Error(`${fieldName} harus berupa angka Rupiah bulat`);
+  }
+  return parsed;
+}
+
+function datePrefix() {
+  const now = new Date();
+  return `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(now.getUTCDate()).padStart(2, "0")}`;
+}
+
+async function nextTransactionNo(tx: any) {
+  const prefix = `TRX-${datePrefix()}-`;
+  const rows = await tx
+    .select({ transactionNo: transactionsTable.transactionNo })
+    .from(transactionsTable)
+    .where(like(transactionsTable.transactionNo, `${prefix}%`));
+  const largest = rows.reduce((max: number, row: { transactionNo: string }) => {
+    const suffix = Number(row.transactionNo.slice(prefix.length));
+    return Number.isInteger(suffix) ? Math.max(max, suffix) : max;
+  }, 0);
+  return `${prefix}${String(largest + 1).padStart(5, "0")}`;
+}
+
+function statusFor(total: number, paid: number) {
+  if (paid <= 0) return "BELUM_BAYAR" as const;
+  if (paid >= total) return "LUNAS" as const;
+  return "BAYAR_SEBAGIAN" as const;
+}
+
+function getCustomerName(body: any) {
+  const summary = Array.isArray(body.packageSummary) ? body.packageSummary : [];
+  return String(
+    body.customerName ??
+      summary[0]?.customerName ??
+      "Pelanggan umum",
+  ).trim();
+}
+
+function getPackageIds(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+}
+
+router.get(
+  "/",
+  requireAuth,
+  requireRole("admin", "owner"),
+  async (req, res) => {
+    try {
+      const { paymentStatus, transactionStatus } = req.query as Record<
+        string,
+        string
+      >;
+      const conditions = [];
+      if (paymentStatus && paymentStatus !== "all") {
+        conditions.push(eq(transactionsTable.paymentStatus, paymentStatus as any));
+      }
+      if (transactionStatus && transactionStatus !== "all") {
+        conditions.push(
+          eq(transactionsTable.transactionStatus, transactionStatus as any),
+        );
+      }
+
+      const transactions = await db
+        .select()
+        .from(transactionsTable)
+        .where(conditions.length ? and(...conditions) : undefined)
+        .orderBy(desc(transactionsTable.createdAt));
+      const payments = await db
+        .select()
+        .from(paymentsTable)
+        .orderBy(desc(paymentsTable.createdAt));
+
+      res.json(
+        transactions.map((transaction) => ({
+          ...transaction,
+          payments: payments.filter(
+            (payment) => payment.transactionId === transaction.id,
+          ),
+        })),
+      );
+    } catch (err) {
+      (req as any).log?.error?.(err);
+      res.status(500).json({ error: "Gagal mengambil data transaksi" });
+    }
+  },
+);
+
+router.post(
+  "/",
+  requireAuth,
+  requireRole("admin", "owner"),
+  requireActiveShift,
+  async (req, res) => {
+    try {
+      const body = req.body ?? {};
+      const packageIds = getPackageIds(body.packageIds);
+      const subtotal = amount(body.subtotal ?? body.totalAmount, "Subtotal");
+      const discount = amount(body.discount ?? 0, "Diskon");
+      const total = amount(
+        body.total ?? subtotal - discount,
+        "Total",
+      );
+      if (discount > subtotal || total !== subtotal - discount) {
+        res.status(400).json({ error: "Total transaksi tidak valid" });
+        return;
+      }
+      if (!packageIds.length) {
+        res.status(400).json({ error: "Minimal satu paket harus dipilih" });
+        return;
+      }
+
+      const method = String(body.paymentType ?? "piutang");
+      if (method !== "piutang" && !paymentMethods.has(method)) {
+        res.status(400).json({ error: "Jenis pembayaran tidak valid" });
+        return;
+      }
+
+      const received = method === "piutang"
+        ? amount(body.paidAmount ?? 0, "Nominal pembayaran")
+        : amount(body.paidAmount ?? 0, "Nominal diterima");
+      const credited = method === "piutang" ? Math.min(received, total) : Math.min(received, total);
+      if (credited > total) {
+        res.status(400).json({ error: "Nominal pembayaran melebihi total" });
+        return;
+      }
+      if (method !== "piutang" && credited <= 0) {
+        res.status(400).json({ error: "Nominal pembayaran wajib diisi" });
+        return;
+      }
+      if (method === "transfer" && received !== total) {
+        res.status(400).json({ error: "Pembayaran transfer harus sama dengan total" });
+        return;
+      }
+
+      const user = (req as any).user;
+      const activeShift = (req as any).activeShift;
+      const created = await db.transaction(async (tx) => {
+        const [transaction] = await tx
+          .insert(transactionsTable)
+          .values({
+            transactionNo: await nextTransactionNo(tx),
+            customerId: body.customerId ? Number(body.customerId) : null,
+            customerName: getCustomerName(body),
+            packageIds,
+            subtotal: String(subtotal),
+            discount: String(discount),
+            discountReason: body.discountReason ?? null,
+            total: String(total),
+            paymentStatus: statusFor(total, credited),
+            transactionStatus: "AKTIF",
+            sisaPiutang: String(Math.max(0, total - credited)),
+            jenisJastip: body.jenisJastip ?? null,
+            jatuhTempo: body.jatuhTempo || null,
+            penanggungJawab: body.penanggungJawab ?? null,
+            shiftSessionId: activeShift.id,
+            cashierId: user.id,
+          })
+          .returning();
+
+        let payment = null;
+        if (credited > 0) {
+          const [insertedPayment] = await tx
+            .insert(paymentsTable)
+            .values({
+              paymentType: credited >= total ? "TRANSAKSI_BARU" : "CICILAN",
+              paymentMethod: method === "piutang" ? null : method as "tunai" | "transfer",
+              totalAmount: String(credited),
+              paidAmount: String(received),
+              changeAmount: String(Math.max(0, received - credited)),
+              packageIds,
+              packageSummary: Array.isArray(body.packageSummary)
+                ? body.packageSummary
+                : null,
+              adminId: user.id,
+              adminName: user.name,
+              shiftSessionId: activeShift.id,
+              transactionId: transaction.id,
+              notes: body.notes ?? null,
+            })
+            .returning();
+          payment = insertedPayment;
+        }
+        return { transaction, payment };
+      });
+
+      res.status(201).json(created);
+    } catch (err: any) {
+      (req as any).log?.error?.(err);
+      const message = err instanceof Error ? err.message : "Data transaksi tidak valid";
+      res.status(message.includes("harus") ? 400 : 500).json({
+        error: message.includes("harus") ? message : "Gagal membuat transaksi",
+      });
+    }
+  },
+);
+
+router.get(
+  "/:id",
+  requireAuth,
+  requireRole("admin", "owner"),
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const [transaction] = await db
+        .select()
+        .from(transactionsTable)
+        .where(eq(transactionsTable.id, id))
+        .limit(1);
+      if (!transaction) {
+        res.status(404).json({ error: "Transaksi tidak ditemukan" });
+        return;
+      }
+      const payments = await db
+        .select()
+        .from(paymentsTable)
+        .where(eq(paymentsTable.transactionId, id))
+        .orderBy(desc(paymentsTable.createdAt));
+      res.json({ transaction, payments });
+    } catch (err) {
+      (req as any).log?.error?.(err);
+      res.status(500).json({ error: "Gagal mengambil detail transaksi" });
+    }
+  },
+);
+
+router.post(
+  "/:id/payments",
+  requireAuth,
+  requireRole("admin", "owner"),
+  requireActiveShift,
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const method = String(req.body?.paymentType ?? "");
+      if (!paymentMethods.has(method)) {
+        res.status(400).json({ error: "Jenis pembayaran harus tunai atau transfer" });
+        return;
+      }
+      const paymentMethod = method as "tunai" | "transfer";
+
+      const received = amount(
+        req.body?.amount ?? req.body?.paidAmount ?? req.body?.totalAmount,
+        "Nominal pembayaran",
+        false,
+      );
+      const user = (req as any).user;
+      const activeShift = (req as any).activeShift;
+      const result = await db.transaction(async (tx) => {
+        const [transaction] = await tx
+          .select()
+          .from(transactionsTable)
+          .where(eq(transactionsTable.id, id))
+          .limit(1);
+        if (!transaction) throw new Error("Transaksi tidak ditemukan");
+        if (transaction.transactionStatus !== "AKTIF") {
+          throw new Error("Transaksi sudah VOID");
+        }
+
+        const outstanding = amount(transaction.sisaPiutang, "Sisa piutang");
+        if (outstanding <= 0) throw new Error("Transaksi sudah lunas");
+        if (received > outstanding && paymentMethod === "transfer") {
+          throw new Error("Nominal transfer melebihi sisa piutang");
+        }
+        const credited = Math.min(received, outstanding);
+        const change = Math.max(0, received - credited);
+        const [payment] = await tx
+          .insert(paymentsTable)
+          .values({
+            paymentType: "PELUNASAN_PIUTANG",
+            paymentMethod,
+            totalAmount: String(credited),
+            paidAmount: String(received),
+            changeAmount: String(change),
+            packageIds: Array.isArray(transaction.packageIds)
+              ? transaction.packageIds
+              : [],
+            adminId: user.id,
+            adminName: user.name,
+            shiftSessionId: activeShift.id,
+            transactionId: id,
+            notes: req.body?.notes ?? null,
+          })
+          .returning();
+        const remaining = outstanding - credited;
+        const [updated] = await tx
+          .update(transactionsTable)
+          .set({
+            sisaPiutang: String(remaining),
+            paymentStatus: statusFor(Number(transaction.total), Number(transaction.total) - remaining),
+          })
+          .where(eq(transactionsTable.id, id))
+          .returning();
+        return { transaction: updated, payment };
+      });
+
+      res.status(201).json(result);
+    } catch (err: any) {
+      (req as any).log?.error?.(err);
+      const message = err instanceof Error ? err.message : "Gagal mencatat pembayaran";
+      res.status(message === "Transaksi tidak ditemukan" ? 404 : 400).json({
+        error: message,
+      });
+    }
+  },
+);
+
+export default router;

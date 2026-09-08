@@ -1,9 +1,23 @@
 import { Router } from "express";
-import { db, usersTable, packagesTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import {
+  db,
+  paymentsTable,
+  transactionsTable,
+  usersTable,
+  packagesTable,
+} from "@workspace/db";
+import { eq, gte, lt } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 
 const router = Router();
+
+function todayBounds() {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { start, end };
+}
 
 // GET /api/dashboard/summary
 router.get("/summary", requireAuth, async (req, res) => {
@@ -17,6 +31,25 @@ router.get("/summary", requireAuth, async (req, res) => {
 
     const customers = await db.select().from(usersTable).where(eq(usersTable.role, "customer"));
     const admins = await db.select().from(usersTable).where(eq(usersTable.role, "admin"));
+    const { start, end } = todayBounds();
+    const [transactionsToday, paymentsToday, activeReceivables] = await Promise.all([
+      db.select().from(transactionsTable).where(
+        gte(transactionsTable.createdAt, start),
+      ),
+      db.select().from(paymentsTable).where(
+        gte(paymentsTable.createdAt, start),
+      ),
+      db.select().from(transactionsTable).where(
+        eq(transactionsTable.paymentStatus, "BELUM_BAYAR"),
+      ),
+    ]);
+    const transactionsCreatedToday = transactionsToday.filter(
+      (transaction) => transaction.createdAt < end && transaction.transactionStatus === "AKTIF",
+    );
+    const paymentsReceivedToday = paymentsToday.filter(
+      (payment) => payment.createdAt < end,
+    );
+    const rupiah = (value: unknown) => Number(value ?? 0);
 
     res.json({
       totalPackages: packages.length,
@@ -25,6 +58,26 @@ router.get("/summary", requireAuth, async (req, res) => {
       pickedUpPackages: packages.filter(p => p.status === "diserahkan").length,
       totalCustomers: customers.length,
       totalAdmins: admins.filter(a => a.isActive).length,
+      finance: {
+        transactionsToday: transactionsCreatedToday.reduce(
+          (sum, transaction) => sum + rupiah(transaction.total),
+          0,
+        ),
+        paymentsReceivedToday: paymentsReceivedToday.reduce(
+          (sum, payment) => sum + rupiah(payment.totalAmount),
+          0,
+        ),
+        newReceivablesToday: transactionsCreatedToday
+          .filter((transaction) => transaction.sisaPiutang !== "0")
+          .reduce((sum, transaction) => sum + rupiah(transaction.sisaPiutang), 0),
+        oldReceivablesReceivedToday: paymentsReceivedToday
+          .filter((payment) => payment.paymentType === "PELUNASAN_PIUTANG")
+          .reduce((sum, payment) => sum + rupiah(payment.totalAmount), 0),
+        activeReceivables: activeReceivables.reduce(
+          (sum, transaction) => sum + rupiah(transaction.sisaPiutang),
+          0,
+        ),
+      },
     });
   } catch (err) {
     req.log.error(err);

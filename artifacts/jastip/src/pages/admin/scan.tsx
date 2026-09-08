@@ -375,7 +375,7 @@ export default function AdminScan() {
           : null,
       };
 
-      const res = await fetch("/api/payments", {
+      const res = await fetch("/api/transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(body),

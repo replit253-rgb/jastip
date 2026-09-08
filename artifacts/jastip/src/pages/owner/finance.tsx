@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { Download, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import * as XLSX from "xlsx";
+import OwnerFinanceTransactions from "./finance-transactions";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -487,6 +488,8 @@ export default function OwnerFinance() {
           <Download className="w-4 h-4" /> Export Excel
         </Button>
       </div>
+
+      <OwnerFinanceTransactions />
 
       {/* ── Filter Bar ──────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-x-4 gap-y-2 items-center border-b pb-3">

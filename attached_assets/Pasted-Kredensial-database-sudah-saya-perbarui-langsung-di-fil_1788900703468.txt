@@ -1,0 +1,41 @@
+Kredensial database sudah saya perbarui langsung di file .env di Replit.
+
+Sebelum lanjut, lakukan ini (tanpa menampilkan nilai kredensial apa pun di
+chat):
+
+1. Konfirmasi apakah aplikasi/koneksi database saat ini benar-benar membaca
+   nilai baru dari .env, atau justru masih memakai variabel runtime-managed
+   Replit (DATABASE_URL, PGHOST, PGUSER, PGPASSWORD, dst) seperti temuanmu
+   sebelumnya. Jika ternyata dua sumber ini bisa bentrok/tidak sinkron,
+   jelaskan risikonya ke saya sebelum lanjut — jangan diam-diam pakai salah
+   satu tanpa konfirmasi.
+2. Restart workflow API agar environment variable baru benar-benar termuat.
+3. Jalankan smoke test koneksi database + endpoint dasar (/api/healthz,
+   /api/packages, /api/payments, /api/batches) untuk memastikan aplikasi
+   tetap berjalan normal dengan kredensial baru.
+4. Setelah dikonfirmasi sehat, catat di Log Keputusan & Asumsi bahwa rotasi
+   kredensial development sudah selesai (tanggal, metode: manual via .env),
+   dan tandai insiden keamanan sebelumnya sebagai RESOLVED.
+
+Jika semua smoke test lolos, lanjutkan ke Fase 2 (Transaksi & Payment) sesuai
+urutan di implementasi.md: skema (2.1) → aturan bisnis (2.2) → backend (2.3)
+→ frontend (2.4).
+
+Ingat aturan kerja yang sudah disepakati:
+- Migrasi additive saja, jangan ubah tabel/kolom yang dipakai fitur aktif.
+- Jangan ubah perilaku hard delete (masih ditunda ke Fase 3).
+- Alur pelunasan piutang lama (PATCH /api/payments/:id/bayar) tetap harus
+  berfungsi selama transisi — jangan dimatikan sebelum endpoint baru
+  (POST /api/transactions/:id/payments) benar-benar teruji, supaya tidak ada
+  jeda waktu operasional kasir tidak bisa memproses piutang sama sekali.
+- Perhatikan aturan bisnis kritis di implementasi.md bagian 2.2: pelunasan
+  piutang TIDAK boleh membuat transaction baru (hanya payment baru yang
+  tertaut ke transaction asal), tanggal transaksi asal tidak boleh berubah,
+  dan sisa_piutang/payment_status harus terupdate otomatis setiap payment
+  baru masuk.
+- Setelah Fase 2 selesai, berhenti dan laporkan dengan format yang sama:
+  ringkasan kerjaan, hasil UAT-12 dan UAT-13 dari implementasi.md (angka
+  hasil harus persis sama dengan contoh skenario piutang & cicilan di
+  dokumen sumber), dan seluruh item baru di Log Keputusan & Asumsi.
+
+Jangan lanjut otomatis ke Fase 3 setelah Fase 2 selesai — tunggu review saya.

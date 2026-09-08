@@ -30,9 +30,17 @@ export async function calculateShiftCash(shift: ShiftSession) {
     .from(paymentsTable)
     .where(eq(paymentsTable.shiftSessionId, shift.id));
 
-  const cashPayments = payments.filter((payment) => payment.paymentType === "tunai");
-  const transferPayments = payments.filter((payment) => payment.paymentType === "transfer");
-  const receivablePayments = payments.filter((payment) => payment.paymentType === "piutang");
+  const cashPayments = payments.filter(
+    (payment) =>
+      payment.paymentMethod === "tunai" || payment.paymentType === "tunai",
+  );
+  const transferPayments = payments.filter(
+    (payment) =>
+      payment.paymentMethod === "transfer" || payment.paymentType === "transfer",
+  );
+  const receivablePayments = payments.filter(
+    (payment) => payment.paymentType === "piutang",
+  );
 
   const cashReceived = cashPayments.reduce(
     (sum, payment) =>
