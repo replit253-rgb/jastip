@@ -11,7 +11,7 @@ Package status enum is now only `["pending", "diserahkan"]`. All old references 
 **How to apply:** When adding new status filters or stats, only use these two values. The `diserahkan` status is set via the `/api/packages/:id/serahkan` endpoint; `tolak` resets back to `pending`.
 
 ## Also changed
-- Customer role is completely removed from frontend routes and login page (only admin/owner active)
+- Customer routes are absent from the active frontend router, but the customer role remains in the schema and the public register endpoint/page is still present.
 - `packageMode` column added to packages table: "single" or "grup"
 - Scan page has Serahkan and Tolak buttons (no more generic confirm)
 - Barcode page has 2 tabs (1 Paket / Grup Paket) with pagination

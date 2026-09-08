@@ -1,0 +1,46 @@
+Kamu adalah AI agent yang akan mengerjakan pembaruan Sistem Jastip Anggun Jaya
+di repo ini. Sebelum menulis kode apa pun, lakukan langkah berikut secara urut:
+
+1. BACA PENUH file `implementasi.md` (rencana implementasi & progres) dan
+   `progres.md` (pelacakan progres) yang sudah ada di root proyek ini.
+   Jangan mulai coding sebelum kamu benar-benar paham seluruh isi kedua file.
+
+2. AUDIT KODE SEKARANG. Bandingkan struktur database, endpoint API, dan
+   halaman frontend yang ADA di repo ini dengan bagian "Peta Existing vs
+   Yang Perlu Dibangun" di implementasi.md. Laporkan ke saya secara singkat
+   jika ada perbedaan antara apa yang tertulis di dokumen sebagai "sudah ada"
+   dengan kondisi kode yang sebenarnya kamu temukan, SEBELUM lanjut ke langkah 3.
+
+3. KERJAKAN SATU FASE PADA SATU WAKTU, urut dari Fase 0 sampai Fase 8 sesuai
+   implementasi.md. Jangan lompat fase atau mengerjakan beberapa fase
+   sekaligus, karena fase-fase berikutnya bergantung pada skema/endpoint
+   dari fase sebelumnya.
+
+4. ATURAN KERJA WAJIB untuk setiap fase:
+   - Baca ulang bagian "Prinsip Wajib" di implementasi.md sebelum mulai.
+   - Migrasi database bersifat additive — jangan mengubah/menghapus kolom
+     atau tabel yang sudah dipakai fitur aktif tanpa alasan kuat.
+   - Jangan merusak fitur yang statusnya "Aktif" di dokumen PRD as-is.
+   - Jika kamu menemukan hal yang AMBIGU (tidak dijelaskan jelas di
+     implementasi.md, tidak ada angka pasti, atau butuh keputusan bisnis),
+     JANGAN MENEBAK DIAM-DIAM. Tulis di tabel "Log Keputusan & Asumsi" di
+     implementasi.md, pakai asumsi paling konservatif (tidak menghapus data,
+     tidak mengubah rumus ongkir existing), lalu lanjutkan kerja.
+   - Setelah setiap task selesai dan sudah kamu verifikasi (build jalan,
+     tidak ada fitur lama yang rusak), centang checkbox terkait di
+     implementasi.md dan isi kolom "Catatan Implementasi" di bawah task itu
+     dengan ringkasan singkat apa yang kamu lakukan (file yang diubah,
+     endpoint baru, dsb).
+   - Update tabel "Ringkasan Status per Fase" di bagian akhir implementasi.md
+     setiap kali progres suatu fase berubah, dan sinkronkan juga ke progres.md.
+
+5. SETELAH SATU FASE SELESAI, berhenti dan laporkan ke saya:
+   - Ringkasan apa yang sudah dikerjakan di fase itu.
+   - Hasil checklist UAT yang relevan dari implementasi.md (bagian 3) — jalankan
+     dan laporkan mana yang lolos, mana yang belum bisa diuji dan kenapa.
+   - Daftar item baru (jika ada) di "Log Keputusan & Asumsi" yang butuh
+     konfirmasi saya sebelum lanjut ke fase berikutnya.
+   Tunggu konfirmasi saya sebelum mulai fase berikutnya — jangan lanjut otomatis.
+
+6. Mulai sekarang dari Fase 0 (Persiapan Skema Database). Laporkan hasil audit
+   langkah 2 terlebih dahulu sebelum menyentuh kode.

@@ -56,7 +56,6 @@ with a serviceType silently gets `serviceTypeId: null` (no error, but batch grou
 - **Pengaturan Tarif (Owner only)**: `/owner/tarif` — edit pesawatRate, hematRate, kargoRate, pelniTiersJakarta/Surabaya. PATCH `/api/settings` sekarang Owner-only, simpan history ke `tarif_history` table. GET `/api/settings/history` endpoint.
 - **Pengeluaran Harian**: `/owner/pengeluaran` — CRUD pengeluaran, filter tanggal/kategori/metode, export Excel. DB table `pengeluaran`. API `/api/pengeluaran`.
 - **Diskon Nominal di Scan**: Field diskon (Rp, bukan %) + alasan (wajib jika ada diskon) di payment modal scan.tsx. totalAkhir = totalTagihan - diskon.
-- **Hapus Batch**: Sudah ada di batches.tsx (soft delete status HAPUS) — tidak perlu perubahan.
 
 ## OpenAPI spec must match actual DB/route fields
 `lib/api-spec/openapi.yaml` is the source of truth for generated types in `lib/api-zod` and
