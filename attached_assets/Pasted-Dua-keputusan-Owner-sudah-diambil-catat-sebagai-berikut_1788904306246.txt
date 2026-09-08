@@ -1,0 +1,62 @@
+Dua keputusan Owner sudah diambil, catat sebagai berikut di Log Keputusan &
+Asumsi (implementasi.md), dengan tanggal hari ini:
+
+KEPUTUSAN 1 — Hard delete / koreksi paket salah input
+- Owner memutuskan: penghapusan PERMANEN paket (hard delete) — baik yang
+  belum pernah punya transaksi maupun yang sudah — HANYA boleh dilakukan
+  oleh role Owner. Admin TIDAK boleh lagi menghapus paket secara permanen,
+  terlepas dari status transaksinya.
+- Interpretasi konservatif yang dipakai (karena instruksi Owner menyebut
+  "CRUD" secara umum, bukan cuma "Delete"): pembatasan ini HANYA berlaku
+  untuk operasi HAPUS PERMANEN paket. Aktivitas normal Admin sehari-hari
+  (membuat paket baru, mengedit paket sebelum diserahkan lewat PATCH biasa)
+  TETAP boleh dilakukan Admin seperti sekarang — tidak dibatasi ke Owner,
+  karena itu akan melumpuhkan operasional harian dan tidak disebutkan
+  eksplisit oleh Owner sebagai yang dibatasi.
+- Jika asumsi ini salah, catat sebagai risiko yang perlu klarifikasi ulang,
+  tapi implementasikan dengan asumsi ini dulu (paling konservatif terhadap
+  operasional harian).
+
+Implementasi konkret:
+- DELETE /api/packages/:id → ubah role guard dari Admin+Owner menjadi
+  Owner-only. Admin yang mencoba akses mendapat 403 dengan pesan jelas
+  ("Hanya Owner yang dapat menghapus paket secara permanen").
+- PATCH /api/batches/:id dengan statusBatch=HAPUS → ubah role guard yang
+  sama menjadi Owner-only (karena operasi ini juga menghapus paket secara
+  permanen di dalam batch).
+- POST /api/transactions/:id/void (nanti, bagian Fase 3) tetap approval
+  Owner/Supervisor sesuai rencana awal — konsisten dengan keputusan ini.
+- Sembunyikan/nonaktifkan tombol hapus paket permanen dari UI Admin (baik di
+  halaman Semua Paket maupun Batch), tampilkan hanya untuk sesi Owner.
+
+KEPUTUSAN 2 — Toleransi selisih kas
+- Owner memutuskan: nilai toleransi TIDAK dihardcode dan tidak ditentukan
+  oleh developer/agent — Owner ingin bisa menentukan sendiri kapan saja
+  lewat pengaturan, sesuai kebijakan yang bisa dia ubah sendiri.
+- Verifikasi: apakah UI untuk mengubah settings.cash_variance_tolerance
+  sudah benar-benar ada di halaman Pengaturan Owner (bukan cuma field di
+  database)? Jika sudah ada, konfirmasi dan tunjukkan lokasinya. Jika belum,
+  tambahkan sekarang sebagai bagian dari pekerjaan ini — form sederhana di
+  halaman Pengaturan Owner untuk mengubah nilai toleransi, dengan histori
+  perubahan mengikuti pola tarif_history (nilai lama, baru, siapa, kapan).
+- Nilai default tetap Rp0 sampai Owner mengubahnya sendiri lewat UI ini.
+
+Setelah kedua keputusan ini diimplementasikan dan diverifikasi (termasuk
+smoke test: Admin mencoba DELETE paket → 403, Owner mencoba → berhasil;
+Owner mengubah toleransi lewat UI → tersimpan dan tercatat histori), juga
+lakukan pembersihan kecil ini:
+
+- Di progres.md, catatan Fase 1 masih menulis "Verifikasi interaktif
+  autentikasi/dua akun masih memerlukan kredensial UAT Owner/Admin" — ini
+  sudah usang karena UAT-14/UAT-15 sudah dibuktikan lulus dengan login dua
+  akun nyata di sesi sebelumnya. Perbaiki kalimat ini agar konsisten dengan
+  implementasi.md.
+
+Setelah semua ini selesai dan diverifikasi, BARU mulai Fase 3 (VOID) sesuai
+implementasi.md, dengan catatan tambahan: bagian 3.3 (perubahan endpoint
+lama) sudah terjawab oleh Keputusan 1 di atas — pakai itu sebagai acuan,
+jangan tanyakan ulang sebagai TODO_KONFIRMASI_OWNER.
+
+Ingat aturan kerja yang sudah disepakati: migrasi additive, jangan lompat
+sub-bagian, dan berhenti + laporkan (format yang sama) setelah Fase 3 selesai
+sebelum mulai Fase 4. Sertakan hasil UAT-07 di laporan akhir nanti.
