@@ -1,4 +1,5 @@
 import { useAuth } from "@/lib/auth";
+import { useShift } from "@/lib/shift";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import logoImg from "/logo.png";
@@ -35,13 +36,15 @@ import {
   Archive,
   TrendingDown,
   Tag,
+  WalletCards,
 } from "lucide-react";
 
-type NavItem = { name: string; href: string; icon: any; exact?: boolean };
+type NavItem = { name: string; href: string; icon: any; exact?: boolean; requiresShift?: boolean };
 type NavSection = { label: string; items: NavItem[] };
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
+  const { shift } = useShift();
   const [location] = useLocation();
 
   if (!user) return <>{children}</>;
@@ -56,9 +59,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     { name: "Import Excel", href: "/admin/packages/import", icon: FileSpreadsheet, exact: true },
     { name: "Label Barcode", href: "/admin/barcode", icon: Barcode, exact: true },
     { name: "Arsip Sudah Diambil", href: "/admin/arsip", icon: Archive, exact: true },
-    { name: "Scan Barcode dan Pembayaran", href: "/admin/scan", icon: ScanLine, exact: true },
+    { name: "Scan Barcode dan Pembayaran", href: "/admin/scan", icon: ScanLine, exact: true, requiresShift: true },
     { name: "Verifikasi Paket", href: "/admin/verify", icon: ShieldCheck, exact: true },
     { name: "Riwayat Pembayaran", href: "/admin/riwayat-pembayaran", icon: History, exact: true },
+    { name: "Shift Kasir", href: "/admin/shift", icon: WalletCards, exact: true },
     { name: "Profil", href: "/admin/profile", icon: UserCircle, exact: true },
   ];
 
@@ -85,13 +89,19 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         { name: "Import Excel", href: "/owner/packages/import", icon: FileSpreadsheet, exact: true },
         { name: "Label Barcode", href: "/owner/barcode", icon: Barcode, exact: true },
         { name: "Arsip Sudah Diambil", href: "/owner/arsip", icon: Archive, exact: true },
-        { name: "Scan Barcode dan Pembayaran", href: "/owner/scan", icon: ScanLine, exact: true },
+        { name: "Scan Barcode dan Pembayaran", href: "/owner/scan", icon: ScanLine, exact: true, requiresShift: true },
         { name: "Verifikasi Paket", href: "/owner/verify", icon: ShieldCheck, exact: true },
       ],
     },
   ];
 
   const isOwner = role === "owner";
+  const shiftHref = isOwner ? "/owner/shift" : "/admin/shift";
+  const visibleAdminNav = adminNav.filter((item) => !item.requiresShift || shift);
+  const visibleOwnerSections = ownerSections.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => !item.requiresShift || shift),
+  }));
 
   function isActive(item: NavItem) {
     if (location === item.href) return true;
@@ -130,7 +140,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </SidebarHeader>
           <SidebarContent className="p-2">
             {isOwner ? (
-              ownerSections.map((section, idx) => (
+               visibleOwnerSections.map((section, idx) => (
                 <div key={section.label} className="mb-3">
                   <div className="flex items-center gap-2 px-3 py-1.5 mb-1">
                     {section.label === "Owner" ? (
@@ -149,7 +159,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 </div>
               ))
             ) : (
-              <SidebarMenu>{adminNav.map(renderNavItem)}</SidebarMenu>
+               <SidebarMenu>{visibleAdminNav.map(renderNavItem)}</SidebarMenu>
             )}
           </SidebarContent>
           <SidebarFooter className="p-4 border-t border-border/50">
@@ -169,6 +179,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <header className="h-14 border-b bg-background flex items-center px-4 md:px-6 sticky top-0 z-10">
             <SidebarTrigger className="mr-4 md:hidden" />
             <div className="flex-1" />
+            <Link href={shiftHref} className={`mr-4 hidden rounded-full px-3 py-1.5 text-xs font-semibold sm:block ${shift ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}`}>
+              {user.name} • {shift ? `Shift ${shift.shiftType === "PAGI" ? "Pagi" : "Malam"} • Aktif` : "Shift belum dibuka"}
+            </Link>
             <div className="text-sm font-medium text-muted-foreground hidden sm:block">
               {new Date().toLocaleDateString("id-ID", {
                 weekday: "long",

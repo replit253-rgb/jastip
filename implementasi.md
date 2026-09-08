@@ -55,11 +55,11 @@ Referensi: Rekomendasi Sistem Kasir Berbasis Shift.
  Tabel shift_closings: id, shift_session_id, system_cash, actual_cash, selisih, alasan_selisih (nullable), approved_by (nullable, untuk selisih di luar toleransi), closed_at.
  Tabel shift_handovers: id, from_shift_session_id, to_shift_session_id, handover_amount, confirmed_by_giver, confirmed_by_receiver, manual_override (boolean), manual_reason (nullable), created_at.
 1.2 Backend
- POST /api/shifts/open — validasi: admin tidak boleh punya shift AKTIF lain; simpan actual_start = waktu request, bukan waktu jadwal.
- POST /api/shifts/:id/close — alur 2 langkah: (a) hitung system_cash dari formula kas (lihat 1.3), simpan tanpa ditampilkan ke kasir dulu; (b) terima actual_cash dari kasir, baru hitung selisih dan kembalikan hasil. Jangan bocorkan system_cash sebelum langkah (b) — ini yang membuat blind closing efektif.
- POST /api/shifts/:id/handover — butuh konfirmasi dua pihak (giver + receiver) sebelum saldo otomatis masuk ke shift berikutnya.
- Middleware: semua endpoint pembayaran (Fase 2) WAJIB memvalidasi ada shift_session AKTIF milik admin yang login. Jika tidak ada, tolak dengan pesan jelas ("Buka shift terlebih dahulu").
- Endpoint blokir buka shift baru bila shift sebelumnya (shift lain milik admin yang sama, atau shift Pagi yang belum closing saat mau buka Malam di terminal sama) belum closing.
+ [x] POST /api/shifts/open — validasi: admin tidak boleh punya shift AKTIF lain; simpan actual_start = waktu request, bukan waktu jadwal.
+ [x] POST /api/shifts/:id/close — alur 2 langkah: (a) hitung system_cash dari formula kas (lihat 1.3), simpan tanpa ditampilkan ke kasir dulu; (b) terima actual_cash dari kasir, baru hitung selisih dan kembalikan hasil. Jangan bocorkan system_cash sebelum langkah (b) — ini yang membuat blind closing efektif.
+ [x] POST /api/shifts/:id/handover — butuh konfirmasi dua pihak (giver + receiver) sebelum saldo otomatis masuk ke shift berikutnya.
+ [x] Middleware: semua endpoint pembayaran (Fase 2) WAJIB memvalidasi ada shift_session AKTIF milik admin yang login. Jika tidak ada, tolak dengan pesan jelas ("Buka shift terlebih dahulu").
+ [x] Endpoint blokir buka shift baru bila shift sebelumnya (shift lain milik admin yang sama, atau shift Pagi yang belum closing saat mau buka Malam di terminal sama) belum closing.
 1.3 Rumus Kas (implementasi persis sesuai dokumen)
 Kas Akhir Sistem = Saldo Awal
                   + Pembayaran Tunai (transaksi baru + pelunasan piutang)
@@ -68,18 +68,31 @@ Kas Akhir Sistem = Saldo Awal
                   - Refund Tunai
                   - Setoran Kas
  Pastikan pembayaran Transfer/QRIS tidak masuk komponen kas fisik ini (hanya masuk total penerimaan shift, bukan kas laci).
- Set batas toleransi selisih (default: konfirmasi ke Owner nilai default, misal Rp0 = wajib alasan jika ada selisih sama sekali — jangan asumsikan angka toleransi tanpa konfirmasi Owner, tandai sebagai TODO_KONFIRMASI_OWNER di kode dan di Log Keputusan).
+ [x] Set batas toleransi selisih: tersimpan sebagai `cash_variance_tolerance` di settings dengan default Rp0; nilai bisnis tetap TODO_KONFIRMASI_OWNER.
 1.4 Frontend
- Halaman "Buka Shift" setelah login (pilih Pagi/Malam, input saldo awal atau tarik dari handover).
- Header aplikasi menampilkan status shift aktif ("Wina • Shift Pagi • Aktif") selama shift berjalan.
- Dashboard shift: jumlah transaksi, total pembayaran per metode, tombol Pengeluaran & Closing Shift.
- Halaman input kas aktual (pecahan uang) — blind closing, hasil (SESUAI/LEBIH/KURANG) baru muncul setelah submit.
- Halaman serah terima shift (dua tombol konfirmasi terpisah: penyerah & penerima).
- Kunci navigasi: tombol Transaksi/Scan disembunyikan bila tidak ada shift aktif.
+ [x] Halaman "Buka Shift" setelah login (pilih Pagi/Malam, input saldo awal; saldo handover masuk setelah dua pihak konfirmasi).
+ [x] Header aplikasi menampilkan status shift aktif dan identitas user.
+ [x] Dashboard shift: jumlah transaksi, total pembayaran per metode, tombol Pengeluaran & Closing Shift.
+ [x] Halaman input kas aktual (pecahan uang) — blind closing, hasil (SESUAI/LEBIH/KURANG) baru muncul setelah submit.
+ [x] Halaman serah terima shift (dua tombol konfirmasi terpisah: penyerah & penerima).
+ [x] Kunci navigasi: tombol Scan disembunyikan bila tidak ada shift aktif; mutation payment dijaga backend.
 
 Kriteria selesai Fase 1: admin tidak bisa memproses pembayaran tanpa shift aktif; closing menyembunyikan kas sistem sebelum input aktual; serah terima kas tercatat dan tervalidasi dua pihak.
 
-Catatan Implementasi: (isi setelah selesai)
+Catatan Implementasi Fase 1:
+  2026-09-08 — Menambahkan tabel `shift_closings` dan `shift_handovers` melalui migration additive. Nominal uang pada tabel baru memakai integer Rupiah.
+  2026-09-08 — Menambahkan endpoint buka/status/daftar shift, blind closing dua langkah, serah terima dua pihak, helper rumus kas, dan guard mutation payment.
+  2026-09-08 — Blind closing tidak mengembalikan `system_cash` sebelum `actual_cash` dikirim. Selisih di luar toleransi wajib beralasan dan memerlukan penyelesaian Owner.
+  2026-09-08 — Refund/setoran kas belum memiliki sumber data pada sistem existing sehingga komponen tersebut sementara bernilai nol.
+  2026-09-08 — Toleransi selisih disimpan sebagai `settings.cash_variance_tolerance` agar Owner dapat mengubahnya tanpa deploy ulang.
+  2026-09-08 — Workflow `artifacts/api-server: API Server` terkonfirmasi auto-managed artifact dan tidak dapat dihapus dari konfigurasi lokal; workflow utama tetap `API Server` di port 8080.
+  2026-09-08 — Risiko `orval@8.9.1` dicatat: instalasi registry penuh terblokir firewall; regenerasi API client mungkin memerlukan strategi dependency terarah pada fase endpoint berikutnya.
+  2026-09-08 — Utang teknis terpisah: `scripts/src/seed-batch2.ts` masih memiliki error tipe `ARCHIVED` dan `totalShipping`; sengaja tidak dikerjakan dalam Fase 1.
+
+Log Keputusan & Asumsi Fase 1:
+  - Timestamp shift memakai waktu request server dengan timezone; penyelarasan tampilan WIT lintas laporan tetap perlu konfirmasi Owner.
+  - Default toleransi Rp0 dipilih konservatif dan disimpan di settings, bukan sebagai angka tetap di kode.
+  - Pengeluaran cash existing dihitung berdasarkan waktu pencatatan selama rentang shift karena tabel lama belum memiliki foreign key shift.
 
 FASE 2 — Transaksi & Payment (Piutang, Cicilan, Diskon)
 

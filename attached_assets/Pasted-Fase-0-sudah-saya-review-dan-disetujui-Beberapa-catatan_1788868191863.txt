@@ -1,0 +1,35 @@
+Fase 0 sudah saya review dan disetujui. Beberapa catatan untuk ditindaklanjuti,
+tidak menghalangi lanjut ke Fase 1:
+
+1. Workflow duplikat "artifacts/api-server: API Server" yang bentrok port 8080
+   dengan API utama — cek apakah ini konfigurasi lama yang tidak lagi
+   dipakai, dan jika benar, nonaktifkan/bersihkan agar tidak jadi noise di
+   laporan berikutnya.
+2. Catat blocker orval@8.9.1 di Log Keputusan & Asumsi sebagai risiko yang
+   perlu diperhatikan nanti — karena Fase 2 dan seterusnya akan menambah
+   endpoint baru dan kemungkinan butuh regenerate API client. Jangan
+   selesaikan sekarang, cukup ditandai supaya tidak terlupa.
+3. Error tipe lama di scripts/src/seed-batch2.ts (ARCHIVED, totalShipping) —
+   catat sebagai utang teknis terpisah di implementasi.md/progres.md, tidak
+   perlu dikerjakan sekarang.
+
+Silakan mulai Fase 1 (Modul Shift Kasir) sesuai implementasi.md. Follow-up
+yang kamu ajukan sebelumnya ("pastikan setiap pembayaran tercatat dalam
+shift kasir yang benar") memang bagian dari Fase 1 — kerjakan sebagai bagian
+dari fase ini, bukan item terpisah.
+
+Ingat aturan kerja yang sudah disepakati:
+- Kerjakan skema (1.1), lalu backend (1.2), lalu rumus kas (1.3), baru
+  frontend (1.4) — urut sesuai implementasi.md, jangan lompat.
+- Endpoint pembayaran existing (/api/payments) belum boleh mewajibkan shift
+  aktif sampai middleware guard-nya benar-benar siap dan teruji, supaya
+  tidak ada window waktu di mana pembayaran gagal total karena guard
+  setengah jadi.
+- Soal batas toleransi selisih kas yang kamu tandai sebagai
+  TODO_KONFIRMASI_OWNER — jangan hardcode angka sembarang. Implementasikan
+  dengan nilai default yang bisa diubah lewat settings (pola yang sama
+  seperti tarif), bukan angka tetap di kode, supaya saat saya dapat
+  kepastian dari Owner tinggal ubah nilai tanpa deploy ulang.
+- Setelah Fase 1 selesai, berhenti dan laporkan dengan format yang sama:
+  ringkasan kerjaan, hasil UAT relevan (UAT-14, UAT-15 dari implementasi.md),
+  dan item baru di Log Keputusan & Asumsi. Jangan lanjut otomatis ke Fase 2.

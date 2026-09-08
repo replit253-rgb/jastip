@@ -32,6 +32,7 @@ async function patchSettings(data: Record<string, any>): Promise<Record<string, 
 export default function OwnerSettings() {
   const { toast } = useToast();
   const [kargoRate, setKargoRate] = useState<string>("");
+  const [cashVarianceTolerance, setCashVarianceTolerance] = useState<string>("0");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -39,6 +40,7 @@ export default function OwnerSettings() {
     fetchSettings()
       .then((d) => {
         setKargoRate(d.kargoRate != null ? String(d.kargoRate) : "");
+        setCashVarianceTolerance(d.cash_variance_tolerance != null ? String(d.cash_variance_tolerance) : "0");
       })
       .catch(() => {
         toast({ variant: "destructive", title: "Gagal memuat pengaturan" });
@@ -52,10 +54,15 @@ export default function OwnerSettings() {
       toast({ variant: "destructive", title: "Tarif tidak valid", description: "Masukkan tarif kargo yang benar." });
       return;
     }
+    const tolerance = Number(cashVarianceTolerance);
+    if (!Number.isInteger(tolerance) || tolerance < 0) {
+      toast({ variant: "destructive", title: "Toleransi tidak valid", description: "Masukkan toleransi kas dalam Rupiah bulat, minimal 0." });
+      return;
+    }
     setIsSaving(true);
     try {
-      await patchSettings({ kargoRate: rate });
-      toast({ title: "Tersimpan", description: `Tarif kargo berhasil diperbarui ke Rp ${rate.toLocaleString("id-ID")} / M³/Ton.` });
+      await patchSettings({ kargoRate: rate, cash_variance_tolerance: tolerance, _alasan: "Pembaruan pengaturan Owner" });
+      toast({ title: "Tersimpan", description: `Tarif kargo dan toleransi kas Rp ${tolerance.toLocaleString("id-ID")} berhasil diperbarui.` });
     } catch {
       toast({ variant: "destructive", title: "Gagal menyimpan", description: "Terjadi kesalahan. Coba lagi." });
     } finally {
@@ -109,6 +116,24 @@ export default function OwnerSettings() {
                     = <strong>Rp {Number(kargoRate).toLocaleString("id-ID")}</strong> per M³/Ton
                   </p>
                 )}
+              </div>
+
+              <div className="space-y-1.5 border-t pt-4">
+                <Label>Toleransi Selisih Kas (Rp)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Selisih sampai nominal ini dapat ditutup tanpa alasan tambahan. Nilai Rp0 berarti setiap selisih harus diberi alasan.
+                </p>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">Rp</span>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="1"
+                    className="pl-9"
+                    value={cashVarianceTolerance}
+                    onChange={(e) => setCashVarianceTolerance(e.target.value)}
+                  />
+                </div>
               </div>
 
               <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">

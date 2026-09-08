@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, paymentsTable } from "@workspace/db";
 import { desc, eq } from "drizzle-orm";
 import { requireAuth, requireRole } from "../middlewares/auth";
+import { requireActiveShift } from "../middlewares/shift";
 
 const router = Router();
 
@@ -33,6 +34,7 @@ router.post(
   "/",
   requireAuth,
   requireRole("admin", "owner"),
+  requireActiveShift,
   async (req, res) => {
     try {
       const {
@@ -51,6 +53,7 @@ router.post(
       }
 
       const user = (req as any).user;
+      const activeShift = (req as any).activeShift;
 
       const [payment] = await db
         .insert(paymentsTable)
@@ -63,6 +66,7 @@ router.post(
           packageSummary: packageSummary ?? null,
           adminId: user?.id ?? null,
           adminName: user?.name ?? null,
+          shiftSessionId: activeShift.id,
           notes: notes ?? null,
         })
         .returning();
@@ -79,6 +83,7 @@ router.patch(
   "/:id/bayar",
   requireAuth,
   requireRole("admin", "owner"),
+  requireActiveShift,
   async (req, res) => {
     try {
       const id = Number(req.params.id);
@@ -108,6 +113,7 @@ router.patch(
           paymentType,
           paidAmount: paidAmount != null ? String(paidAmount) : String(existing[0].totalAmount),
           changeAmount: changeAmount != null ? String(changeAmount) : "0",
+          shiftSessionId: (req as any).activeShift.id,
         })
         .where(eq(paymentsTable.id, id))
         .returning();

@@ -8,6 +8,8 @@ export * from "./settings";
 export * from "./pengeluaran";
 export * from "./tarif-history";
 export * from "./shift-sessions";
+export * from "./shift-closings";
+export * from "./shift-handovers";
 export * from "./transactions";
 export * from "./voids";
 export * from "./invoices";

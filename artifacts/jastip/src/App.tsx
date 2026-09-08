@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { ShiftProvider } from "@/lib/shift";
 import { AppLayout } from "@/components/layout";
 import NotFound from "@/pages/not-found";
 import { useEffect } from "react";
@@ -39,6 +40,8 @@ import OwnerSettings from "@/pages/owner/settings";
 import OwnerPengeluaran from "@/pages/owner/pengeluaran";
 import OwnerTarif from "@/pages/owner/tarif";
 import ProfilePage from "@/pages/profile";
+import AdminShift from "@/pages/admin/shift";
+import ShiftHandover from "@/pages/admin/shift-handover";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -177,6 +180,15 @@ function Router() {
       <Route path="/admin/settings">
         {(params) => <ProtectedRoute role="admin" component={OwnerSettings} params={params} />}
       </Route>
+      <Route path="/admin/shift/handover">
+        {(params) => <ProtectedRoute role="admin" component={ShiftHandover} params={params} />}
+      </Route>
+      <Route path="/admin/shift">
+        {(params) => <ProtectedRoute role="admin" component={AdminShift} params={params} />}
+      </Route>
+      <Route path="/admin/pengeluaran">
+        {(params) => <ProtectedRoute role="admin" component={OwnerPengeluaran} params={params} />}
+      </Route>
       <Route path="/admin/profile">
         {(params) => <ProtectedRoute role="admin" component={ProfilePage} params={params} />}
       </Route>
@@ -205,6 +217,12 @@ function Router() {
       </Route>
       <Route path="/owner/settings">
         {(params) => <ProtectedRoute role="owner" component={OwnerSettings} params={params} />}
+      </Route>
+      <Route path="/owner/shift/handover">
+        {(params) => <ProtectedRoute role="owner" component={ShiftHandover} params={params} />}
+      </Route>
+      <Route path="/owner/shift">
+        {(params) => <ProtectedRoute role="owner" component={AdminShift} params={params} />}
       </Route>
       <Route path="/owner/pengeluaran">
         {(params) => <ProtectedRoute role="owner" component={OwnerPengeluaran} params={params} />}
@@ -268,7 +286,9 @@ function App() {
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
           <AuthProvider>
-            <Router />
+            <ShiftProvider>
+              <Router />
+            </ShiftProvider>
           </AuthProvider>
         </WouterRouter>
         <Toaster />

@@ -12,6 +12,7 @@ const ALLOWED_KEYS = [
   "hematRate",
   "pelniTiersJakarta",
   "pelniTiersSurabaya",
+  "cash_variance_tolerance",
 ] as const;
 
 // Mapping key → label jenis jastip untuk history
@@ -21,6 +22,7 @@ const KEY_LABEL: Record<string, string> = {
   hematRate: "Jastip Hemat+",
   pelniTiersJakarta: "Jastip Pelni (Jakarta)",
   pelniTiersSurabaya: "Jastip Pelni (Surabaya)",
+  cash_variance_tolerance: "Toleransi Selisih Kas",
 };
 
 // GET /api/settings — returns all app settings (admin + owner)
