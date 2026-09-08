@@ -86,7 +86,7 @@ Catatan Implementasi Fase 1:
   2026-09-08 — Refund/setoran kas belum memiliki sumber data pada sistem existing sehingga komponen tersebut sementara bernilai nol.
   2026-09-08 — Toleransi selisih disimpan sebagai `settings.cash_variance_tolerance` agar Owner dapat mengubahnya tanpa deploy ulang.
   2026-09-08 — Workflow `artifacts/api-server: API Server` terkonfirmasi auto-managed artifact dan tidak dapat dihapus dari konfigurasi lokal; workflow utama tetap `API Server` di port 8080.
-  2026-09-08 — Risiko `orval@8.9.1` dicatat: instalasi registry penuh terblokir firewall; regenerasi API client mungkin memerlukan strategi dependency terarah pada fase endpoint berikutnya.
+  2026-09-08 — Dependency `orval` dikunci ke `8.29.0` karena `8.9.1` diblokir registry firewall dan `8.30.0` belum melewati minimum release age; tidak ada regenerasi API client pada Fase 1.
   2026-09-08 — Utang teknis terpisah: `scripts/src/seed-batch2.ts` masih memiliki error tipe `ARCHIVED` dan `totalShipping`; sengaja tidak dikerjakan dalam Fase 1.
 
 Log Keputusan & Asumsi Fase 1:
@@ -241,8 +241,15 @@ Diambil & diperluas dari dokumen sumber (Bagian 14, dokumen 3):
  UAT-11 Closing shift menampilkan transaksi + koreksi VOID dengan jelas.
  UAT-12 (baru, dari dokumen piutang) Skenario Tanggal 1 (diserahkan belum bayar) → Tanggal 3 (pelunasan) menghasilkan angka laporan persis sesuai contoh Bagian 2 & 7 dokumen piutang (tidak ada pendapatan ganda).
  UAT-13 (baru) Cicilan 2 tahap (Rp200rb + Rp300rb) menghasilkan sisa_piutang dan status yang benar di tiap tahap, nilai transaksi tetap Rp500rb.
- UAT-14 (baru) Admin tanpa shift aktif tidak bisa memproses pembayaran.
- UAT-15 (baru) Blind closing: kas sistem tidak terlihat sebelum kasir submit kas aktual.
+  UAT-14 (baru) Admin tanpa shift aktif tidak bisa memproses pembayaran. **LULUS** — setelah login sebagai Admin tanpa shift aktif, `POST /api/payments/` mengembalikan HTTP 409 dengan kode `ACTIVE_SHIFT_REQUIRED` dan pesan "Buka shift terlebih dahulu"; tidak ada payment yang dibuat.
+  UAT-15 (baru) Blind closing: kas sistem tidak terlihat sebelum kasir submit kas aktual. **LULUS** — langkah pertama `POST /api/shifts/:id/close` hanya mengembalikan `closingId`, status `WAITING_ACTUAL_CASH`, dan instruksi memasukkan kas aktual tanpa `systemCash`; setelah `actualCash` dikirim, hasil closing mengembalikan `systemCash`, `actualCash`, `selisih`, dan hasil `SESUAI`.
+
+  Verifikasi akhir Fase 1 (2026-09-08):
+  - Database development reachable; tabel `payments`, `settings`, `shift_sessions`, `shift_closings`, dan `shift_handovers` tersedia.
+  - Setting toleransi mandiri terverifikasi melalui endpoint Owner: PATCH `cash_variance_tolerance=0` dan GET mengembalikan nilai `0`.
+  - Endpoint `/api/healthz` mengembalikan HTTP 200 `{"status":"ok"}`; route terlindungi tanpa autentikasi tetap menolak request dengan HTTP 401.
+  - Typecheck dan build khusus API/web berhasil. Typecheck workspace penuh masih menampilkan dua error lama di `scripts/src/seed-batch2.ts`, yang sudah dicatat sebagai utang teknis terpisah.
+  - Preview web berhasil dimuat pada halaman login melalui screenshot; browser hanya melaporkan peringatan aksesibilitas `autocomplete` pada input password.
 4. Log Keputusan & Asumsi (WAJIB diisi agent selama proses)
 
 Setiap kali agent mengambil keputusan karena dokumen sumber tidak menjelaskan detail, catat di sini dengan format di bawah. Ini jadi bahan konfirmasi ke Owner nanti — jangan biarkan keputusan diam-diam terkubur di kode.
@@ -252,13 +259,14 @@ Tanggal	Area	Ambiguitas	Asumsi yang dipakai	Perlu konfirmasi Owner?
 2026-09-08	Hard delete sampai Fase 3	Owner meminta perilaku DELETE paket dan HAPUS batch tidak disentuh pada Fase 0	Perilaku existing dibiarkan; evaluasi aturan konservatif dilakukan di Fase 3	Ya, saat mulai Fase 3
 2026-09-08	Backfill payment legacy	Tabel payments lama tidak memiliki penanda final eksplisit	Tunai/transfer dianggap final dan dibuat sebagai transaksi LUNAS; piutang dibuat sebagai transaksi BELUM_BAYAR	Ya, sebelum laporan transaksi Fase 2
 2026-09-08	Waktu WIT	Schema baru memakai timestamp with time zone, tetapi endpoint shift/transaksi belum dibuat	Instan waktu dipertahankan oleh database; normalisasi tampilan dan aturan WIT diverifikasi saat Fase 1–2	Ya, sebelum rilis transaksi
+2026-09-08	Rumus kas shift (Fase 1)	Belum ada tabel untuk mencatat Refund Tunai dan Setoran Kas	Nilai keduanya sementara 0 karena belum ada sumber data; formula kas AKURAT hanya selama belum ada VOID/refund. Begitu VOID menghasilkan reversal tunai, rumus kas shift di Fase 1 WAJIB diupdate untuk menariknya, atau closing shift akan selalu tampak SESUAI padahal ada refund yang belum tercermin.	Ya — Owner perlu mengonfirmasi apakah Setoran Kas (uang disetor ke brankas/bank di tengah shift) dibutuhkan sekarang atau bisa ditunda sampai ada kebutuhan nyata
   Batas toleransi selisih kas	Tidak disebutkan angka pastinya	—	Ya, wajib sebelum Fase 1 rilis
   Default toggle harga minimum saat rilis	Tidak disebutkan ON/OFF default	—	Ya, wajib sebelum Fase 4 rilis
   Role Supervisor	Disebut "opsional" tanpa kepastian	Diimplementasikan sebagai role opsional (kode siap, tidak wajib dipakai)	Ya
 5. Ringkasan Status per Fase (update terus)
-Fase	Status	% Selesai	Blocker
+ Fase	Status	% Selesai	Blocker
 0 — Skema DB	Selesai	100%	—
-1 — Shift Kasir	Belum mulai	0%	Tunggu Fase 0
+ 1 — Shift Kasir	Selesai	100%	Konfirmasi Owner atas toleransi bisnis dan kebutuhan Setoran Kas
 2 — Transaksi/Payment	Belum mulai	0%	Tunggu Fase 0, 1
 3 — VOID	Belum mulai	0%	Tunggu Fase 2; keputusan hard-delete
 4 — Harga Minimum	Belum mulai	0%	Independen, bisa paralel dengan Fase 1–2

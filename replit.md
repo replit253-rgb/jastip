@@ -5,7 +5,7 @@ A cargo/logistics management system for Jastip Anggun Jaya, handling package int
 ## Stack
 
 - **Frontend**: React + Vite + TypeScript (`artifacts/jastip/`, port 5000)
-- **API**: Node.js + Fastify + TypeScript (`artifacts/api-server/`, port 8080)
+- **API**: Node.js + Express + TypeScript (`artifacts/api-server/`, port 8080)
 - **Database**: PostgreSQL via Replit (Drizzle ORM, `lib/db/`)
 - **Package manager**: pnpm workspaces
 
