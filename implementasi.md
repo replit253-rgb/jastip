@@ -90,7 +90,7 @@ Catatan Implementasi Fase 1:
   2026-09-08 — Toleransi selisih disimpan sebagai `settings.cash_variance_tolerance` agar Owner dapat mengubahnya tanpa deploy ulang.
   2026-09-08 — Workflow `artifacts/api-server: API Server` terkonfirmasi auto-managed artifact dan tidak dapat dihapus dari konfigurasi lokal; workflow utama tetap `API Server` di port 8080.
   2026-09-08 — Dependency `orval` dikunci ke `8.29.0` karena `8.9.1` diblokir registry firewall dan `8.30.0` belum melewati minimum release age; tidak ada regenerasi API client pada Fase 1.
-  2026-09-08 — Utang teknis terpisah: `scripts/src/seed-batch2.ts` masih memiliki error tipe `ARCHIVED` dan `totalShipping`; sengaja tidak dikerjakan dalam Fase 1.
+  2026-09-09 — Verifikasi ulang `scripts/src/seed-batch2.ts`: nilai `statusBatch` yang dilacak adalah `ARSIP` (bukan `ARCHIVED`) dan field `totalShipping` sudah ada. `pnpm typecheck` workspace lulus; tidak ada diff tracked pada script. Perubahan ini hanya type-fix pada script seed, tidak mengubah enum schema atau data database, dan script seed-batch2 tidak dijalankan selama bootstrap/verifikasi Fase 2.
 
 Log Keputusan & Asumsi Fase 1:
   - Timestamp shift memakai waktu request server dengan timezone; penyelarasan tampilan WIT lintas laporan tetap perlu konfirmasi Owner.
@@ -126,6 +126,11 @@ Kriteria selesai Fase 2: pelunasan piutang tidak pernah tercatat sebagai pendapa
 Catatan Implementasi:
   2026-09-09 — Menyelesaikan jalur transaksi/payment Fase 2 di atas schema yang diverifikasi ulang: `payment_method` tetap nullable untuk piutang, POST/GET transaksi dan endpoint multi-payment memakai payment method yang eksplisit, serta pelunasan mengunci row transaksi saat menghitung saldo agar cicilan bersamaan tidak melewati total.
   2026-09-09 — Dashboard dan laporan memisahkan nilai transaksi, pembayaran diterima, piutang baru, dan pelunasan piutang lama; record legacy `payment_type=piutang` tidak dihitung sebagai kas diterima. Halaman Owner memuat seluruh transaksi agar piutang sebagian tetap dapat dilunasi.
+  2026-09-09 — Laporan akhir Fase 2: database development yang kosong dibootstrap idempotently (schema push, 4 service types, batch legacy ARSIP, 6 akun demo, tolerance Rp0), lalu UAT-12/UAT-13 dijalankan pada transaksi nyata `TRX-20260908-00001` (ID transaksi tetap 1).
+  2026-09-09 — UAT-12/UAT-13 angka konkret: awal `total=Rp500.000`, `sisa_piutang=Rp500.000`, `payment_status=BELUM_BAYAR`, `payments=0`; setelah cicilan pertama Rp200.000, `sisa_piutang=Rp300.000`, `payment_status=BAYAR_SEBAGIAN`; setelah cicilan kedua Rp300.000, `sisa_piutang=Rp0`, `payment_status=LUNAS`, `total` tetap Rp500.000, terdapat 2 payment dan hanya 1 row transaction (`transaction_count 0→1`, bukan transaksi baru saat pelunasan).
+  2026-09-09 — Smoke test penutup: `/api/healthz` HTTP 200 `{"status":"ok"}`; endpoint terautentikasi packages/payments/batches/transactions merespons sukses dengan masing-masing 1/2/2/1 row. Typecheck workspace, build API, dan build frontend lulus.
+  2026-09-09 — Status workflow utama setelah instalasi ulang dependency dan restart: `API Server` RUNNING di port 8080 dan `Start application` RUNNING di port 5000. Tiga workflow artifact duplikat tetap FAILED karena dikelola artifact manager/bentrok port; tidak dipakai sebagai workflow utama dan tidak menandakan regresi pada dua workflow utama.
+  2026-09-09 — Tampilan route Owner diuji pada `/owner/dashboard`: tanpa sesi, `ProtectedRoute` mengarahkan ke `/login` dan screenshot menampilkan halaman login dengan akun demo Owner/Admin; API Owner terautentikasi juga berhasil dipakai untuk UAT dan smoke test.
 
 FASE 3 — VOID / Pembatalan Transaksi
 
@@ -270,7 +275,9 @@ Tanggal	Area	Ambiguitas	Asumsi yang dipakai	Perlu konfirmasi Owner?
 2026-09-08	Versi Orval untuk codegen	`orval@8.9.1` terblokir registry firewall dan versi terbaru saat itu belum melewati minimum release age	Dependency dikunci persis ke `orval@8.29.0`; codegen tidak dijalankan setelah penggantian dependency, sehingga file generated API client tidak berubah dan diff output codegen kosong.	Ya, pertahankan pin ini dan jangan mengubah versi diam-diam di fase berikutnya
 2026-09-08	Catatan keamanan kredensial	`.env.example` sempat berisi kredensial database development dan berstatus untracked, sehingga tidak pernah masuk commit tetapi tetap dianggap berpotensi terekspos	File tersebut dihapus; `.gitignore` kini memakai pola `.env*` dan verifikasi `git check-ignore` mengonfirmasi `.env` serta `.env.example` dikecualikan. Rotasi kredensial database development masih menunggu tindakan pada Database tool Replit karena binding `DATABASE_URL`/`PG*` bersifat runtime-managed; Fase 2 tidak dimulai sebelum rotasi dan smoke test koneksi selesai.	Ya, Owner perlu melakukan/menyetujui rotasi melalui Database tool dan mengonfirmasi koneksi baru
 2026-09-09	Payment method pada piutang	Dokumen meminta `payment_method` nullable, sementara payment pelunasan memiliki metode aktual	Piutang tanpa pembayaran tidak membuat row payment; payment saat pelunasan menyimpan metode aktual (`tunai`/`transfer`), sedangkan `payment_method` tetap null hanya untuk kompatibilitas record hutang legacy.	Ya, konfirmasi jika QRIS perlu ditambahkan sebagai metode tersendiri
-2026-09-09	Bootstrap database development	Tabel schema dapat hilang/reset antar sesi kerja tanpa error pada kode	Prosedur rutin dimulai dengan pengecekan tabel Fase 0/1, lalu `db push`, migrasi legacy, dan seed idempotent sebelum melanjutkan fase berikutnya.	Ya, pastikan staging/production tidak memakai instance development
+2026-09-09	Bootstrap database development	Tabel schema dapat hilang/reset antar sesi kerja tanpa error pada kode	Prosedur rutin dimulai dengan pengecekan tabel Fase 0/1, lalu `db push`, migrasi legacy, dan seed idempotent sebelum melanjutkan fase berikutnya; prosedur ini dipakai ulang sebelum UAT penutup.	Ya, pastikan staging/production tidak memakai instance development
+2026-09-09	`seed-batch2.ts`: ARCHIVED → ARSIP	Semantik perubahan script seed perlu dibedakan dari perubahan schema/data	Verifikasi tracked diff = kosong; histori tracked hanya memuat `ARSIP`, schema enum tetap `OPEN/CLOSED/ARSIP`, dan script seed-batch2 tidak dijalankan. Perubahan murni perbaikan tipe pada script, tanpa update enum atau row batch pada database development maupun data lama hasil migrasi.	Ya, jangan jalankan seed-batch2 di production tanpa review data tujuan
+2026-09-09	Workflow setelah bootstrap	Dua workflow utama dan tiga workflow artifact duplikat memiliki status berbeda	Gunakan `API Server` port 8080 dan `Start application` port 5000 sebagai workflow utama yang harus RUNNING; workflow artifact duplikat dibiarkan dikelola artifact manager agar tidak menambah bentrok port.	Tidak, hanya perlu dipantau saat deployment
   Batas toleransi selisih kas	Tidak disebutkan angka pastinya	—	Ya, wajib sebelum Fase 1 rilis
   Default toggle harga minimum saat rilis	Tidak disebutkan ON/OFF default	—	Ya, wajib sebelum Fase 4 rilis
   Role Supervisor	Disebut "opsional" tanpa kepastian	Diimplementasikan sebagai role opsional (kode siap, tidak wajib dipakai)	Ya
@@ -278,7 +285,7 @@ Tanggal	Area	Ambiguitas	Asumsi yang dipakai	Perlu konfirmasi Owner?
  Fase	Status	% Selesai	Blocker
 0 — Skema DB	Selesai	100%	—
  1 — Shift Kasir	Selesai	100%	Konfirmasi Owner atas toleransi bisnis dan kebutuhan Setoran Kas
-2 — Transaksi/Payment	Selesai	100%	—
+ 2 — Transaksi/Payment	Selesai	100%	—
 3 — VOID	Belum mulai	0%	Tunggu Fase 2; keputusan hard-delete
 4 — Harga Minimum	Belum mulai	0%	Independen, bisa paralel dengan Fase 1–2
 5 — Nominal Cepat	Belum mulai	0%	Independen, bisa paralel
