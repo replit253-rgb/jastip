@@ -4,12 +4,16 @@ import {
   paymentsTable,
   transactionsTable,
 } from "@workspace/db";
-import { and, desc, eq, like } from "drizzle-orm";
+import { and, desc, eq, gte, like } from "drizzle-orm";
 import { requireActiveShift } from "../middlewares/shift";
 import { requireAuth, requireRole } from "../middlewares/auth";
 
 const router = Router();
 const paymentMethods = new Set(["tunai", "transfer"]);
+
+function getPaymentMethod(body: any) {
+  return String(body.paymentMethod ?? body.paymentType ?? "");
+}
 
 function amount(value: unknown, fieldName: string, allowZero = true): number {
   const parsed = Number(value ?? 0);
@@ -132,7 +136,7 @@ router.post(
         return;
       }
 
-      const method = String(body.paymentType ?? "piutang");
+       const method = String(body.paymentMethod ?? body.paymentType ?? "piutang");
       if (method !== "piutang" && !paymentMethods.has(method)) {
         res.status(400).json({ error: "Jenis pembayaran tidak valid" });
         return;
@@ -141,7 +145,13 @@ router.post(
       const received = method === "piutang"
         ? amount(body.paidAmount ?? 0, "Nominal pembayaran")
         : amount(body.paidAmount ?? 0, "Nominal diterima");
-      const credited = method === "piutang" ? Math.min(received, total) : Math.min(received, total);
+       if (method === "piutang" && received >= total && total > 0) {
+         res.status(400).json({
+           error: "Transaksi piutang harus menyisakan saldo piutang",
+         });
+         return;
+       }
+       const credited = Math.min(received, total);
       if (credited > total) {
         res.status(400).json({ error: "Nominal pembayaran melebihi total" });
         return;
@@ -254,7 +264,7 @@ router.post(
   async (req, res) => {
     try {
       const id = Number(req.params.id);
-      const method = String(req.body?.paymentType ?? "");
+       const method = getPaymentMethod(req.body);
       if (!paymentMethods.has(method)) {
         res.status(400).json({ error: "Jenis pembayaran harus tunai atau transfer" });
         return;
@@ -269,11 +279,12 @@ router.post(
       const user = (req as any).user;
       const activeShift = (req as any).activeShift;
       const result = await db.transaction(async (tx) => {
-        const [transaction] = await tx
+         const [transaction] = await tx
           .select()
           .from(transactionsTable)
           .where(eq(transactionsTable.id, id))
-          .limit(1);
+           .limit(1)
+           .for("update");
         if (!transaction) throw new Error("Transaksi tidak ditemukan");
         if (transaction.transactionStatus !== "AKTIF") {
           throw new Error("Transaksi sudah VOID");
@@ -284,7 +295,7 @@ router.post(
         if (received > outstanding && paymentMethod === "transfer") {
           throw new Error("Nominal transfer melebihi sisa piutang");
         }
-        const credited = Math.min(received, outstanding);
+         const credited = Math.min(received, outstanding);
         const change = Math.max(0, received - credited);
         const [payment] = await tx
           .insert(paymentsTable)
@@ -305,14 +316,23 @@ router.post(
           })
           .returning();
         const remaining = outstanding - credited;
-        const [updated] = await tx
+         const [updated] = await tx
           .update(transactionsTable)
           .set({
             sisaPiutang: String(remaining),
             paymentStatus: statusFor(Number(transaction.total), Number(transaction.total) - remaining),
           })
-          .where(eq(transactionsTable.id, id))
+           .where(
+             and(
+               eq(transactionsTable.id, id),
+               eq(transactionsTable.transactionStatus, "AKTIF"),
+               gte(transactionsTable.sisaPiutang, String(credited)),
+             ),
+           )
           .returning();
+         if (!updated) {
+           throw new Error("Saldo piutang berubah. Muat ulang transaksi lalu coba lagi.");
+         }
         return { transaction: updated, payment };
       });
 

@@ -41,7 +41,7 @@ export default function OwnerFinanceTransactions() {
     const headers = authHeaders();
     const [summaryResponse, transactionsResponse] = await Promise.all([
       fetch("/api/dashboard/summary", { headers }),
-      fetch("/api/transactions?paymentStatus=BELUM_BAYAR", { headers }),
+      fetch("/api/transactions", { headers }),
     ]);
     if (summaryResponse.ok) {
       const data = await summaryResponse.json();

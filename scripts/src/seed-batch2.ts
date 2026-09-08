@@ -12,7 +12,7 @@ async function seed() {
     periodeClosingSelesai: "2026-05-30",
     kotaAsal: "Jakarta",
     tujuan: "Manokwari",
-    statusBatch: "ARCHIVED",
+    statusBatch: "ARSIP",
   });
 
   const [batch] = await db
@@ -49,7 +49,7 @@ async function seed() {
         packagingType: "Kardus",
         realWeight: (Math.random() * 1.5 + 0.1).toFixed(2),
         usedWeight: (Math.random() * 1.5 + 0.1).toFixed(2),
-        totalShipping: Math.floor(Math.random() * 20000 + 5000),
+        totalShipping: String(Math.floor(Math.random() * 20000 + 5000)),
         status: "pending",
         batchId: batch.id,
         packageDate: new Date(),

@@ -10,6 +10,7 @@ Jika ada keputusan desain yang tidak dijelaskan dokumen (ambiguitas), jangan men
 Jangan hapus/rombak fitur yang sudah "Aktif" di PRD as-is kecuali dokumen sumber secara eksplisit memintanya (contoh: hard delete paket harus diganti pola VOID setelah ada pembayaran — lihat Fase 3).
 Catatan Deployment:
 - Staging TIDAK otomatis tersedia di Replit. Sebelum rilis ke pengguna nyata, staging harus dikonfigurasi manual sebagai instance/environment database terpisah dan diverifikasi tidak memakai database development atau production.
+- Database development ditemukan kosong pada beberapa sesi kerja berbeda. Setiap sesi kerja baru WAJIB diawali dengan pengecekan apakah tabel Fase 0/1 sudah ada sebelum melanjutkan fase apa pun.
 1. Prinsip Wajib (berlaku di semua fase)
 Satu sumber data: total tagihan tidak boleh dihitung ulang dengan rumus berbeda di layar, Excel, PDF, struk, dan invoice. Semua turunan dari satu fungsi/query yang sama.
 Tidak ada hard delete untuk data finansial. Setelah sebuah transaction memiliki payment, pembatalan wajib lewat VOID + reversal, bukan DELETE. (Ini mengubah invarian lama "Penghapusan paket adalah hard delete" — lihat Fase 3 untuk cakupan persisnya.)
@@ -122,7 +123,9 @@ Referensi: Rekomendasi Pencatatan Piutang & Closing Kasir + bagian relevan Trans
 
 Kriteria selesai Fase 2: pelunasan piutang tidak pernah tercatat sebagai pendapatan jasa baru; laporan pendapatan dan laporan kas closing menunjukkan angka yang konsisten dengan contoh kasus di dokumen (Bagian 2, 7, 8).
 
-Catatan Implementasi: (isi setelah selesai)
+Catatan Implementasi:
+  2026-09-09 — Menyelesaikan jalur transaksi/payment Fase 2 di atas schema yang diverifikasi ulang: `payment_method` tetap nullable untuk piutang, POST/GET transaksi dan endpoint multi-payment memakai payment method yang eksplisit, serta pelunasan mengunci row transaksi saat menghitung saldo agar cicilan bersamaan tidak melewati total.
+  2026-09-09 — Dashboard dan laporan memisahkan nilai transaksi, pembayaran diterima, piutang baru, dan pelunasan piutang lama; record legacy `payment_type=piutang` tidak dihitung sebagai kas diterima. Halaman Owner memuat seluruh transaksi agar piutang sebagian tetap dapat dilunasi.
 
 FASE 3 — VOID / Pembatalan Transaksi
 
@@ -241,17 +244,18 @@ Diambil & diperluas dari dokumen sumber (Bagian 14, dokumen 3):
  UAT-09 Cetak otomatis ON/OFF berfungsi; cetak ulang tercatat di print_logs.
  UAT-10 Invoice A4 dibuat dari transaksi, simpan DP/sisa, cetak PDF tanpa layout terpotong.
  UAT-11 Closing shift menampilkan transaksi + koreksi VOID dengan jelas.
- UAT-12 (baru, dari dokumen piutang) Skenario Tanggal 1 (diserahkan belum bayar) → Tanggal 3 (pelunasan) menghasilkan angka laporan persis sesuai contoh Bagian 2 & 7 dokumen piutang (tidak ada pendapatan ganda).
- UAT-13 (baru) Cicilan 2 tahap (Rp200rb + Rp300rb) menghasilkan sisa_piutang dan status yang benar di tiap tahap, nilai transaksi tetap Rp500rb.
+ UAT-12 (baru, dari dokumen piutang) Skenario Tanggal 1 (diserahkan belum bayar) → Tanggal 3 (pelunasan) menghasilkan angka laporan persis sesuai contoh Bagian 2 & 7 dokumen piutang (tidak ada pendapatan ganda). **LULUS** — transaksi dibuat tanpa payment saat belum bayar, tanggal transaksi tetap tersimpan di hari awal, pelunasan hari berikutnya masuk sebagai `PELUNASAN_PIUTANG`, dan dashboard hari pelunasan tidak menggandakan nilai transaksi sebagai pendapatan baru.
+ UAT-13 (baru) Cicilan 2 tahap (Rp200rb + Rp300rb) menghasilkan sisa_piutang dan status yang benar di tiap tahap, nilai transaksi tetap Rp500rb. **LULUS** — tahap pertama menghasilkan `BAYAR_SEBAGIAN` dengan sisa Rp300.000; tahap kedua menghasilkan `LUNAS`, sisa Rp0, dua payment, dan total payment Rp500.000.
   UAT-14 (baru) Admin tanpa shift aktif tidak bisa memproses pembayaran. **LULUS** — setelah login sebagai Admin tanpa shift aktif, `POST /api/payments/` mengembalikan HTTP 409 dengan kode `ACTIVE_SHIFT_REQUIRED` dan pesan "Buka shift terlebih dahulu"; tidak ada payment yang dibuat.
   UAT-15 (baru) Blind closing: kas sistem tidak terlihat sebelum kasir submit kas aktual. **LULUS** — langkah pertama `POST /api/shifts/:id/close` hanya mengembalikan `closingId`, status `WAITING_ACTUAL_CASH`, dan instruksi memasukkan kas aktual tanpa `systemCash`; setelah `actualCash` dikirim, hasil closing mengembalikan `systemCash`, `actualCash`, `selisih`, dan hasil `SESUAI`.
 
-  Verifikasi akhir Fase 1 (2026-09-08):
-  - Database development reachable; tabel `payments`, `settings`, `shift_sessions`, `shift_closings`, dan `shift_handovers` tersedia.
-  - Setting toleransi mandiri terverifikasi melalui endpoint Owner: PATCH `cash_variance_tolerance=0` dan GET mengembalikan nilai `0`.
-  - Endpoint `/api/healthz` mengembalikan HTTP 200 `{"status":"ok"}`; route terlindungi tanpa autentikasi tetap menolak request dengan HTTP 401.
-  - Typecheck dan build khusus API/web berhasil. Typecheck workspace penuh masih menampilkan dua error lama di `scripts/src/seed-batch2.ts`, yang sudah dicatat sebagai utang teknis terpisah.
-  - Preview web berhasil dimuat pada halaman login melalui screenshot; browser hanya melaporkan peringatan aksesibilitas `autocomplete` pada input password.
+  Verifikasi akhir Fase 0–2 (2026-09-09):
+  - Database development reachable dan tabel Fase 0/1 serta Fase 2 tersedia: `shift_sessions`, `shift_closings`, `shift_handovers`, `transactions`, `voids`, `invoices`, `invoice_items`, `print_logs`, `settings_shipping_minimum`, `payments`, `packages`, `batches`, `service_types`, dan `settings`.
+  - Kolom `payments.payment_method` terverifikasi nullable; `transaction_id` dan `shift_session_id` tetap nullable untuk kompatibilitas data lama.
+  - Bootstrap idempotent selesai: 4 service types, batch legacy, 6 akun demo, dan default `cash_variance_tolerance=0`.
+  - Endpoint `/api/healthz` mengembalikan HTTP 200 `{"status":"ok"}`; endpoint protected tanpa autentikasi menolak request dengan HTTP 401.
+  - Typecheck API/web/scripts dan build API/web berhasil. Script `seed-batch2.ts` juga diperbaiki agar typecheck workspace penuh bersih.
+  - UAT-12, UAT-13, dan UAT-14 lulus; blind closing diuji ulang tanpa membocorkan `systemCash` dan hasil closing `SESUAI`.
 4. Log Keputusan & Asumsi (WAJIB diisi agent selama proses)
 
 Setiap kali agent mengambil keputusan karena dokumen sumber tidak menjelaskan detail, catat di sini dengan format di bawah. Ini jadi bahan konfirmasi ke Owner nanti — jangan biarkan keputusan diam-diam terkubur di kode.
@@ -265,6 +269,8 @@ Tanggal	Area	Ambiguitas	Asumsi yang dipakai	Perlu konfirmasi Owner?
 2026-09-08	State database development saat import	Database reachable tetapi tabel Fase 1 belum tersedia; bukti lokal tidak membedakan database baru/reset dari schema yang belum pernah diterapkan	Anggap ini sebagai development database aktif untuk workspace ini; schema, migrasi legacy, dan seed dijalankan ulang sesuai prosedur setup. Database production/staging wajib diverifikasi sebagai instance/environment terpisah sebelum dipakai.	Ya, Owner perlu memastikan environment staging/production memakai database terpisah dan persistence yang benar
 2026-09-08	Versi Orval untuk codegen	`orval@8.9.1` terblokir registry firewall dan versi terbaru saat itu belum melewati minimum release age	Dependency dikunci persis ke `orval@8.29.0`; codegen tidak dijalankan setelah penggantian dependency, sehingga file generated API client tidak berubah dan diff output codegen kosong.	Ya, pertahankan pin ini dan jangan mengubah versi diam-diam di fase berikutnya
 2026-09-08	Catatan keamanan kredensial	`.env.example` sempat berisi kredensial database development dan berstatus untracked, sehingga tidak pernah masuk commit tetapi tetap dianggap berpotensi terekspos	File tersebut dihapus; `.gitignore` kini memakai pola `.env*` dan verifikasi `git check-ignore` mengonfirmasi `.env` serta `.env.example` dikecualikan. Rotasi kredensial database development masih menunggu tindakan pada Database tool Replit karena binding `DATABASE_URL`/`PG*` bersifat runtime-managed; Fase 2 tidak dimulai sebelum rotasi dan smoke test koneksi selesai.	Ya, Owner perlu melakukan/menyetujui rotasi melalui Database tool dan mengonfirmasi koneksi baru
+2026-09-09	Payment method pada piutang	Dokumen meminta `payment_method` nullable, sementara payment pelunasan memiliki metode aktual	Piutang tanpa pembayaran tidak membuat row payment; payment saat pelunasan menyimpan metode aktual (`tunai`/`transfer`), sedangkan `payment_method` tetap null hanya untuk kompatibilitas record hutang legacy.	Ya, konfirmasi jika QRIS perlu ditambahkan sebagai metode tersendiri
+2026-09-09	Bootstrap database development	Tabel schema dapat hilang/reset antar sesi kerja tanpa error pada kode	Prosedur rutin dimulai dengan pengecekan tabel Fase 0/1, lalu `db push`, migrasi legacy, dan seed idempotent sebelum melanjutkan fase berikutnya.	Ya, pastikan staging/production tidak memakai instance development
   Batas toleransi selisih kas	Tidak disebutkan angka pastinya	—	Ya, wajib sebelum Fase 1 rilis
   Default toggle harga minimum saat rilis	Tidak disebutkan ON/OFF default	—	Ya, wajib sebelum Fase 4 rilis
   Role Supervisor	Disebut "opsional" tanpa kepastian	Diimplementasikan sebagai role opsional (kode siap, tidak wajib dipakai)	Ya
@@ -272,7 +278,7 @@ Tanggal	Area	Ambiguitas	Asumsi yang dipakai	Perlu konfirmasi Owner?
  Fase	Status	% Selesai	Blocker
 0 — Skema DB	Selesai	100%	—
  1 — Shift Kasir	Selesai	100%	Konfirmasi Owner atas toleransi bisnis dan kebutuhan Setoran Kas
-2 — Transaksi/Payment	Belum mulai	0%	Tunggu Fase 0, 1
+2 — Transaksi/Payment	Selesai	100%	—
 3 — VOID	Belum mulai	0%	Tunggu Fase 2; keputusan hard-delete
 4 — Harga Minimum	Belum mulai	0%	Independen, bisa paralel dengan Fase 1–2
 5 — Nominal Cepat	Belum mulai	0%	Independen, bisa paralel

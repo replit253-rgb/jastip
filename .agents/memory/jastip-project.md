@@ -51,6 +51,14 @@ After `pnpm install` + `pnpm --filter @workspace/db run push` + `seed-demo`, you
 `npx tsx scripts/migrate-batch-legacy.ts` — otherwise `service_types` stays empty and package creation
 with a serviceType silently gets `serviceTypeId: null` (no error, but batch grouping/reports break).
 
+Development database instances may be empty even when the schema and setup scripts are present in the
+workspace. Always verify the Phase 0/1 table set before beginning any later phase; then run schema push,
+legacy batch/service seed, demo seed, and the finance/shift smoke checks.
+
+For Phase 2, a debt transaction may exist without a payment row until money is received. The nullable
+`payments.payment_method` is intentional: actual settlement payments store their real method, while
+legacy debt records remain compatible.
+
 ## Features added (July 2026)
 - **Tetap di halaman input setelah simpan**: Single mode simpan → stay on page, reset form, tampil card sukses dengan tombol Cetak Barcode. State: `lastSavedId`.
 - **Pengaturan Tarif (Owner only)**: `/owner/tarif` — edit pesawatRate, hematRate, kargoRate, pelniTiersJakarta/Surabaya. PATCH `/api/settings` sekarang Owner-only, simpan history ke `tarif_history` table. GET `/api/settings/history` endpoint.

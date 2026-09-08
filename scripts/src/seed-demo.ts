@@ -1,4 +1,4 @@
-import { db, usersTable } from "@workspace/db";
+import { db, settingsTable, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import crypto from "crypto";
 
@@ -32,6 +32,11 @@ async function seed() {
     });
     console.log(`  Created: ${u.name} (${u.role}) — ${u.phone} / ${u.password}`);
   }
+  await db
+    .insert(settingsTable)
+    .values({ key: "cash_variance_tolerance", value: "0" })
+    .onConflictDoNothing();
+  console.log("  Ensured default cash variance tolerance: Rp0");
   console.log("Done.");
   process.exit(0);
 }

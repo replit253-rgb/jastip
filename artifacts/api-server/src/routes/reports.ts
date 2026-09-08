@@ -110,7 +110,10 @@ router.get("/", requireAuth, requireRole("owner"), async (req, res) => {
       (transaction) =>
         inPeriod(transaction.createdAt) && transaction.transactionStatus === "AKTIF",
     );
-    const financialPayments = payments.filter((payment) => inPeriod(payment.createdAt));
+     const financialPayments = payments.filter(
+       (payment) =>
+         inPeriod(payment.createdAt) && payment.paymentType !== "piutang",
+     );
     const amount = (value: unknown) => Number(value ?? 0);
 
     res.json({

@@ -6,7 +6,7 @@ import {
   usersTable,
   packagesTable,
 } from "@workspace/db";
-import { eq, gte, lt } from "drizzle-orm";
+import { eq, gte, lt, ne } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 
 const router = Router();
@@ -40,14 +40,15 @@ router.get("/summary", requireAuth, async (req, res) => {
         gte(paymentsTable.createdAt, start),
       ),
       db.select().from(transactionsTable).where(
-        eq(transactionsTable.paymentStatus, "BELUM_BAYAR"),
+        ne(transactionsTable.paymentStatus, "LUNAS"),
       ),
     ]);
     const transactionsCreatedToday = transactionsToday.filter(
       (transaction) => transaction.createdAt < end && transaction.transactionStatus === "AKTIF",
     );
     const paymentsReceivedToday = paymentsToday.filter(
-      (payment) => payment.createdAt < end,
+      (payment) =>
+        payment.createdAt < end && payment.paymentType !== "piutang",
     );
     const rupiah = (value: unknown) => Number(value ?? 0);
 
@@ -68,7 +69,7 @@ router.get("/summary", requireAuth, async (req, res) => {
           0,
         ),
         newReceivablesToday: transactionsCreatedToday
-          .filter((transaction) => transaction.sisaPiutang !== "0")
+          .filter((transaction) => rupiah(transaction.sisaPiutang) > 0)
           .reduce((sum, transaction) => sum + rupiah(transaction.sisaPiutang), 0),
         oldReceivablesReceivedToday: paymentsReceivedToday
           .filter((payment) => payment.paymentType === "PELUNASAN_PIUTANG")
