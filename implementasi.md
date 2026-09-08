@@ -33,14 +33,18 @@ FASE 0 — Persiapan Skema Database
 
 Tujuan: siapkan fondasi tabel baru tanpa merusak data/fitur lama. Semua migrasi bersifat additive (tambah tabel/kolom), tidak mengubah struktur tabel packages yang sudah dipakai fitur aktif.
 
- Buat migrasi Drizzle untuk tabel baru: shift_sessions, transactions, voids, invoices, invoice_items, print_logs, settings_shipping_minimum.
- Tambah kolom shift_session_id (nullable, FK) ke tabel payments yang sudah ada.
- Tambah kolom transaction_id (nullable, FK) ke tabel payments — untuk transisi bertahap, payment lama tanpa transaction tetap valid.
- Tambah kolom discount (numeric, default 0) dan discount_reason (text, nullable) ke tabel yang relevan (transactions baru, bukan payments lama).
- Jalankan migrasi di environment dev, verifikasi tidak ada breaking change pada endpoint existing (/api/packages, /api/payments, /api/batches).
- Tulis script backfill: payment lama yang statusnya sudah final → buatkan 1 transaction retroaktif per payment agar laporan baru tetap bisa menghitung data historis (jangan biarkan data lama "hilang" dari laporan baru).
+  [x] Buat migrasi Drizzle untuk tabel baru: shift_sessions, transactions, voids, invoices, invoice_items, print_logs, settings_shipping_minimum.
+  [x] Tambah kolom shift_session_id (nullable, FK) ke tabel payments yang sudah ada.
+  [x] Tambah kolom transaction_id (nullable, FK) ke tabel payments — untuk transisi bertahap, payment lama tanpa transaction tetap valid.
+  [x] Tambah kolom discount (numeric, default 0) dan discount_reason (text, nullable) ke tabel yang relevan (transactions baru, bukan payments lama).
+  [x] Jalankan migrasi di environment dev, verifikasi tidak ada breaking change pada endpoint existing (/api/packages, /api/payments, /api/batches).
+  [x] Tulis script backfill: payment lama yang statusnya sudah final → buatkan 1 transaction retroaktif per payment agar laporan baru tetap bisa menghitung data historis (jangan biarkan data lama "hilang" dari laporan baru).
 
-Catatan Implementasi: (isi setelah selesai)
+ Catatan Implementasi:
+ 2026-09-08 — Menambahkan tujuh tabel fondasi Fase 0 melalui schema Drizzle dan migration additive `lib/db/migrations/0001_finance_foundation.sql`. Menambahkan dua FK nullable pada `payments`, tanpa mengubah kolom existing.
+ 2026-09-08 — Menambahkan `scripts/src/migrate-finance-foundation.ts` yang idempotent. Payment legacy tunai/transfer dipetakan ke transaksi LUNAS, sedangkan piutang dipetakan ke BELUM_BAYAR agar histori piutang tidak hilang. Tidak ada payment legacy yang perlu diproses di database development saat verifikasi.
+ 2026-09-08 — `pnpm --filter @workspace/db run push` berhasil. Smoke test `/api/healthz` = 200; `/api/packages`, `/api/payments`, `/api/batches` tetap merespons 401 tanpa autentikasi. Typecheck API/web/libs dan build API/web berhasil.
+ 2026-09-08 — Hard delete `DELETE /api/packages/:id` dan `statusBatch=HAPUS` sengaja tidak diubah; keputusan ini ditunda ke Fase 3 sesuai arahan Owner. Perbaikan type-only pada guard existing di `routes/batches.ts` dan `routes/settings.ts` tidak mengubah perilaku runtime.
 
 FASE 1 — Modul Shift Kasir
 
@@ -232,12 +236,15 @@ Setiap kali agent mengambil keputusan karena dokumen sumber tidak menjelaskan de
 
 Tanggal	Area	Ambiguitas	Asumsi yang dipakai	Perlu konfirmasi Owner?
 (contoh)	VOID vs hard delete	Dokumen tidak jelas soal paket yang belum pernah dibayar	Hard delete tetap diizinkan hanya jika paket belum punya transaksi sama sekali	Ya
+2026-09-08	Hard delete sampai Fase 3	Owner meminta perilaku DELETE paket dan HAPUS batch tidak disentuh pada Fase 0	Perilaku existing dibiarkan; evaluasi aturan konservatif dilakukan di Fase 3	Ya, saat mulai Fase 3
+2026-09-08	Backfill payment legacy	Tabel payments lama tidak memiliki penanda final eksplisit	Tunai/transfer dianggap final dan dibuat sebagai transaksi LUNAS; piutang dibuat sebagai transaksi BELUM_BAYAR	Ya, sebelum laporan transaksi Fase 2
+2026-09-08	Waktu WIT	Schema baru memakai timestamp with time zone, tetapi endpoint shift/transaksi belum dibuat	Instan waktu dipertahankan oleh database; normalisasi tampilan dan aturan WIT diverifikasi saat Fase 1–2	Ya, sebelum rilis transaksi
   Batas toleransi selisih kas	Tidak disebutkan angka pastinya	—	Ya, wajib sebelum Fase 1 rilis
   Default toggle harga minimum saat rilis	Tidak disebutkan ON/OFF default	—	Ya, wajib sebelum Fase 4 rilis
   Role Supervisor	Disebut "opsional" tanpa kepastian	Diimplementasikan sebagai role opsional (kode siap, tidak wajib dipakai)	Ya
 5. Ringkasan Status per Fase (update terus)
 Fase	Status	% Selesai	Blocker
-0 — Skema DB	Belum mulai	0%	—
+0 — Skema DB	Selesai	100%	—
 1 — Shift Kasir	Belum mulai	0%	Tunggu Fase 0
 2 — Transaksi/Payment	Belum mulai	0%	Tunggu Fase 0, 1
 3 — VOID	Belum mulai	0%	Tunggu Fase 2; keputusan hard-delete

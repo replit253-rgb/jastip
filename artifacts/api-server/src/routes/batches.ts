@@ -54,7 +54,7 @@ router.get("/", requireAuth, requireRole("admin", "owner"), async (req, res) => 
       result = result.filter((b) => b.statusBatch === statusBatch);
     } else {
       // Sembunyikan batch yang sudah dihapus (soft delete) dari tampilan default
-      result = result.filter((b) => b.statusBatch !== "HAPUS");
+      result = result.filter((b) => String(b.statusBatch) !== "HAPUS");
     }
 
     res.json(result);

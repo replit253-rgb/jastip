@@ -52,7 +52,7 @@ router.patch("/", requireAuth, requireRole("owner"), async (req, res) => {
     const updates: { key: string; value: string }[] = [];
 
     for (const key of ALLOWED_KEYS) {
-      if (key in body && key !== "_alasan") {
+      if (key in body && String(key) !== "_alasan") {
         const val = body[key];
         if (val == null || val === "") continue;
         // Simpan sebagai JSON string jika nilai adalah object/array
