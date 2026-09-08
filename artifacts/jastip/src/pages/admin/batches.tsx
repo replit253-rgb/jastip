@@ -215,11 +215,12 @@ function CreateBatchDialog({ open, onClose, onCreated }: CreateBatchFormProps) {
 interface BatchCardProps {
   batch: any;
   base: string;
+  isOwner: boolean;
   onStatusChange: (id: number, newStatus: string) => void;
   onDelete: (id: number, namaKapal: string) => void;
 }
 
-function BatchCard({ batch, base, onStatusChange, onDelete }: BatchCardProps) {
+function BatchCard({ batch, base, isOwner, onStatusChange, onDelete }: BatchCardProps) {
   const [, setLocation] = useLocation();
   const [expanded, setExpanded] = useState(false);
 
@@ -328,7 +329,7 @@ function BatchCard({ batch, base, onStatusChange, onDelete }: BatchCardProps) {
               </>
             )}
             {/* Hapus Batch: soft delete, tersedia untuk OPEN dan CLOSED */}
-            {(batch.statusBatch === "OPEN" || batch.statusBatch === "CLOSED") && (
+            {isOwner && (batch.statusBatch === "OPEN" || batch.statusBatch === "CLOSED") && (
               <Button
                 size="sm"
                 variant="outline"
@@ -442,6 +443,7 @@ export default function AdminBatches() {
                 key={batch.id}
                 batch={batch}
                 base={base}
+                isOwner={user?.role === "owner"}
                 onStatusChange={handleStatusChange}
                 onDelete={handleDeleteRequest}
               />
@@ -470,6 +472,7 @@ export default function AdminBatches() {
               key={batch.id}
               batch={batch}
               base={base}
+              isOwner={user?.role === "owner"}
               onStatusChange={handleStatusChange}
               onDelete={handleDeleteRequest}
             />
@@ -502,6 +505,7 @@ export default function AdminBatches() {
                   key={batch.id}
                   batch={batch}
                   base={base}
+                  isOwner={user?.role === "owner"}
                   onStatusChange={handleStatusChange}
                   onDelete={handleDeleteRequest}
                 />

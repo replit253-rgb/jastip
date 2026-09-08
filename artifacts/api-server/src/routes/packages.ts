@@ -12,6 +12,14 @@ import crypto from "crypto";
 
 const router = Router();
 
+function requireOwnerForPermanentDelete(req: any, res: any, next: any) {
+  if (req.user?.role !== "owner") {
+    res.status(403).json({ error: "Hanya Owner yang dapat menghapus paket secara permanen" });
+    return;
+  }
+  next();
+}
+
 function generateBarcode(): string {
   const ts = Date.now().toString(36).toUpperCase();
   const rnd = crypto.randomBytes(3).toString("hex").toUpperCase();
@@ -1318,7 +1326,7 @@ router.patch(
 router.delete(
   "/:id",
   requireAuth,
-  requireRole("admin", "owner"),
+  requireOwnerForPermanentDelete,
   async (req, res) => {
     try {
       const id = Number(req.params.id);
@@ -1333,7 +1341,7 @@ router.delete(
       res.json({ success: true, id });
     } catch (err) {
       req.log.error(err);
-      res.status(500).json({ error: "Server error" });
+      res.status(500).json({ error: "Gagal menghapus paket secara permanen" });
     }
   },
 );

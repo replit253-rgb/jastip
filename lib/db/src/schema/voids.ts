@@ -6,6 +6,7 @@ import {
   jsonb,
   numeric,
   timestamp,
+  boolean,
 } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 import { transactionsTable } from "./transactions";
@@ -34,6 +35,7 @@ export const voidsTable = pgTable("voids", {
     .default([]),
   statusBefore: text("status_before").notNull(),
   statusAfter: text("status_after").notNull(),
+  isPostClosing: boolean("is_post_closing").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

@@ -1,10 +1,12 @@
 import { Router } from "express";
 import {
   db,
+  packagesTable,
   paymentsTable,
   transactionsTable,
+  voidsTable,
 } from "@workspace/db";
-import { and, desc, eq, gte, like } from "drizzle-orm";
+import { and, desc, eq, gte, like, inArray } from "drizzle-orm";
 import { requireActiveShift } from "../middlewares/shift";
 import { requireAuth, requireRole } from "../middlewares/auth";
 
@@ -108,6 +110,67 @@ router.get(
     } catch (err) {
       (req as any).log?.error?.(err);
       res.status(500).json({ error: "Gagal mengambil data transaksi" });
+    }
+  },
+);
+
+// POST /api/transactions/:id/void — ajukan VOID, approval dilakukan Owner.
+router.post(
+  "/:id/void",
+  requireAuth,
+  requireRole("admin", "owner"),
+  requireActiveShift,
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const reasonCode = String(req.body?.reasonCode ?? "").trim();
+      const notes = String(req.body?.notes ?? "").trim() || null;
+      if (!reasonCode) {
+        res.status(400).json({ error: "Alasan VOID wajib diisi" });
+        return;
+      }
+
+      const [transaction] = await db
+        .select()
+        .from(transactionsTable)
+        .where(eq(transactionsTable.id, id))
+        .limit(1);
+      if (!transaction) {
+        res.status(404).json({ error: "Transaksi tidak ditemukan" });
+        return;
+      }
+      if (transaction.transactionStatus !== "AKTIF") {
+        res.status(400).json({ error: "Transaksi sudah VOID dan tidak dapat diajukan ulang" });
+        return;
+      }
+
+      const existing = await db
+        .select()
+        .from(voidsTable)
+        .where(eq(voidsTable.transactionId, id));
+      if (existing.some((record) => record.statusAfter === "MENUNGGU_APPROVAL")) {
+        res.status(400).json({ error: "Pengajuan VOID transaksi ini masih menunggu approval" });
+        return;
+      }
+
+      const user = (req as any).user;
+      const [record] = await db
+        .insert(voidsTable)
+        .values({
+          transactionId: id,
+          reasonCode,
+          notes,
+          requestedBy: user.id,
+          reversalAmount: "0",
+          packageIdsReturned: [],
+          statusBefore: "AKTIF",
+          statusAfter: "MENUNGGU_APPROVAL",
+        })
+        .returning();
+      res.status(201).json(record);
+    } catch (err) {
+      (req as any).log?.error?.(err);
+      res.status(500).json({ error: "Gagal mengajukan VOID" });
     }
   },
 );

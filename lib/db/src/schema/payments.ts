@@ -24,6 +24,7 @@ export const paymentsTable = pgTable(
         "TRANSAKSI_BARU",
         "PELUNASAN_PIUTANG",
         "CICILAN",
+        "VOID_REVERSAL",
       ],
     }).notNull(),
     paymentMethod: text("payment_method", {

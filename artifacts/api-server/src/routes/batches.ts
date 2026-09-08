@@ -185,6 +185,12 @@ router.patch("/:id", requireAuth, requireRole("admin", "owner"), async (req, res
     const id = Number(req.params.id);
     const { namaKapal, etd, periodeClosingMulai, periodeClosingSelesai, kotaAsal, tujuan, statusBatch } =
       req.body;
+    const user = (req as any).user;
+
+    if (statusBatch === "HAPUS" && user?.role !== "owner") {
+      res.status(403).json({ error: "Hanya Owner yang dapat menghapus batch secara permanen" });
+      return;
+    }
 
     const existing = await db
       .select()

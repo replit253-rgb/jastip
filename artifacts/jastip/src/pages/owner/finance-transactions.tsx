@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Banknote, CircleDollarSign, Clock3, CreditCard, ReceiptText } from "lucide-react";
+import { Ban, Banknote, CircleDollarSign, Clock3, CreditCard, ReceiptText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { useAuth } from "@/lib/auth";
 
 type FinanceSummary = {
   transactionsToday: number;
@@ -23,6 +28,7 @@ function authHeaders() {
 }
 
 export default function OwnerFinanceTransactions() {
+  const { user } = useAuth();
   const [summary, setSummary] = useState<FinanceSummary>({
     transactionsToday: 0,
     paymentsReceivedToday: 0,
@@ -36,6 +42,10 @@ export default function OwnerFinanceTransactions() {
   const [method, setMethod] = useState<"tunai" | "transfer">("tunai");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [voidTarget, setVoidTarget] = useState<any | null>(null);
+  const [voidReason, setVoidReason] = useState("");
+  const [voidNotes, setVoidNotes] = useState("");
+  const [voidSaving, setVoidSaving] = useState(false);
 
   async function load() {
     const headers = authHeaders();
@@ -94,6 +104,33 @@ export default function OwnerFinanceTransactions() {
       setMessage(error.message || "Gagal mencatat pelunasan.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function submitVoid() {
+    if (!voidTarget || !voidReason.trim()) {
+      setMessage("Alasan VOID wajib diisi.");
+      return;
+    }
+    setVoidSaving(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/transactions/${voidTarget.id}/void`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ reasonCode: voidReason.trim(), notes: voidNotes.trim() || null }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Gagal mengajukan VOID.");
+      setVoidTarget(null);
+      setVoidReason("");
+      setVoidNotes("");
+      setMessage("Pengajuan VOID tersimpan dan menunggu approval Owner.");
+      await load();
+    } catch (error: any) {
+      setMessage(error.message || "Gagal mengajukan VOID.");
+    } finally {
+      setVoidSaving(false);
     }
   }
 
@@ -191,6 +228,16 @@ export default function OwnerFinanceTransactions() {
                 <span className="text-sm font-semibold">
                   {transaction.payments?.length ?? 0} pembayaran · sisa {formatRp(transaction.sisaPiutang)}
                 </span>
+                {transaction.transactionStatus === "AKTIF" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1 text-red-600 border-red-200 hover:bg-red-50"
+                    onClick={() => setVoidTarget(transaction)}
+                  >
+                    <Ban className="h-3.5 w-3.5" /> Ajukan VOID
+                  </Button>
+                )}
               </div>
             </div>
           ))}
@@ -199,6 +246,35 @@ export default function OwnerFinanceTransactions() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!voidTarget} onOpenChange={(open) => !open && setVoidTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Ajukan VOID Transaksi</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {voidTarget?.transactionNo} · {voidTarget?.customerName}
+            </p>
+            <Input
+              placeholder="Alasan VOID (wajib)"
+              value={voidReason}
+              onChange={(event) => setVoidReason(event.target.value)}
+            />
+            <Textarea
+              placeholder="Catatan tambahan (opsional)"
+              value={voidNotes}
+              onChange={(event) => setVoidNotes(event.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVoidTarget(null)}>Batal</Button>
+            <Button variant="destructive" onClick={submitVoid} disabled={voidSaving || !voidReason.trim()}>
+              {voidSaving ? "Mengajukan..." : "Ajukan VOID"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

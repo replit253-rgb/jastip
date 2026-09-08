@@ -4,7 +4,10 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Settings, Save, Loader2 } from "lucide-react";
+import { Settings, Save, Loader2, History } from "lucide-react";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
 
 async function fetchSettings(): Promise<Record<string, any>> {
   const token = localStorage.getItem("jaj_token");
@@ -35,12 +38,23 @@ export default function OwnerSettings() {
   const [cashVarianceTolerance, setCashVarianceTolerance] = useState<string>("0");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [history, setHistory] = useState<any[]>([]);
 
   useEffect(() => {
-    fetchSettings()
-      .then((d) => {
+    Promise.all([
+      fetchSettings(),
+      fetch("/api/settings/history", {
+        headers: { Authorization: `Bearer ${localStorage.getItem("jaj_token")}` },
+      }).then((res) => (res.ok ? res.json() : [])),
+    ])
+      .then(([d, historyRows]) => {
         setKargoRate(d.kargoRate != null ? String(d.kargoRate) : "");
         setCashVarianceTolerance(d.cash_variance_tolerance != null ? String(d.cash_variance_tolerance) : "0");
+        setHistory(
+          (historyRows as any[]).filter(
+            (row) => row.jenisJastip === "Toleransi Selisih Kas",
+          ),
+        );
       })
       .catch(() => {
         toast({ variant: "destructive", title: "Gagal memuat pengaturan" });
@@ -148,6 +162,49 @@ export default function OwnerSettings() {
                 )}
               </Button>
             </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <History className="w-4 h-4" />
+            Histori Toleransi Selisih Kas
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {history.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Belum ada perubahan. Nilai awal yang berlaku adalah Rp0.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Waktu</TableHead>
+                    <TableHead>Nilai Lama</TableHead>
+                    <TableHead>Nilai Baru</TableHead>
+                    <TableHead>Diubah oleh</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {history.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="text-xs whitespace-nowrap">
+                        {new Date(row.createdAt).toLocaleString("id-ID")}
+                      </TableCell>
+                      <TableCell>Rp {Number(row.tarifLama ?? 0).toLocaleString("id-ID")}</TableCell>
+                      <TableCell className="font-semibold">
+                        Rp {Number(row.tarifBaru).toLocaleString("id-ID")}
+                      </TableCell>
+                      <TableCell>{row.namaUbah || `User #${row.diubahOleh ?? "-"}`}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

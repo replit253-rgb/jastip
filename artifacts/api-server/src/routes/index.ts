@@ -12,6 +12,7 @@ import settingsRouter from "./settings";
 import pengeluaranRouter from "./pengeluaran";
 import shiftsRouter from "./shifts";
 import transactionsRouter from "./transactions";
+import voidsRouter from "./voids";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use("/settings", settingsRouter);
 router.use("/pengeluaran", pengeluaranRouter);
 router.use("/shifts", shiftsRouter);
 router.use("/transactions", transactionsRouter);
+router.use("/voids", voidsRouter);
 
 export default router;

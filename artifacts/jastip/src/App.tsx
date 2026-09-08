@@ -36,6 +36,8 @@ import OwnerReports from "@/pages/owner/reports";
 import OwnerUsers from "@/pages/owner/users";
 import OwnerFinance from "@/pages/owner/finance";
 import OwnerFinanceDetail from "@/pages/owner/finance-detail";
+import OwnerFinanceTransactions from "@/pages/owner/finance-transactions";
+import OwnerVoids from "@/pages/owner/voids";
 import OwnerSettings from "@/pages/owner/settings";
 import OwnerPengeluaran from "@/pages/owner/pengeluaran";
 import OwnerTarif from "@/pages/owner/tarif";
@@ -165,6 +167,9 @@ function Router() {
       <Route path="/admin/riwayat-pembayaran">
         {(params) => <ProtectedRoute role="admin" component={AdminRiwayatPembayaran} params={params} />}
       </Route>
+      <Route path="/admin/finance">
+        {(params) => <ProtectedRoute role="admin" component={OwnerFinanceTransactions} params={params} />}
+      </Route>
       <Route path="/admin/riwayat-pembayaran/batch/:id/detail">
         {(params) => <ProtectedRoute role="admin" component={RiwayatPembayaranDetail} params={params} />}
       </Route>
@@ -178,7 +183,7 @@ function Router() {
         {(params) => <ProtectedRoute role="admin" component={ArsipBatchDetail} params={params} />}
       </Route>
       <Route path="/admin/settings">
-        {(params) => <ProtectedRoute role="admin" component={OwnerSettings} params={params} />}
+        {(params) => <ProtectedRoute role="owner" component={OwnerSettings} params={params} />}
       </Route>
       <Route path="/admin/shift/handover">
         {(params) => <ProtectedRoute role="admin" component={ShiftHandover} params={params} />}
@@ -214,6 +219,9 @@ function Router() {
       </Route>
       <Route path="/owner/finance">
         {(params) => <ProtectedRoute role="owner" component={OwnerFinance} params={params} />}
+      </Route>
+      <Route path="/owner/voids">
+        {(params) => <ProtectedRoute role="owner" component={OwnerVoids} params={params} />}
       </Route>
       <Route path="/owner/settings">
         {(params) => <ProtectedRoute role="owner" component={OwnerSettings} params={params} />}
