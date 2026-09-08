@@ -1,0 +1,43 @@
+Terima kasih sudah berhenti di titik ini, itu keputusan yang benar. Klarifikasi
+dulu, tanpa menampilkan nilai kredensial apa pun:
+
+1. .env yang saya isi sebelumnya ternyata memang tidak pernah dibaca kode
+   (dikonfirmasi olehmu). Saya terima itu — abaikan/hapus saja file .env
+   tersebut supaya tidak membingungkan ke depannya, karena satu-satunya
+   sumber kredensial yang sah untuk aplikasi ini adalah variabel
+   runtime-managed Replit (DATABASE_URL/PG*).
+
+2. Untuk masalah dua database yang berbeda: tampilkan (tanpa kredensial,
+   cukup host/nama database yang sudah di-mask sebagian) perbandingan antara:
+   - Database yang API benar-benar konek ke sana saat runtime saat ini
+     (baca dari DATABASE_URL environment yang aktif di workflow API).
+   - Database yang kamu akses lewat Database tool Replit saat verifikasi tadi.
+   Apakah keduanya identik (host/nama sama) atau benar-benar dua instance
+   berbeda?
+
+3. Jika ternyata itu SATU instance yang sama tapi memang kosong (tidak ada
+   tabel payments) — berarti hasil Fase 0 dan Fase 1 kemarin memang tidak
+   tersimpan di instance ini sekarang (kemungkinan reset/instance baru sejak
+   sesi terakhir). Jika ini yang terjadi:
+   - Jalankan ulang: push schema (termasuk migrasi Fase 0 dan Fase 1),
+     migrasi batch legacy, seed akun demo — persis seperti proses bootstrap
+     yang sudah pernah kamu lakukan sebelumnya.
+   - Verifikasi ulang tabel-tabel Fase 0/1 (shift_sessions, transactions,
+     voids, invoices, dst) benar-benar ada setelah push.
+   - Jalankan ulang smoke test dasar (healthz, packages, payments, batches)
+     dan konfirmasi guard shift (409 ACTIVE_SHIFT_REQUIRED) masih berfungsi
+     seperti hasil UAT-14 sebelumnya, sebelum lanjut ke Fase 2.
+
+4. Jika ternyata itu DUA instance yang benar-benar berbeda (bukan sekadar
+   kosong) — jangan ambil keputusan sendiri, laporkan detail perbedaannya ke
+   saya dulu sebelum bertindak apa pun.
+
+Setelah salah satu dari poin 3 selesai dituntaskan (schema Fase 0/1 terbukti
+ada dan sehat di database yang benar-benar dipakai aplikasi), baru lanjutkan
+pekerjaan Fase 2 yang sudah kamu mulai (payment_method nullable, endpoint
+transaksi, dst) — pastikan itu diterapkan ke database yang sama yang baru
+saja diverifikasi, bukan ke instance yang salah.
+
+Setelah Fase 2 selesai, tetap berhenti dan laporkan dengan format yang sama
+seperti sebelumnya (ringkasan, hasil UAT-12/UAT-13, item baru di Log
+Keputusan & Asumsi). Jangan lanjut otomatis ke Fase 3.
