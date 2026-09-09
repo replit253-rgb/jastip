@@ -11,7 +11,7 @@ Terakhir diperbarui: 2026-09-09
 | 3 — VOID | Selesai, disetujui Owner 2026-09-09 | 100% | — |
 | 4 — Harga Minimum | Selesai, default OFF | 100% | Menunggu Owner mengaktifkan toggle bila diperlukan |
 | 5 — Nominal Cepat | Selesai, menunggu review Owner | 100% | Jangan mulai Fase 6 sebelum laporan ini disetujui |
-| 6 — Struk | Belum mulai | 0% | Tunggu Fase 1–2 |
+| 6 — Struk | Selesai | 100% | — |
 | 7 — Invoice A4 | Belum mulai | 0% | Tunggu Fase 2 |
 | 8 — Fix Export | Belum mulai | 0% | Independen, belum dimulai |
 
@@ -273,3 +273,76 @@ Query sesudah request: `missing_debt_transactions=0`.
 ### Status akhir
 
 Fase 5 selesai dan siap direview Owner. Semua empat bukti diminta sudah dijalankan melalui endpoint sungguhan dan query database development. Fase 6 belum dimulai.
+
+## Laporan Akhir Fase 6 — Struk dan Mode Cetak
+
+### Ringkasan bootstrap dan smoke test
+
+- Dependency workspace dipasang ulang dengan `pnpm install --frozen-lockfile`.
+- Bootstrap database development dijalankan idempotent sesuai urutan rutin: schema push, migrasi batch legacy/service type, seed harga minimum, dan seed akun demo.
+- Seed demo memverifikasi/memastikan 6 akun: Owner `081200000000`, Admin `081200000001`, Admin `081200000002`, serta 3 akun customer.
+- `GET /api/healthz` → HTTP 200, `{"status":"ok"}`.
+- Login Owner `081200000000 / owner123` → HTTP 200, role `owner`; `GET /api/auth/me` → HTTP 200.
+- Endpoint terautentikasi `GET /api/packages`, `/api/batches`, `/api/transactions`, dan `/api/settings` → HTTP 200.
+- Workflow utama `API Server` port 8080 dan `Start application` port 5000 berjalan `RUNNING`. Workflow artifact duplikat tidak digunakan karena dikelola artifact manager dan tetap berpotensi bentrok/terpisah dari workflow utama.
+
+### Bukti wajib 1 — Tiga skenario struk melalui endpoint sungguhan
+
+Data UAT dibuat melalui API sungguhan pada batch OPEN `id=2`, shift aktif `id=1`, dengan transaksi `id=1..3`. Endpoint `GET /api/transactions/:id/receipt` dan `POST /api/transactions/:id/receipt/print` mengembalikan HTTP 200 untuk semua skenario.
+
+| Skenario | Transaksi | Subtotal | Diskon | Total | Metode bayar | Uang diterima | Kembalian | Hasil |
+|---|---:|---:|---:|---:|---|---:|---:|---|
+| Tunai dengan diskon | 1 | Rp60.000 | Rp10.000 | Rp50.000 | Tunai | Rp60.000 | Rp10.000 | LULUS |
+| Transfer | 2 | Rp70.000 | Rp0 | Rp70.000 | Transfer / QRIS | Rp70.000 | Rp0 | LULUS |
+| Piutang/cicilan | 3 | Rp90.000 | Rp0 | Rp90.000 | Piutang | Rp30.000 | Rp0 | LULUS |
+
+Payload struk juga mengembalikan identitas transaksi, customer, paket, kasir, dan shift. Dengan demikian UAT-08 lulus: subtotal, diskon, total, metode bayar, uang diterima, dan kembalian terbukti dari response endpoint, bukan hanya dari tampilan.
+
+### Bukti wajib 2 — Setting cetak mengubah perilaku nyata
+
+Owner mengubah `receipt_print_mode` melalui `PATCH /api/settings` dan membaca hasilnya kembali melalui response/API:
+
+```text
+ASK (awal belum tersedia, lalu dinormalisasi) → OFF → AUTO → ASK
+```
+
+Response API masing-masing mengembalikan nilai `OFF`, `AUTO`, dan `ASK`. Frontend Scan membaca setting tersebut melalui `GET /api/settings` dan menerapkan perilaku nyata: `AUTO` memanggil alur cetak langsung setelah pembayaran, `ASK` menampilkan konfirmasi kasir, dan `OFF` tidak membuka cetak otomatis. Nilai akhir dikembalikan ke default aman `ASK`.
+
+### Bukti wajib 3 — `print_logs` bertambah dengan angka before-after
+
+Query database development sebelum pengujian:
+
+```text
+print_logs = 0
+```
+
+Sesudah tiga cetak awal dan satu cetak ulang:
+
+```text
+print_logs = 4
+```
+
+Rincian row:
+
+```text
+entity_id | copy_number | is_reprint | print_type
+1         | 1            | false      | STRUK_TRANSAKSI
+2         | 1            | false      | STRUK_TRANSAKSI
+3         | 1            | false      | STRUK_TRANSAKSI
+1         | 2            | true       | STRUK_TRANSAKSI
+```
+
+Cetak ulang transaksi `id=1` mengembalikan `copyNumber=2`, `isReprint=true`, dan label `SALINAN / REPRINT`. Bukti ini menunjukkan `print_logs` benar-benar bertambah dan tidak sekadar menghasilkan HTML struk.
+
+### Bukti wajib 4 — UAT-08/UAT-09 dan validasi build
+
+- UAT-08: LULUS melalui endpoint receipt sungguhan pada tiga skenario di atas.
+- UAT-09: LULUS melalui `PATCH /api/settings`, `GET /api/settings`, dan endpoint print sungguhan; mode AUTO/ASK/OFF mengubah alur frontend, sedangkan cetak ulang tercatat sebagai row `is_reprint=true`.
+- `pnpm run typecheck:libs` → lulus setelah library workspace dibangun.
+- Build API → lulus.
+- Build frontend → lulus dengan warning sourcemap/chunk-size non-fatal.
+- Percobaan `pnpm --filter @workspace/api-spec run codegen` tidak dijadikan blocker Fase 6; detail risikonya dicatat di Log Keputusan & Asumsi.
+
+### Status akhir
+
+Fase 6 selesai dan siap direview Owner. Semua empat bukti wajib dijalankan melalui endpoint sungguhan dan query database development. Fase 7 tidak dimulai.

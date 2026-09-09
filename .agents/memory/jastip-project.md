@@ -72,3 +72,13 @@ Package schema was missing `deliveryRoute` (routes/packages.ts returns it, DB ha
 TS2339 in arsip-batch-detail.tsx / barcode-batch-detail.tsx. Batch schema never had a `name` field (only
 `namaKapal` + computed `label`); a `batch.name || batch.namaKapal` fallback was dead code. Run typecheck
 after any schema/route change to catch this class of drift early.
+
+The pinned Orval codegen version can generate `zod.int()` and `Headers.entries()` for newer OpenAPI
+contracts, which fail against this workspace's current Zod and TypeScript library definitions. The active
+frontend uses direct `fetch` for the affected Fase 6 flows, so this is a planned codegen debt rather than
+a runtime blocker.
+
+**Why:** Fase 6 receipt contracts reproduced the incompatibility during the official codegen command.
+
+**How to apply:** Treat generated-client/codegen synchronization as a planned follow-up; do not silently
+change the pinned generator or make OpenAPI codegen a release blocker until Orval is upgraded or replaced.

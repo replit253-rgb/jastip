@@ -264,8 +264,8 @@ Diambil & diperluas dari dokumen sumber (Bagian 14, dokumen 3):
    UAT-05 Tombol Pas + 4 nominal cepat mengisi nilai tepat; input manual tetap berfungsi. **LULUS lewat endpoint runtime** — Rp50.000/Rp50.000 menghasilkan kembalian Rp0; Rp100.000 menghasilkan Rp50.000; Rp150.000 menghasilkan Rp100.000; Rp200.000 menghasilkan Rp150.000.
  UAT-06 Konfirmasi tunai gagal jika uang diterima kurang; kembalian dihitung benar. **LULUS lewat endpoint runtime** — uang diterima Rp400.000 untuk tagihan Rp500.000 ditolak HTTP 400 dengan pesan `Uang diterima kurang dari total tagihan`.
    UAT-07 VOID mengembalikan status paket & membuat reversal tanpa menghapus riwayat. **LULUS secara implementasi** — approval berjalan dalam transaksi database, status transaksi menjadi `VOID`, paket kembali ke `BELUM_DIAMBIL`, reversal tercatat sebagai `VOID_REVERSAL`, dan row transaksi/payment/void tetap tersimpan.
- UAT-08 Struk menampilkan subtotal, diskon, total, metode bayar, uang diterima, kembalian.
- UAT-09 Cetak otomatis ON/OFF berfungsi; cetak ulang tercatat di print_logs.
+ UAT-08 Struk menampilkan subtotal, diskon, total, metode bayar, uang diterima, kembalian. **LULUS melalui endpoint runtime** — tiga transaksi nyata diuji: tunai dengan subtotal Rp60.000, diskon Rp10.000, total Rp50.000, uang diterima Rp60.000, kembalian Rp10.000; transfer Rp70.000 tanpa kembalian; dan piutang Rp90.000 dengan pembayaran awal Rp30.000.
+ UAT-09 Cetak otomatis ON/OFF berfungsi; cetak ulang tercatat di print_logs. **LULUS melalui endpoint runtime** — `receipt_print_mode` berubah `OFF → AUTO → ASK` melalui `PATCH /api/settings`, dan tiga cetak awal + satu cetak ulang menambah `print_logs` dari 0 menjadi 4; cetak ulang transaksi pertama menghasilkan `copyNumber=2`, `isReprint=true`, dan label `SALINAN / REPRINT`.
  UAT-10 Invoice A4 dibuat dari transaksi, simpan DP/sisa, cetak PDF tanpa layout terpotong.
  UAT-11 Closing shift menampilkan transaksi + koreksi VOID dengan jelas.
  UAT-12 (baru, dari dokumen piutang) Skenario Tanggal 1 (diserahkan belum bayar) → Tanggal 3 (pelunasan) menghasilkan angka laporan persis sesuai contoh Bagian 2 & 7 dokumen piutang (tidak ada pendapatan ganda). **LULUS** — transaksi dibuat tanpa payment saat belum bayar, tanggal transaksi tetap tersimpan di hari awal, pelunasan hari berikutnya masuk sebagai `PELUNASAN_PIUTANG`, dan dashboard hari pelunasan tidak menggandakan nilai transaksi sebagai pendapatan baru.
@@ -280,7 +280,7 @@ Diambil & diperluas dari dokumen sumber (Bagian 14, dokumen 3):
   - Endpoint `/api/healthz` mengembalikan HTTP 200 `{"status":"ok"}`; endpoint protected tanpa autentikasi menolak request dengan HTTP 401.
   - Typecheck API/web/scripts dan build API/web berhasil. Script `seed-batch2.ts` juga diperbaiki agar typecheck workspace penuh bersih.
    - UAT-12, UAT-13, dan UAT-14 lulus; blind closing diuji ulang tanpa membocorkan `systemCash` dan hasil closing `SESUAI`.
-   - Fase 5 diverifikasi lewat runtime endpoint + query SQL: idempotency menghasilkan 1 transaction/1 payment, UAT-05/UAT-06 lulus, UAT-07/UAT-13 tidak regresi, dan field piutang wajib ditolak server-side. Fase 6 belum dimulai.
+   - Fase 5 diverifikasi lewat runtime endpoint + query SQL: idempotency menghasilkan 1 transaction/1 payment, UAT-05/UAT-06 lulus, UAT-07/UAT-13 tidak regresi, dan field piutang wajib ditolak server-side. Fase 6 kemudian diverifikasi lewat tiga endpoint receipt runtime, transisi setting cetak, serta query before-after `print_logs`; Fase 6 selesai dan Fase 7 belum dimulai.
 4. Log Keputusan & Asumsi (WAJIB diisi agent selama proses)
 
 Setiap kali agent mengambil keputusan karena dokumen sumber tidak menjelaskan detail, catat di sini dengan format di bawah. Ini jadi bahan konfirmasi ke Owner nanti — jangan biarkan keputusan diam-diam terkubur di kode.
@@ -300,6 +300,7 @@ Tanggal	Area	Ambiguitas	Asumsi yang dipakai	Perlu konfirmasi Owner?
 2026-09-09	`seed-batch2.ts`: ARCHIVED → ARSIP	Semantik perubahan script seed perlu dibedakan dari perubahan schema/data	Verifikasi tracked diff = kosong; histori tracked hanya memuat `ARSIP`, schema enum tetap `OPEN/CLOSED/ARSIP`, dan script seed-batch2 tidak dijalankan. Perubahan murni perbaikan tipe pada script, tanpa update enum atau row batch pada database development maupun data lama hasil migrasi.	Ya, jangan jalankan seed-batch2 di production tanpa review data tujuan
 2026-09-09	Workflow setelah bootstrap	Dua workflow utama dan tiga workflow artifact duplikat memiliki status berbeda	Gunakan `API Server` port 8080 dan `Start application` port 5000 sebagai workflow utama yang harus RUNNING; workflow artifact duplikat dibiarkan dikelola artifact manager agar tidak menambah bentrok port.	Tidak, hanya perlu dipantau saat deployment
 2026-09-09	Batas toleransi selisih kas	Owner ingin menentukan nilai sendiri lewat pengaturan	Nilai disimpan di `settings.cash_variance_tolerance`, default Rp0, dapat diubah dari Pengaturan Owner, dan setiap perubahan masuk `tarif_history`	Tidak
+2026-09-10	Codegen OpenAPI setelah kontrak receipt baru	Generator `orval` yang sudah dipin sejak Fase 1 terbukti tidak kompatibel dengan sebagian kontrak baru: output memakai `zod.int()` dan `Headers.entries()`, sementara dependency/lib proyek tidak menyediakan API tersebut.	Frontend Fase 6 memakai `fetch` langsung, sehingga incompatibility generated client tidak menghalangi UAT receipt dan mode cetak. Sebelum kontrak OpenAPI dianggap wajib sinkron dengan kode, perlu direncanakan upgrade Orval atau migrasi ke pendekatan codegen lain.	Ya — perlu keputusan Owner untuk upgrade Orval atau mengganti pendekatan codegen
    TODO_KONFIRMASI_OWNER — Default toggle harga minimum saat rilis	Tidak disebutkan ON/OFF default	Toggle dirilis OFF agar tidak mengubah perilaku ongkir existing; Owner dapat mengaktifkannya secara eksplisit melalui `/owner/tarif`.	Ya — Owner perlu mengaktifkan per layanan/kota bila sudah siap
   Role Supervisor	Disebut "opsional" tanpa kepastian	Diimplementasikan sebagai role opsional (kode siap, tidak wajib dipakai)	Ya
 5. Ringkasan Status per Fase (update terus)
@@ -310,6 +311,6 @@ Tanggal	Area	Ambiguitas	Asumsi yang dipakai	Perlu konfirmasi Owner?
  3 — VOID	Selesai, disetujui Owner 2026-09-09	100%	—
  4 — Harga Minimum	Selesai, default OFF	100%	Menunggu Owner mengaktifkan toggle bila diperlukan
  5 — Nominal Cepat	Selesai	100%	Menunggu review Owner; jangan mulai Fase 6 sebelum laporan ini disetujui
-6 — Struk	Belum mulai	0%	Tunggu Fase 1, 2
+6 — Struk	Selesai	100%	—
 7 — Invoice A4	Belum mulai	0%	Tunggu Fase 2
 8 — Fix Export	Belum mulai	0%	Independen, bisa dikerjakan kapan saja/duluan
