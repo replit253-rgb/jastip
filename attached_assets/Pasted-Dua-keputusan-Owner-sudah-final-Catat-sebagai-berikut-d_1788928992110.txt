@@ -1,0 +1,52 @@
+Dua keputusan Owner sudah final. Catat sebagai berikut di implementasi.md
+dan progres.md, lalu tutup Fase 3 secara resmi:
+
+KEPUTUSAN 1 — Kebijakan VOID-kas: DISETUJUI
+- Owner menyetujui aturan yang sudah dibuktikan lewat runtime sebagai aturan
+  resmi sistem: hanya porsi tunai dari pembayaran asli yang mengurangi kas
+  fisik shift saat VOID; reversal transfer tidak menyentuh kas fisik; VOID
+  yang disetujui saat shift sumber masih aktif diatribusikan ke shift
+  tersebut; VOID pasca-closing tidak mengubah angka closing yang sudah
+  terkunci, hanya tercatat sebagai koreksi terpisah.
+- Update kolom "Perlu konfirmasi Owner?" pada entri Log Keputusan & Asumsi
+  terkait (baris "Rumus kas shift (Fase 1)") menjadi "Tidak — disetujui
+  Owner [tanggal hari ini]". Ini SEKARANG boleh ditulis karena persetujuan
+  eksplisit sudah diterima langsung dari Owner, bukan diasumsikan.
+
+KEPUTUSAN 2 — Setoran Kas: DITUNDA
+- Owner belum memutuskan dan meminta nilai tetap 0 untuk saat ini; keputusan
+  final ditunda sampai ada kebutuhan nyata di lapangan.
+- Entri Log Keputusan & Asumsi terkait TETAP berstatus "Ya, perlu konfirmasi
+  Owner" — tapi tambahkan catatan bahwa Owner sudah diberi pertanyaan dan
+  secara sadar memilih menunda, bukan belum sempat ditanya. Ini beda makna:
+  bukan gap yang terlewat, tapi keputusan sadar untuk ditunda.
+- Pastikan asumsi ini tidak menghalangi Fase 4 dan seterusnya — rumus kas
+  tetap berjalan normal dengan Setoran Kas = 0 sampai ada keputusan lain.
+
+Setelah kedua entri ini diupdate, resmikan penutupan Fase 3:
+- Update tabel "Ringkasan Status per Fase" — Fase 3 tetap 100%, hapus
+  status "menunggu approval" jika ada, ganti dengan "Selesai, disetujui
+  Owner [tanggal]".
+- Pastikan tidak ada sisa checklist UAT Fase 3 yang belum tercentang.
+
+Setelah itu, silakan mulai Fase 4 (Harga Ongkir Minimum) sesuai urutan di
+implementasi.md: skema (4.1) → nilai awal migrasi (4.2) → logika (4.3) → UI
+(4.4).
+
+Satu keputusan tambahan yang perlu kamu catat sebagai TODO_KONFIRMASI_OWNER
+baru untuk Fase 4: dokumen sumber menyebut toggle harga minimum defaultnya
+belum ditentukan ON/OFF saat rilis. JANGAN aktifkan toggle secara default —
+implementasikan dengan default OFF (aman, tidak mengubah perilaku ongkir
+existing) sampai Owner secara eksplisit mengaktifkannya lewat halaman
+/owner/tarif. Ini konsisten dengan prinsip "asumsi paling konservatif" yang
+sudah kita pakai sejak awal.
+
+Ingat aturan kerja yang sudah disepakati:
+- Migrasi additive saja.
+- Jangan lompat sub-bagian (4.1 → 4.2 → 4.3 → 4.4 berurutan).
+- Setelah Fase 4 selesai, berhenti dan laporkan dengan format yang sama:
+  ringkasan kerjaan, hasil UAT-03 dan UAT-04 dengan bukti runtime konkret
+  (bukan deskripsi kode) sesuai 4 skenario uji di dokumen sumber Bagian 3.3,
+  dan item baru di Log Keputusan & Asumsi.
+
+Jangan lanjut otomatis ke Fase 5 setelah Fase 4 selesai — tunggu review saya.
