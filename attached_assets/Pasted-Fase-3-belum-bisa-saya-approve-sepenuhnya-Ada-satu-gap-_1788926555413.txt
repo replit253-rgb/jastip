@@ -1,0 +1,42 @@
+Fase 3 belum bisa saya approve sepenuhnya. Ada satu gap kritis dan satu bukti
+yang perlu diperkuat sebelum saya setujui:
+
+1. GAP KRITIS — Integrasi Refund Tunai VOID ke rumus kas shift:
+   Konfirmasi secara eksplisit: apakah system_cash (rumus kas shift Fase 1)
+   SUDAH menarik nilai VOID_REVERSAL untuk pembayaran yang metode aslinya
+   tunai? Jika belum, ini WAJIB diperbaiki sekarang sebelum Fase 3 dianggap
+   selesai — jangan ditunda ke fase lain, karena tanpa ini closing shift
+   akan salah setiap kali ada VOID transaksi tunai.
+
+   Buktikan dengan skenario runtime nyata (bukan pembacaan kode):
+   - Buka shift baru, saldo awal Rp0.
+   - Buat transaksi tunai Rp100.000, bayar penuh tunai.
+   - Cek system_cash sementara (lewat query langsung, bukan endpoint blind
+     closing) = harus mencerminkan +Rp100.000.
+   - Ajukan VOID transaksi tersebut, Owner approve.
+   - Tutup shift (blind closing), kirim actual_cash = Rp0.
+   - Hasil closing HARUS menunjukkan systemCash = Rp0 (karena Rp100.000
+     tunai sudah masuk lalu di-refund), bukan Rp100.000. Jika systemCash
+     masih Rp100.000, berarti refund belum tertarik dari rumus dan ini bug
+     yang harus diperbaiki sebelum Fase 3 ditutup.
+   - Pastikan juga VOID untuk pembayaran metode TRANSFER tidak ikut masuk
+     ke rumus kas fisik (karena transfer memang tidak pernah masuk kas laci
+     sejak awal).
+
+   Laporkan angka systemCash sebelum dan sesudah VOID secara eksplisit.
+
+2. UAT-07 perlu bukti runtime konkret, bukan deskripsi logika kode. Ulangi
+   pengujian dengan gaya yang sama seperti UAT-12/13 (angka aktual, ID
+   transaksi nyata, status sebelum/sesudah di setiap langkah):
+   - ID transaksi, status paket sebelum VOID, status paket sesudah VOID.
+   - Nilai reversal_amount yang tercatat di tabel voids.
+   - Konfirmasi row transaksi/payment/void asli tetap ada di database
+     (tidak terhapus) dengan query langsung.
+   - Konfirmasi larangan VOID ganda: coba VOID transaksi yang sudah VOID,
+     harus ditolak — tunjukkan response error-nya.
+
+Setelah kedua poin ini terjawab dengan bukti runtime nyata (dan bug rumus
+kas, jika ada, sudah diperbaiki), update Catatan Implementasi Fase 3 dan
+progres.md dengan bukti tersebut, lalu kirim ulang laporan akhir Fase 3.
+
+Jangan mulai Fase 4 sampai laporan ulang ini saya review.

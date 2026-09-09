@@ -30,7 +30,7 @@ pnpm install
 pnpm --filter @workspace/db run push
 
 # 3. Seed service_types and create legacy batch (required before any package creation)
-npx tsx scripts/migrate-batch-legacy.ts
+pnpm --filter @workspace/scripts exec tsx ./migrate-batch-legacy.ts
 
 # 4. Seed demo accounts and sample data
 pnpm --filter @workspace/scripts run seed-demo

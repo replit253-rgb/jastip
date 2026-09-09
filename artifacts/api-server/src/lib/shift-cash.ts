@@ -5,7 +5,7 @@ import {
   shiftSessionsTable,
   type ShiftSession,
 } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 export function toRupiahInteger(value: unknown): number {
   const parsed = Number(value ?? 0);
@@ -29,6 +29,23 @@ export async function calculateShiftCash(shift: ShiftSession) {
     .select()
     .from(paymentsTable)
     .where(eq(paymentsTable.shiftSessionId, shift.id));
+
+  const reversalPayments = payments.filter(
+    (payment) => payment.paymentType === "VOID_REVERSAL",
+  );
+  const reversedTransactionIds = [
+    ...new Set(
+      reversalPayments
+        .map((payment) => payment.transactionId)
+        .filter((id): id is number => Number.isInteger(id)),
+    ),
+  ];
+  const originalPayments = reversedTransactionIds.length
+    ? await db
+        .select()
+        .from(paymentsTable)
+        .where(inArray(paymentsTable.transactionId, reversedTransactionIds))
+    : [];
 
   const cashPayments = payments.filter(
     (payment) =>
@@ -61,10 +78,26 @@ export async function calculateShiftCash(shift: ShiftSession) {
     .filter((expense) => isWithinShift(expense.createdAt, start, end))
     .reduce((sum, expense) => sum + toRupiahInteger(expense.nominal), 0);
 
-  // Refunds and cash deposits do not have source tables in the existing system.
-  // Keep them explicit so later phases can add the real components without
-  // changing the formula shape.
-  const refundCash = 0;
+  // A VOID reversal is stored as one negative aggregate payment. Only the
+  // portion backed by original cash payments returned money to the drawer;
+  // transfer reversals never entered physical cash and must not reduce it.
+  const refundCash = reversalPayments.reduce((sum, reversal) => {
+    const originalCash = originalPayments
+      .filter(
+        (payment) =>
+          payment.transactionId === reversal.transactionId &&
+          payment.paymentType !== "VOID_REVERSAL" &&
+          (payment.paymentMethod === "tunai" ||
+            payment.paymentType === "tunai"),
+      )
+      .reduce(
+        (cashSum, payment) =>
+          cashSum + Math.max(0, toRupiahInteger(payment.totalAmount)),
+        0,
+      );
+    const reversalAmount = Math.abs(toRupiahInteger(reversal.totalAmount));
+    return sum + Math.min(reversalAmount, originalCash);
+  }, 0);
   const cashDeposits = 0;
   const openingBalance = toRupiahInteger(shift.openingBalance);
   const systemCash =

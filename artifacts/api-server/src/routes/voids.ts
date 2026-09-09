@@ -104,6 +104,12 @@ router.post("/:id/approve", requireAuth, requireRole("owner"), async (req, res) 
         : [];
       const isPostClosing = sourceShift?.status === "CLOSED";
       const activeShiftId = (req as any).activeShift?.id ?? null;
+      // Approval is Owner-only and does not require the approver to have a
+      // cashier shift. If the source shift is still active, attribute the
+      // refund to that shift so its physical cash formula includes it. A
+      // post-closing VOID intentionally stays unassigned as a correction.
+      const reversalShiftId =
+        activeShiftId ?? (isPostClosing ? null : transaction.shiftSessionId ?? null);
 
       if (packageIds.length) {
         await tx
@@ -128,7 +134,7 @@ router.post("/:id/approve", requireAuth, requireRole("owner"), async (req, res) 
           packageSummary: null,
           adminId: user.id,
           adminName: user.name,
-          shiftSessionId: activeShiftId,
+          shiftSessionId: reversalShiftId,
           transactionId: transaction.id,
           notes: isPostClosing
             ? "Koreksi pasca-closing: reversal VOID"
