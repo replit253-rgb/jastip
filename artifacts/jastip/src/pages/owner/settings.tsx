@@ -32,6 +32,15 @@ async function patchSettings(data: Record<string, any>): Promise<Record<string, 
   return res.json();
 }
 
+async function fetchToleranceHistory(): Promise<any[]> {
+  const res = await fetch("/api/settings/history", {
+    headers: { Authorization: `Bearer ${localStorage.getItem("jaj_token")}` },
+  });
+  if (!res.ok) return [];
+  const rows = await res.json();
+  return (rows as any[]).filter((row) => row.jenisJastip === "Toleransi Selisih Kas");
+}
+
 export default function OwnerSettings() {
   const { toast } = useToast();
   const [kargoRate, setKargoRate] = useState<string>("");
@@ -43,18 +52,12 @@ export default function OwnerSettings() {
   useEffect(() => {
     Promise.all([
       fetchSettings(),
-      fetch("/api/settings/history", {
-        headers: { Authorization: `Bearer ${localStorage.getItem("jaj_token")}` },
-      }).then((res) => (res.ok ? res.json() : [])),
+      fetchToleranceHistory(),
     ])
       .then(([d, historyRows]) => {
         setKargoRate(d.kargoRate != null ? String(d.kargoRate) : "");
         setCashVarianceTolerance(d.cash_variance_tolerance != null ? String(d.cash_variance_tolerance) : "0");
-        setHistory(
-          (historyRows as any[]).filter(
-            (row) => row.jenisJastip === "Toleransi Selisih Kas",
-          ),
-        );
+        setHistory(historyRows as any[]);
       })
       .catch(() => {
         toast({ variant: "destructive", title: "Gagal memuat pengaturan" });
@@ -63,20 +66,32 @@ export default function OwnerSettings() {
   }, []);
 
   async function handleSave() {
-    const rate = Number(kargoRate);
-    if (!kargoRate || isNaN(rate) || rate <= 0) {
-      toast({ variant: "destructive", title: "Tarif tidak valid", description: "Masukkan tarif kargo yang benar." });
-      return;
+    const data: Record<string, any> = { _alasan: "Pembaruan pengaturan Owner" };
+    if (kargoRate.trim()) {
+      const rate = Number(kargoRate);
+      if (!Number.isInteger(rate) || rate <= 0) {
+        toast({ variant: "destructive", title: "Tarif tidak valid", description: "Masukkan tarif kargo bulat yang benar." });
+        return;
+      }
+      data.kargoRate = rate;
     }
     const tolerance = Number(cashVarianceTolerance);
     if (!Number.isInteger(tolerance) || tolerance < 0) {
       toast({ variant: "destructive", title: "Toleransi tidak valid", description: "Masukkan toleransi kas dalam Rupiah bulat, minimal 0." });
       return;
     }
+    data.cash_variance_tolerance = tolerance;
+    if (Object.keys(data).length === 1) {
+      toast({ variant: "destructive", title: "Tarif tidak valid", description: "Masukkan tarif kargo yang benar." });
+      return;
+    }
     setIsSaving(true);
     try {
-      await patchSettings({ kargoRate: rate, cash_variance_tolerance: tolerance, _alasan: "Pembaruan pengaturan Owner" });
-      toast({ title: "Tersimpan", description: `Tarif kargo dan toleransi kas Rp ${tolerance.toLocaleString("id-ID")} berhasil diperbarui.` });
+      const updated = await patchSettings(data);
+      setKargoRate(updated.kargoRate != null ? String(updated.kargoRate) : kargoRate);
+      setCashVarianceTolerance(updated.cash_variance_tolerance != null ? String(updated.cash_variance_tolerance) : String(tolerance));
+      setHistory(await fetchToleranceHistory());
+      toast({ title: "Tersimpan", description: `Pengaturan berhasil diperbarui. Toleransi kas saat ini Rp ${tolerance.toLocaleString("id-ID")}.` });
     } catch {
       toast({ variant: "destructive", title: "Gagal menyimpan", description: "Terjadi kesalahan. Coba lagi." });
     } finally {
@@ -87,9 +102,9 @@ export default function OwnerSettings() {
   return (
     <div className="space-y-6 max-w-xl">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Pengaturan Tarif</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Pengaturan Kas & Tarif</h1>
         <p className="text-muted-foreground mt-1">
-          Atur tarif default yang digunakan saat input paket.
+          Atur tarif default dan toleransi selisih kas sesuai kebijakan Owner.
         </p>
       </div>
 
@@ -158,7 +173,7 @@ export default function OwnerSettings() {
                 {isSaving ? (
                   <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Menyimpan...</>
                 ) : (
-                  <><Save className="w-4 h-4 mr-2" /> Simpan Tarif</>
+                  <><Save className="w-4 h-4 mr-2" /> Simpan Pengaturan</>
                 )}
               </Button>
             </>

@@ -131,6 +131,7 @@ function BarcodeItem({
   batchLabel?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { user } = useAuth();
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -206,9 +207,11 @@ function BarcodeItem({
           <Button size="sm" variant="outline" className="flex-1 min-w-0 px-2 text-xs border-blue-300 text-blue-700 hover:bg-blue-50" onClick={() => onEdit(pkg)}>
             <Pencil className="w-3 h-3 mr-1 shrink-0" /> <span className="truncate">Edit</span>
           </Button>
-          <Button size="sm" variant="outline" className="flex-1 min-w-0 px-2 text-xs border-red-300 text-red-600 hover:bg-red-50" onClick={() => onDelete(pkg)}>
-            <Trash2 className="w-3 h-3 mr-1 shrink-0" /> <span className="truncate">Hapus</span>
-          </Button>
+          {user?.role === "owner" && (
+            <Button size="sm" variant="outline" className="flex-1 min-w-0 px-2 text-xs border-red-300 text-red-600 hover:bg-red-50" onClick={() => onDelete(pkg)}>
+              <Trash2 className="w-3 h-3 mr-1 shrink-0" /> <span className="truncate">Hapus</span>
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

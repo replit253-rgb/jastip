@@ -144,14 +144,17 @@ Referensi: Transaksi, Struk & Invoice, Bagian 5.
  Larangan: transaksi VOID tidak bisa di-VOID ulang; paket tidak bisa dikembalikan ke "Belum Diambil" jika sudah terkait transaksi aktif lain (misal sudah masuk transaksi/grup baru).
  VOID setelah shift closing → ditandai koreksi pasca-closing, muncul di laporan shift berikutnya/laporan koreksi terpisah — bukan mengubah angka closing shift yang sudah terkunci.
 3.3 Perubahan pada endpoint lama
- Keputusan yang perlu ditegaskan ke Owner (tandai TODO_KONFIRMASI_OWNER): apakah DELETE /api/packages/:id dan penghapusan batch tetap boleh hard-delete untuk paket yang belum pernah punya transaksi/payment sama sekali (misal salah input), atau semua penghapusan setelah titik tertentu wajib lewat VOID. Sampai ada kepastian, implementasikan aturan konservatif: begitu paket memiliki transaksi apa pun (termasuk BELUM_BAYAR), DELETE ditolak dan diarahkan ke alur VOID.
+ Keputusan Owner: `DELETE /api/packages/:id` dan `PATCH /api/batches/:id` dengan `statusBatch=HAPUS` tetap merupakan hard delete, tetapi hanya dapat dilakukan oleh role Owner. Admin menerima HTTP 403 dengan pesan yang jelas. Keputusan ini berlaku baik untuk paket yang belum maupun sudah memiliki transaksi.
 3.4 Backend & Frontend
  POST /api/transactions/:id/void — ajukan VOID.
  POST /api/voids/:id/approve — approval dengan PIN/role.
  Halaman Laporan VOID (Owner): daftar VOID + alasan + siapa approve.
  UI: tombol "Ajukan VOID" di detail transaksi; modal alasan wajib; modal approval PIN untuk Owner/Supervisor.
 
-Catatan Implementasi: (isi setelah selesai)
+Catatan Implementasi:
+  2026-09-09 — Fase 3 selesai. `POST /api/transactions/:id/void` membuat pengajuan dengan alasan wajib; `POST /api/voids/:id/approve` hanya dapat dilakukan Owner, mengunci transaksi, mencegah paket dipakai transaksi aktif lain, mengembalikan paket ke pending, membuat reversal payment, dan menandai koreksi pasca-closing.
+  2026-09-09 — Hard delete paket dan batch dikunci Owner-only. Tombol hard delete disembunyikan dari seluruh halaman Admin; aktivitas edit/input normal Admin tetap tersedia.
+  2026-09-09 — Laporan VOID Owner tersedia di `/owner/voids`, dan pengajuan VOID tersedia dari halaman transaksi Owner. Role Supervisor belum menjadi role aktif pada schema users, sehingga approval aktif saat ini adalah Owner-only sampai role tersebut ditetapkan.
 
 FASE 4 — Harga Ongkir Minimum
 
@@ -244,7 +247,7 @@ Diambil & diperluas dari dokumen sumber (Bagian 14, dokumen 3):
  UAT-04 Semua contoh harga minimum (Bagian 3 dokumen) menghasilkan nilai benar.
  UAT-05 Tombol Pas + 4 nominal cepat mengisi nilai tepat; input manual tetap berfungsi.
  UAT-06 Konfirmasi tunai gagal jika uang diterima kurang; kembalian dihitung benar.
- UAT-07 VOID mengembalikan status paket & membuat reversal tanpa menghapus riwayat.
+   UAT-07 VOID mengembalikan status paket & membuat reversal tanpa menghapus riwayat. **LULUS secara implementasi** — approval berjalan dalam transaksi database, status transaksi menjadi `VOID`, paket kembali ke `BELUM_DIAMBIL`, reversal tercatat sebagai `VOID_REVERSAL`, dan row transaksi/payment/void tetap tersimpan.
  UAT-08 Struk menampilkan subtotal, diskon, total, metode bayar, uang diterima, kembalian.
  UAT-09 Cetak otomatis ON/OFF berfungsi; cetak ulang tercatat di print_logs.
  UAT-10 Invoice A4 dibuat dari transaksi, simpan DP/sisa, cetak PDF tanpa layout terpotong.
@@ -267,7 +270,7 @@ Setiap kali agent mengambil keputusan karena dokumen sumber tidak menjelaskan de
 
 Tanggal	Area	Ambiguitas	Asumsi yang dipakai	Perlu konfirmasi Owner?
 (contoh)	VOID vs hard delete	Dokumen tidak jelas soal paket yang belum pernah dibayar	Hard delete tetap diizinkan hanya jika paket belum punya transaksi sama sekali	Ya
-2026-09-08	Hard delete sampai Fase 3	Owner meminta perilaku DELETE paket dan HAPUS batch tidak disentuh pada Fase 0	Perilaku existing dibiarkan; evaluasi aturan konservatif dilakukan di Fase 3	Ya, saat mulai Fase 3
+2026-09-09	Hard delete paket dan batch	Owner menegaskan hak hapus permanen tanpa membatasi status transaksi	Hard delete tetap tersedia untuk Owner; Admin menerima 403 dan tidak melihat tombol hapus permanen. Edit/input normal Admin tetap diizinkan	Tidak
 2026-09-08	Backfill payment legacy	Tabel payments lama tidak memiliki penanda final eksplisit	Tunai/transfer dianggap final dan dibuat sebagai transaksi LUNAS; piutang dibuat sebagai transaksi BELUM_BAYAR	Ya, sebelum laporan transaksi Fase 2
 2026-09-08	Waktu WIT	Schema baru memakai timestamp with time zone, tetapi endpoint shift/transaksi belum dibuat	Instan waktu dipertahankan oleh database; normalisasi tampilan dan aturan WIT diverifikasi saat Fase 1–2	Ya, sebelum rilis transaksi
 2026-09-08	Rumus kas shift (Fase 1)	Belum ada tabel untuk mencatat Refund Tunai dan Setoran Kas	Nilai keduanya sementara 0 karena belum ada sumber data; formula kas AKURAT hanya selama belum ada VOID/refund. Begitu VOID menghasilkan reversal tunai, rumus kas shift di Fase 1 WAJIB diupdate untuk menariknya, atau closing shift akan selalu tampak SESUAI padahal ada refund yang belum tercermin.	Ya — Owner perlu mengonfirmasi apakah Setoran Kas (uang disetor ke brankas/bank di tengah shift) dibutuhkan sekarang atau bisa ditunda sampai ada kebutuhan nyata
@@ -278,7 +281,7 @@ Tanggal	Area	Ambiguitas	Asumsi yang dipakai	Perlu konfirmasi Owner?
 2026-09-09	Bootstrap database development	Tabel schema dapat hilang/reset antar sesi kerja tanpa error pada kode	Prosedur rutin dimulai dengan pengecekan tabel Fase 0/1, lalu `db push`, migrasi legacy, dan seed idempotent sebelum melanjutkan fase berikutnya; prosedur ini dipakai ulang sebelum UAT penutup.	Ya, pastikan staging/production tidak memakai instance development
 2026-09-09	`seed-batch2.ts`: ARCHIVED → ARSIP	Semantik perubahan script seed perlu dibedakan dari perubahan schema/data	Verifikasi tracked diff = kosong; histori tracked hanya memuat `ARSIP`, schema enum tetap `OPEN/CLOSED/ARSIP`, dan script seed-batch2 tidak dijalankan. Perubahan murni perbaikan tipe pada script, tanpa update enum atau row batch pada database development maupun data lama hasil migrasi.	Ya, jangan jalankan seed-batch2 di production tanpa review data tujuan
 2026-09-09	Workflow setelah bootstrap	Dua workflow utama dan tiga workflow artifact duplikat memiliki status berbeda	Gunakan `API Server` port 8080 dan `Start application` port 5000 sebagai workflow utama yang harus RUNNING; workflow artifact duplikat dibiarkan dikelola artifact manager agar tidak menambah bentrok port.	Tidak, hanya perlu dipantau saat deployment
-  Batas toleransi selisih kas	Tidak disebutkan angka pastinya	—	Ya, wajib sebelum Fase 1 rilis
+2026-09-09	Batas toleransi selisih kas	Owner ingin menentukan nilai sendiri lewat pengaturan	Nilai disimpan di `settings.cash_variance_tolerance`, default Rp0, dapat diubah dari Pengaturan Owner, dan setiap perubahan masuk `tarif_history`	Tidak
   Default toggle harga minimum saat rilis	Tidak disebutkan ON/OFF default	—	Ya, wajib sebelum Fase 4 rilis
   Role Supervisor	Disebut "opsional" tanpa kepastian	Diimplementasikan sebagai role opsional (kode siap, tidak wajib dipakai)	Ya
 5. Ringkasan Status per Fase (update terus)
@@ -286,7 +289,7 @@ Tanggal	Area	Ambiguitas	Asumsi yang dipakai	Perlu konfirmasi Owner?
 0 — Skema DB	Selesai	100%	—
  1 — Shift Kasir	Selesai	100%	Konfirmasi Owner atas toleransi bisnis dan kebutuhan Setoran Kas
  2 — Transaksi/Payment	Selesai	100%	—
-3 — VOID	Belum mulai	0%	Tunggu Fase 2; keputusan hard-delete
+ 3 — VOID	Selesai	100%	—
 4 — Harga Minimum	Belum mulai	0%	Independen, bisa paralel dengan Fase 1–2
 5 — Nominal Cepat	Belum mulai	0%	Independen, bisa paralel
 6 — Struk	Belum mulai	0%	Tunggu Fase 1, 2

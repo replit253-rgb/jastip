@@ -57,6 +57,15 @@ router.patch("/", requireAuth, requireRole("owner"), async (req, res) => {
       if (key in body && String(key) !== "_alasan") {
         const val = body[key];
         if (val == null || val === "") continue;
+        if (key === "cash_variance_tolerance") {
+          const tolerance = Number(val);
+          if (!Number.isInteger(tolerance) || tolerance < 0) {
+            res.status(400).json({
+              error: "cash_variance_tolerance harus berupa angka Rupiah bulat minimal 0",
+            });
+            return;
+          }
+        }
         // Simpan sebagai JSON string jika nilai adalah object/array
         const strVal = typeof val === "object" ? JSON.stringify(val) : String(val);
         updates.push({ key, value: strVal });

@@ -417,14 +417,16 @@ export default function BarcodeGroupDetail() {
                     >
                       <Pencil className="w-3 h-3 mr-1" /> Edit
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-xs border-red-300 text-red-600 hover:bg-red-50"
-                      onClick={() => setDeletePkg(pkg)}
-                    >
-                      <Trash2 className="w-3 h-3 mr-1" /> Hapus
-                    </Button>
+                     {user?.role === "owner" && (
+                       <Button
+                         size="sm"
+                         variant="outline"
+                         className="text-xs border-red-300 text-red-600 hover:bg-red-50"
+                         onClick={() => setDeletePkg(pkg)}
+                       >
+                         <Trash2 className="w-3 h-3 mr-1" /> Hapus
+                       </Button>
+                     )}
                   </div>
                 </div>
 
