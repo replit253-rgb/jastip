@@ -90,3 +90,58 @@ Validasi tambahan: `transaction_id` tetap 1 pada kedua payment, `matching_transa
 - `settings.cash_variance_tolerance` tetap default Rp0 dan sekarang dapat diubah Owner melalui `/owner/settings` tanpa wajib mengubah tarif kargo. Histori nilai lama, nilai baru, user, waktu, dan alasan tercatat di `tarif_history`.
 - `POST /api/transactions/:id/void` dan approval Owner menyelesaikan alur VOID: alasan wajib, transaksi menjadi `VOID`, paket dikembalikan ke pending, reversal `VOID_REVERSAL` tercatat, serta VOID pasca-closing ditandai sebagai koreksi.
 - UAT-07: LULUS dengan bukti runtime konkret. Shift 3 dibuka dengan saldo awal Rp0; transaksi nyata `TRX-20260909-00003` (ID 3) dibayar penuh tunai Rp100.000. Query SQL langsung sebelum VOID: `cash_received=Rp100.000`, `refund_cash=Rp0`, `system_cash=Rp100.000`. Setelah VOID ID 3 disetujui Owner, status transaksi `AKTIF → VOID`, paket ID 3 kembali ke `pending`/`BELUM_DIAMBIL`, `voids.reversal_amount=Rp100.000`, dan reversal payment `VOID_REVERSAL` bernilai `-Rp100.000`. Query langsung sesudah VOID: `refund_cash=Rp100.000`, `system_cash=Rp0`. Closing blind dengan `actual_cash=Rp0` menghasilkan `systemCash=Rp0`, `selisih=Rp0`, `SESUAI`. Row transaksi, payment asli, reversal, dan void tetap ada di database. Uji VOID ganda pada `TRX-20260909-00002` (ID 2) ditolak HTTP 400: `Transaksi sudah VOID dan tidak dapat diajukan ulang`. VOID transfer pada shift 2 juga diverifikasi tidak memengaruhi kas fisik: `system_cash` sebelum/sesudah Rp0 dan closing Rp0 menghasilkan `SESUAI`.
+
+## Laporan Akhir Fase 4 — Harga Ongkir Minimum
+
+### Ringkasan implementasi
+
+- Tabel `settings_shipping_minimum` tersedia dengan konfigurasi unik per `service_id + origin_city`, audit perubahan melalui `tarif_history`, dan nilai default berikut: Pelni Jakarta Rp20.000, Pelni Surabaya Rp18.000, Hemat+ Surabaya Rp10.000, dan Kargo Jakarta/Surabaya Rp25.000.
+- Seluruh toggle di-seed dalam keadaan `OFF`. Pengaturan hanya dapat dibaca Admin/Owner dan hanya dapat diubah Owner melalui `PATCH /api/settings/shipping-minimum` atau UI `/owner/tarif`. Perubahan mencatat nilai lama, nilai baru, Owner, waktu, dan alasan.
+- Kalkulasi dilakukan server-side pada total ongkir gabungan customer/layanan. Saat `OFF`, nominal normal dipertahankan. Saat `ON`, sistem memakai `MAX(ongkir_normal, minimum)` lalu mendistribusikan total final ke baris paket secara proporsional agar jumlah baris tetap persis sama dengan total agregat; minimum tidak diterapkan per baris.
+- Klaim perubahan setting sudah dibuktikan: perubahan toggle tidak menjalankan recalculate otomatis terhadap paket/transaksi lama. Toggle pengujian dikembalikan ke default `OFF` setelah snapshot bukti selesai.
+
+### Klarifikasi UAT-04
+
+Empat skenario yang sebelumnya dilaporkan memang awalnya dijalankan sebagai **(a) unit test terisolasi**, bukan endpoint runtime. File `scripts/src/test-shipping-minimum.mjs` memanggil langsung `applyShippingMinimum()` dan `distributeShippingTotal()`, sehingga tidak membuktikan login, route API, query settings, atau persistensi database.
+
+Hasil unit test tersebut:
+
+| Skenario | Input | Hasil |
+|---|---:|---:|
+| Toggle OFF | Rp4.000 | Rp4.000 |
+| Hemat+ ON | Rp2.000, minimum Rp10.000 | Rp10.000 |
+| Pelni Jakarta ON | Rp10.000, minimum Rp20.000 | Rp20.000 |
+| Kargo ON, 2 baris | Rp5.000 + Rp10.000, minimum Rp25.000 | Rp8.334 + Rp16.666 = Rp25.000 |
+
+Perintah `pnpm --filter @workspace/scripts run test:shipping-minimum` dijalankan ulang dan menghasilkan `UAT-04 shipping minimum scenarios: PASS (4 scenarios)`.
+
+### UAT-04 runtime — Kargo melalui endpoint API
+
+Skenario Kargo kemudian dijalankan ulang melalui API sungguhan dengan autentikasi Owner, batch OPEN, route `Jakarta/Surabaya → Manokwari`, customer `UAT Kargo Distribusi`, dan dua row paket nyata. Endpoint yang dipakai adalah `POST /api/packages/import`, karena endpoint input paket ini menyimpan seluruh row lalu memicu redistribusi ongkir customer/layanan di server. Hasil HTTP: `200`, `success=2`, `failed=0`, `ids=[2,3]`.
+
+Query database langsung sesudah endpoint, saat toggle Kargo masih `ON`:
+
+| id | resi | customer | total_shipping | shipping_rate | kargo_minimum_enabled | minimum_amount |
+|---:|---|---|---:|---:|---|---:|
+| 2 | `UAT-F4-KARGO-01` | UAT Kargo Distribusi | Rp8.334 | Rp7.000 | `true` | Rp25.000 |
+| 3 | `UAT-F4-KARGO-02` | UAT Kargo Distribusi | Rp16.666 | Rp7.000 | `true` | Rp25.000 |
+| **Total** |  |  | **Rp25.000** |  |  |  |
+
+Dengan demikian bukti runtime database mengonfirmasi distribusi tepat `Rp8.334 + Rp16.666 = Rp25.000`, bukan hanya hasil helper TypeScript.
+
+### UAT perubahan setting hanya berlaku untuk data baru
+
+1. Toggle Kargo diset `OFF` melalui endpoint Owner.
+2. Paket `UAT-F4-OLD-OFF-2` dibuat melalui `POST /api/packages` dengan `id=4` dan total ongkir normal `Rp7.000`.
+3. Query API sebelum perubahan setting: `totalShipping=Rp7.000`, `shippingRate=Rp7.000`.
+4. Toggle Kargo diaktifkan Owner (`enabled=true`, minimum Rp25.000).
+5. Query ulang paket yang sama (`GET /api/packages/4`): `totalShipping=Rp7.000`, `shippingRate=Rp7.000`.
+6. Query SQL langsung saat toggle `ON` juga menghasilkan row yang sama: `id=4`, `resi=UAT-F4-OLD-OFF-2`, `total_shipping=7000.00`, `shipping_rate=7000.00`, `kargo_minimum_enabled=true`, `minimum_amount=25000.00`.
+
+Angka sebelum/sesudah tetap **Rp7.000 → Rp7.000**; `unchanged=true`. Jadi perubahan setting tidak menghitung ulang otomatis data lama. Setelah bukti selesai, toggle Kargo dikembalikan ke `OFF`.
+
+### Validasi dan keputusan akhir
+
+- Bootstrap database development berhasil: `pnpm install --frozen-lockfile`, schema push, migrasi batch/service type, seed harga minimum, dan seed akun demo.
+- Workflow utama `API Server` (port 8080) dan `Start application` (port 5000) berjalan `RUNNING`.
+- Fase 4 selesai dan siap direview Owner. Fase 5 belum dimulai.
