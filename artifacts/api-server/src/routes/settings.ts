@@ -19,6 +19,7 @@ const ALLOWED_KEYS = [
   "pelniTiersJakarta",
   "pelniTiersSurabaya",
   "cash_variance_tolerance",
+  "receipt_print_mode",
 ] as const;
 
 // Mapping key → label jenis jastip untuk history
@@ -29,6 +30,7 @@ const KEY_LABEL: Record<string, string> = {
   pelniTiersJakarta: "Jastip Pelni (Jakarta)",
   pelniTiersSurabaya: "Jastip Pelni (Surabaya)",
   cash_variance_tolerance: "Toleransi Selisih Kas",
+  receipt_print_mode: "Mode Cetak Struk",
 };
 
 // GET /api/settings — returns all app settings (admin + owner)
@@ -240,6 +242,12 @@ router.patch("/", requireAuth, requireRole("owner"), async (req, res) => {
             });
             return;
           }
+        }
+        if (key === "receipt_print_mode" && !["AUTO", "ASK", "OFF"].includes(String(val))) {
+          res.status(400).json({
+            error: "receipt_print_mode harus AUTO, ASK, atau OFF",
+          });
+          return;
         }
         // Simpan sebagai JSON string jika nilai adalah object/array
         const strVal = typeof val === "object" ? JSON.stringify(val) : String(val);

@@ -618,6 +618,48 @@ paths:
 
   # ─── REPORTS ────────────────────────────────────────────────────────────────
 
+  /transactions/{id}/receipt:
+    get:
+      operationId: getTransactionReceipt
+      tags: [transactions]
+      summary: Get receipt data for a transaction
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Receipt data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionReceipt"
+        "404":
+          description: Transaction not found
+
+  /transactions/{id}/receipt/print:
+    post:
+      operationId: printTransactionReceipt
+      tags: [transactions]
+      summary: Record a transaction receipt print
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Receipt data and print log information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrintedTransactionReceipt"
+        "404":
+          description: Transaction not found
+
   /reports:
     get:
       operationId: getReport
@@ -665,6 +707,153 @@ components:
         message:
           type: string
       required: [message]
+
+    TransactionReceipt:
+      type: object
+      required: [business, transaction, payments, packages]
+      properties:
+        business:
+          type: object
+          required: [name, subtitle]
+          properties:
+            name:
+              type: string
+            subtitle:
+              type: string
+        transaction:
+          $ref: "#/components/schemas/ReceiptTransaction"
+        payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReceiptPayment"
+        packages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReceiptPackage"
+        cashier:
+          anyOf:
+            - $ref: "#/components/schemas/ReceiptCashier"
+            - type: "null"
+        shift:
+          anyOf:
+            - $ref: "#/components/schemas/ReceiptShift"
+            - type: "null"
+
+    PrintedTransactionReceipt:
+      type: object
+      required: [receipt, print]
+      properties:
+        receipt:
+          $ref: "#/components/schemas/TransactionReceipt"
+        print:
+          type: object
+          required: [copyNumber, isReprint]
+          properties:
+            copyNumber:
+              type: integer
+            isReprint:
+              type: boolean
+            label:
+              type: ["string", "null"]
+
+    ReceiptTransaction:
+      type: object
+      required: [id, transactionNo, customerName, subtotal, discount, total, paymentStatus, transactionStatus, sisaPiutang, createdAt, packageIds]
+      properties:
+        id:
+          type: integer
+        transactionNo:
+          type: string
+        customerName:
+          type: string
+        subtotal:
+          type: number
+        discount:
+          type: number
+        discountReason:
+          type: ["string", "null"]
+        total:
+          type: number
+        paymentStatus:
+          type: string
+        transactionStatus:
+          type: string
+        sisaPiutang:
+          type: number
+        createdAt:
+          type: string
+        packageIds:
+          type: array
+          items:
+            type: integer
+
+    ReceiptPayment:
+      type: object
+      properties:
+        id:
+          type: integer
+        paymentType:
+          type: string
+        paymentTypeLabel:
+          type: string
+        paymentMethod:
+          type: ["string", "null"]
+        paymentMethodLabel:
+          type: string
+        totalAmount:
+          type: number
+        paidAmount:
+          type: number
+        changeAmount:
+          type: number
+        paymentReference:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    ReceiptPackage:
+      type: object
+      properties:
+        id:
+          type: integer
+        barcode:
+          type: string
+        resiNumber:
+          type: string
+        packageNumber:
+          type: ["string", "null"]
+        itemName:
+          type: ["string", "null"]
+        serviceType:
+          type: ["string", "null"]
+        deliveryRoute:
+          type: ["string", "null"]
+        usedWeight:
+          type: number
+        totalShipping:
+          type: number
+
+    ReceiptCashier:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        phone:
+          type: string
+
+    ReceiptShift:
+      type: object
+      properties:
+        id:
+          type: integer
+        shiftType:
+          type: string
+        terminalId:
+          type: ["string", "null"]
 
     LoginInput:
       type: object

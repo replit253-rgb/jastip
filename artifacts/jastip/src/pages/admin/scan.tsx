@@ -11,8 +11,9 @@ import {
 import {
   Camera, Upload, ScanLine, X, Hash, Trash2, CheckCircle2,
   ShoppingCart, RotateCcw, Banknote, CreditCard, Clock, ChevronDown, ChevronUp,
-  AlertTriangle, Users, Tag,
+  AlertTriangle, Users, Tag, Printer,
 } from "lucide-react";
+import { buildReceiptDocument, type ReceiptPrintPayload } from "@/lib/print-receipt";
 
 function formatRp(n: number | string | null | undefined) {
   if (n == null || n === "") return "Rp 0";
@@ -104,6 +105,8 @@ export default function AdminScan() {
   const [jatuhTempo, setJatuhTempo] = useState("");
   const [catatanPiutang, setCatatanPiutang] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [receiptPrintMode, setReceiptPrintMode] = useState<"AUTO" | "ASK" | "OFF">("ASK");
+  const [receiptPromptTransactionId, setReceiptPromptTransactionId] = useState<number | null>(null);
 
   // ── Diskon State ─────────────────────────────────────────────────────────
   const [diskon, setDiskon] = useState<string>("");
@@ -122,6 +125,22 @@ export default function AdminScan() {
   const SCANNER_ID = "admin-scan-pos-scanner";
 
   useEffect(() => { itemsRef.current = items; }, [items]);
+
+  useEffect(() => {
+    const token = localStorage.getItem("jaj_token");
+    fetch("/api/settings", { headers: { Authorization: `Bearer ${token}` } })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((settings) => {
+        if (settings?.receipt_print_mode === "AUTO" || settings?.receipt_print_mode === "OFF") {
+          setReceiptPrintMode(settings.receipt_print_mode);
+        } else if (settings?.receipt_print_mode === "ASK") {
+          setReceiptPrintMode("ASK");
+        }
+      })
+      .catch(() => {
+        // Receipt printing remains opt-in when settings cannot be loaded.
+      });
+  }, []);
 
   const totalTagihan = items.reduce((s, i) => s + i.totalShipping, 0);
   const diskonNum = Number(diskon.replace(/\D/g, "")) || 0;
@@ -372,6 +391,41 @@ export default function AdminScan() {
     setDiskon(digits ? Number(digits).toLocaleString("id-ID") : "");
   }
 
+  async function printReceipt(transactionId: number) {
+    const printWindow = window.open("", "_blank", "width=420,height=720");
+    if (!printWindow) {
+      toast({
+        variant: "destructive",
+        title: "Popup diblokir",
+        description: "Izinkan popup browser untuk mencetak struk.",
+      });
+      return;
+    }
+    printWindow.document.write("<p style='font:14px Arial;padding:20px'>Menyiapkan struk...</p>");
+    printWindow.document.close();
+    try {
+      const response = await fetch(`/api/transactions/${transactionId}/receipt/print`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${localStorage.getItem("jaj_token")}` },
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Gagal menyiapkan struk");
+      printWindow.document.open();
+      printWindow.document.write(
+        buildReceiptDocument(body.receipt as ReceiptPrintPayload, body.print),
+      );
+      printWindow.document.close();
+      printWindow.focus();
+    } catch (error: any) {
+      printWindow.close();
+      toast({
+        variant: "destructive",
+        title: "Gagal mencetak struk",
+        description: error?.message || "Coba lagi.",
+      });
+    }
+  }
+
   async function handleKonfirmasiBayar() {
     if (isSavingRef.current) return;
     // Validasi diskon: jika ada diskon, alasan wajib diisi
@@ -447,6 +501,8 @@ export default function AdminScan() {
         const errorBody = await res.json().catch(() => null);
         throw new Error(errorBody?.error || "Gagal menyimpan pembayaran");
       }
+      const created = await res.json();
+      const transactionId = Number(created?.transaction?.id);
 
       const typeLabel = PAYMENT_TYPES.find((t) => t.value === paymentType)?.label || paymentType;
       const diskonInfo = diskonNum > 0 ? ` | Diskon: ${formatRp(diskonNum)}` : "";
@@ -457,6 +513,13 @@ export default function AdminScan() {
       setShowPayModal(false);
       idempotencyKeyRef.current = null;
       resetAll();
+      if (Number.isInteger(transactionId) && transactionId > 0) {
+        if (receiptPrintMode === "AUTO") {
+          await printReceipt(transactionId);
+        } else if (receiptPrintMode === "ASK") {
+          setReceiptPromptTransactionId(transactionId);
+        }
+      }
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -992,6 +1055,38 @@ export default function AdminScan() {
                 <CheckCircle2 className="h-4 w-4" />
               )}
               Konfirmasi Bayar &amp; Serahkan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={receiptPromptTransactionId !== null}
+        onOpenChange={(open) => !open && setReceiptPromptTransactionId(null)}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Printer className="h-5 w-5 text-primary" /> Cetak struk transaksi?
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Pembayaran berhasil disimpan. Cetak struk sekarang atau lewati dan
+            gunakan tombol Cetak Struk dari histori transaksi untuk mencetak ulang.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReceiptPromptTransactionId(null)}>
+              Lewati
+            </Button>
+            <Button
+              onClick={async () => {
+                if (receiptPromptTransactionId === null) return;
+                const id = receiptPromptTransactionId;
+                setReceiptPromptTransactionId(null);
+                await printReceipt(id);
+              }}
+            >
+              <Printer className="h-4 w-4" /> Cetak Struk
             </Button>
           </DialogFooter>
         </DialogContent>

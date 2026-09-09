@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Settings, Save, Loader2, History } from "lucide-react";
+import { Settings, Save, Loader2, History, Printer } from "lucide-react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -45,6 +45,7 @@ export default function OwnerSettings() {
   const { toast } = useToast();
   const [kargoRate, setKargoRate] = useState<string>("");
   const [cashVarianceTolerance, setCashVarianceTolerance] = useState<string>("0");
+  const [receiptPrintMode, setReceiptPrintMode] = useState<"AUTO" | "ASK" | "OFF">("ASK");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
@@ -57,6 +58,7 @@ export default function OwnerSettings() {
       .then(([d, historyRows]) => {
         setKargoRate(d.kargoRate != null ? String(d.kargoRate) : "");
         setCashVarianceTolerance(d.cash_variance_tolerance != null ? String(d.cash_variance_tolerance) : "0");
+        setReceiptPrintMode(d.receipt_print_mode === "AUTO" || d.receipt_print_mode === "OFF" ? d.receipt_print_mode : "ASK");
         setHistory(historyRows as any[]);
       })
       .catch(() => {
@@ -81,6 +83,7 @@ export default function OwnerSettings() {
       return;
     }
     data.cash_variance_tolerance = tolerance;
+    data.receipt_print_mode = receiptPrintMode;
     if (Object.keys(data).length === 1) {
       toast({ variant: "destructive", title: "Tarif tidak valid", description: "Masukkan tarif kargo yang benar." });
       return;
@@ -90,6 +93,7 @@ export default function OwnerSettings() {
       const updated = await patchSettings(data);
       setKargoRate(updated.kargoRate != null ? String(updated.kargoRate) : kargoRate);
       setCashVarianceTolerance(updated.cash_variance_tolerance != null ? String(updated.cash_variance_tolerance) : String(tolerance));
+      setReceiptPrintMode(updated.receipt_print_mode === "AUTO" || updated.receipt_print_mode === "OFF" ? updated.receipt_print_mode : receiptPrintMode);
       setHistory(await fetchToleranceHistory());
       toast({ title: "Tersimpan", description: `Pengaturan berhasil diperbarui. Toleransi kas saat ini Rp ${tolerance.toLocaleString("id-ID")}.` });
     } catch {
@@ -104,7 +108,7 @@ export default function OwnerSettings() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Pengaturan Kas & Tarif</h1>
         <p className="text-muted-foreground mt-1">
-          Atur tarif default dan toleransi selisih kas sesuai kebijakan Owner.
+          Atur tarif default, perilaku cetak struk, dan toleransi selisih kas sesuai kebijakan Owner.
         </p>
       </div>
 
@@ -162,6 +166,37 @@ export default function OwnerSettings() {
                     value={cashVarianceTolerance}
                     onChange={(e) => setCashVarianceTolerance(e.target.value)}
                   />
+                </div>
+              </div>
+
+              <div className="space-y-2 border-t pt-4">
+                <Label className="flex items-center gap-2">
+                  <Printer className="h-4 w-4" /> Cetak Struk
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Pengaturan ini berlaku setelah pembayaran transaksi berhasil.
+                  Cetak ulang dari halaman Transaksi &amp; VOID tetap tersedia.
+                </p>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {([
+                    ["AUTO", "Otomatis", "Langsung membuka dialog cetak"],
+                    ["ASK", "Tanya sebelum cetak", "Kasir memilih cetak atau lewati"],
+                    ["OFF", "Nonaktif", "Tidak membuka cetak otomatis"],
+                  ] as const).map(([value, label, description]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setReceiptPrintMode(value)}
+                      className={`rounded-lg border-2 p-3 text-left transition-colors ${
+                        receiptPrintMode === value
+                          ? "border-primary bg-primary/5"
+                          : "border-muted hover:border-primary/40"
+                      }`}
+                    >
+                      <span className="block text-sm font-semibold">{label}</span>
+                      <span className="mt-1 block text-[11px] leading-snug text-muted-foreground">{description}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
 

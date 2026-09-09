@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Ban, Banknote, CircleDollarSign, Clock3, CreditCard, ReceiptText } from "lucide-react";
+import { Ban, Banknote, CircleDollarSign, Clock3, CreditCard, ReceiptText, Printer } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +10,7 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth";
+import { buildReceiptDocument, type ReceiptPrintPayload } from "@/lib/print-receipt";
 
 type FinanceSummary = {
   transactionsToday: number;
@@ -59,6 +60,32 @@ export default function OwnerFinanceTransactions() {
     }
     if (transactionsResponse.ok) {
       setTransactions(await transactionsResponse.json());
+    }
+  }
+
+  async function printReceipt(transactionId: number) {
+    const printWindow = window.open("", "_blank", "width=420,height=720");
+    if (!printWindow) {
+      setMessage("Popup diblokir. Izinkan popup browser untuk mencetak struk.");
+      return;
+    }
+    printWindow.document.write("<p style='font:14px Arial;padding:20px'>Menyiapkan struk...</p>");
+    printWindow.document.close();
+    try {
+      const response = await fetch(`/api/transactions/${transactionId}/receipt/print`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Gagal menyiapkan struk.");
+      printWindow.document.open();
+      printWindow.document.write(buildReceiptDocument(body.receipt as ReceiptPrintPayload, body.print));
+      printWindow.document.close();
+      printWindow.focus();
+      setMessage(body.print?.isReprint ? "Salinan struk berhasil dicatat." : "Struk berhasil dicatat.");
+    } catch (error: any) {
+      printWindow.close();
+      setMessage(error.message || "Gagal mencetak struk.");
     }
   }
 
@@ -228,6 +255,14 @@ export default function OwnerFinanceTransactions() {
                 <span className="text-sm font-semibold">
                   {transaction.payments?.length ?? 0} pembayaran · sisa {formatRp(transaction.sisaPiutang)}
                 </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1"
+                  onClick={() => void printReceipt(transaction.id)}
+                >
+                  <Printer className="h-3.5 w-3.5" /> Cetak Struk
+                </Button>
                 {transaction.transactionStatus === "AKTIF" && (
                   <Button
                     size="sm"
