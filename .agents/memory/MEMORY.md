@@ -6,3 +6,4 @@
 - [Group barcode scan bug](group-barcode-scan-fixed.md) — already fixed in code (GROUP_BARCODE_PREFIX + loop in scan.tsx); if user reports it again on their VPS, it's a stale-deploy issue, not a new code bug
 - [Dependency firewall install](dependency-firewall-install.md) — choose a mature exact version when registry rejection and minimum release age block normal workspace installation
 - [VOID cash attribution](void-cash-attribution.md) — physical refunds reduce only the original cash component; active-source reversals stay in that shift, post-closing reversals stay corrections
+- [Payment confirmation rules](payment-confirmation-rules.md) — new cash confirmations require full tender; installment payments use the receivable settlement path

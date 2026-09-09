@@ -262,6 +262,12 @@ router.post(
         res.status(400).json({ error: "Nominal pembayaran wajib diisi" });
         return;
       }
+      if (method === "tunai" && received < total) {
+        res.status(400).json({
+          error: "Uang diterima kurang dari total tagihan",
+        });
+        return;
+      }
       if (method === "transfer" && received !== total) {
         res.status(400).json({ error: "Pembayaran transfer harus sama dengan total" });
         return;

@@ -199,7 +199,15 @@ Referensi: Transaksi, Struk & Invoice, Bagian 4.
  Piutang: wajib isi nama penanggung jawab, nominal, jatuh tempo, catatan.
  Simpan transaksi+payment+kasir+waktu sebagai satu proses atomik (gunakan DB transaction, cegah race condition/double submit — idempotency key per klik konfirmasi).
 
-Catatan Implementasi: (isi setelah selesai)
+ Catatan Implementasi Fase 5 — selesai dan diverifikasi runtime (2026-09-09):
+ - Idempotency server-side ditambahkan pada transaksi baru menggunakan `Idempotency-Key`, unique index database, row lock paket, dan satu DB transaction untuk transaksi + payment + update status paket.
+ - Uji request POST `/api/transactions` yang sama persis dua kali dengan key `f5-idempotency-001`: request pertama HTTP 201 menghasilkan `TRX-20260909-00001`/transaction ID 1 dan payment ID 1; request kedua HTTP 200 mengembalikan transaksi/payment yang sama. Query SQL: `transactions.id=1`, `idempotency_key=f5-idempotency-001`, `payment_rows=1`. Tidak ada row duplikat.
+ - UAT-05 lulus melalui endpoint sungguhan. Nominal `Pas` dan `Rp50.000` menghasilkan `paid_amount=Rp50.000`, `change_amount=Rp0`; nominal `Rp100.000` menghasilkan kembalian Rp50.000; `Rp150.000` menghasilkan Rp100.000; `Rp200.000` menghasilkan Rp150.000. Semua request sukses HTTP 201 dan tercatat sebagai transaksi/payment nyata.
+ - UAT-06 lulus melalui endpoint sungguhan setelah validasi server-side ditambahkan. Request tunai tagihan Rp500.000 dengan uang diterima Rp400.000 ditolak HTTP 400 dengan response `{"error":"Uang diterima kurang dari total tagihan"}`. Cicilan tetap dilakukan melalui alur piutang/pelunasan, bukan konfirmasi tunai transaksi baru.
+ - UAT-13 regresi lulus: transaksi nyata `TRX-20260909-00008`/ID 8 total Rp500.000 dibuat dengan `sisa_piutang=Rp500.000`, `payment_status=BELUM_BAYAR`, lalu payment Rp200.000 menghasilkan `sisa_piutang=Rp300.000`, `BAYAR_SEBAGIAN`; payment Rp300.000 menghasilkan `sisa_piutang=Rp0`, `LUNAS`. Query akhir menunjukkan tepat 2 payment (`Rp200.000 + Rp300.000 = Rp500.000`) dan tetap 1 transaction.
+ - UAT-07 regresi lulus dengan skenario terisolasi: `TRX-20260909-00010`/ID 10 pada shift 2 dibayar tunai Rp100.000. Query sebelum VOID: `cash_received=Rp100.000`, `refund_cash=Rp0`, `system_cash=Rp100.000`. Setelah request VOID dan approval Owner, reversal `VOID_REVERSAL=-Rp100.000` tercatat, query sesudahnya: `cash_received=Rp100.000`, `refund_cash=Rp100.000`, `system_cash=Rp0`; transaksi menjadi `VOID`, `void.status_after=VOID`, paket ID 11 kembali `pending/BELUM_DIAMBIL`. Row histori tidak dihapus.
+ - Validasi server-side field piutang wajib lulus. POST `/api/transactions` tanpa `penanggungJawab`, `jatuhTempo`, dan `notes` ditolak HTTP 400 dengan response `{"error":"Nama penanggung jawab wajib diisi untuk piutang"}`; query `missing_debt_transactions=0`.
+ - `pnpm typecheck` seluruh workspace lulus. Build API dan frontend lulus; warning build frontend hanya sourcemap/chunk-size non-fatal. Workflow utama API Server (8080) dan Start application (5000) berjalan RUNNING; `/api/healthz` HTTP 200.
 
 FASE 6 — Struk Transaksi
 
@@ -253,8 +261,8 @@ Diambil & diperluas dari dokumen sumber (Bagian 14, dokumen 3):
  UAT-02 Kolom Jenis Barang PDF Cargo tidak terpotong untuk teks ≥60 karakter.
  UAT-03 Toggle harga minimum ON/OFF bekerja per layanan, hanya bisa diubah Owner.
  UAT-04 Semua contoh harga minimum (Bagian 3 dokumen) menghasilkan nilai benar.
- UAT-05 Tombol Pas + 4 nominal cepat mengisi nilai tepat; input manual tetap berfungsi.
- UAT-06 Konfirmasi tunai gagal jika uang diterima kurang; kembalian dihitung benar.
+   UAT-05 Tombol Pas + 4 nominal cepat mengisi nilai tepat; input manual tetap berfungsi. **LULUS lewat endpoint runtime** — Rp50.000/Rp50.000 menghasilkan kembalian Rp0; Rp100.000 menghasilkan Rp50.000; Rp150.000 menghasilkan Rp100.000; Rp200.000 menghasilkan Rp150.000.
+ UAT-06 Konfirmasi tunai gagal jika uang diterima kurang; kembalian dihitung benar. **LULUS lewat endpoint runtime** — uang diterima Rp400.000 untuk tagihan Rp500.000 ditolak HTTP 400 dengan pesan `Uang diterima kurang dari total tagihan`.
    UAT-07 VOID mengembalikan status paket & membuat reversal tanpa menghapus riwayat. **LULUS secara implementasi** — approval berjalan dalam transaksi database, status transaksi menjadi `VOID`, paket kembali ke `BELUM_DIAMBIL`, reversal tercatat sebagai `VOID_REVERSAL`, dan row transaksi/payment/void tetap tersimpan.
  UAT-08 Struk menampilkan subtotal, diskon, total, metode bayar, uang diterima, kembalian.
  UAT-09 Cetak otomatis ON/OFF berfungsi; cetak ulang tercatat di print_logs.
@@ -271,7 +279,8 @@ Diambil & diperluas dari dokumen sumber (Bagian 14, dokumen 3):
   - Bootstrap idempotent selesai: 4 service types, batch legacy, 6 akun demo, dan default `cash_variance_tolerance=0`.
   - Endpoint `/api/healthz` mengembalikan HTTP 200 `{"status":"ok"}`; endpoint protected tanpa autentikasi menolak request dengan HTTP 401.
   - Typecheck API/web/scripts dan build API/web berhasil. Script `seed-batch2.ts` juga diperbaiki agar typecheck workspace penuh bersih.
-  - UAT-12, UAT-13, dan UAT-14 lulus; blind closing diuji ulang tanpa membocorkan `systemCash` dan hasil closing `SESUAI`.
+   - UAT-12, UAT-13, dan UAT-14 lulus; blind closing diuji ulang tanpa membocorkan `systemCash` dan hasil closing `SESUAI`.
+   - Fase 5 diverifikasi lewat runtime endpoint + query SQL: idempotency menghasilkan 1 transaction/1 payment, UAT-05/UAT-06 lulus, UAT-07/UAT-13 tidak regresi, dan field piutang wajib ditolak server-side. Fase 6 belum dimulai.
 4. Log Keputusan & Asumsi (WAJIB diisi agent selama proses)
 
 Setiap kali agent mengambil keputusan karena dokumen sumber tidak menjelaskan detail, catat di sini dengan format di bawah. Ini jadi bahan konfirmasi ke Owner nanti — jangan biarkan keputusan diam-diam terkubur di kode.
@@ -300,7 +309,7 @@ Tanggal	Area	Ambiguitas	Asumsi yang dipakai	Perlu konfirmasi Owner?
  2 — Transaksi/Payment	Selesai	100%	—
  3 — VOID	Selesai, disetujui Owner 2026-09-09	100%	—
  4 — Harga Minimum	Selesai, default OFF	100%	Menunggu Owner mengaktifkan toggle bila diperlukan
-5 — Nominal Cepat	Belum mulai	0%	Independen, bisa paralel
+ 5 — Nominal Cepat	Selesai	100%	Menunggu review Owner; jangan mulai Fase 6 sebelum laporan ini disetujui
 6 — Struk	Belum mulai	0%	Tunggu Fase 1, 2
 7 — Invoice A4	Belum mulai	0%	Tunggu Fase 2
 8 — Fix Export	Belum mulai	0%	Independen, bisa dikerjakan kapan saja/duluan

@@ -10,7 +10,7 @@ Terakhir diperbarui: 2026-09-09
 | 2 — Transaksi/Payment | Selesai | 100% | — |
 | 3 — VOID | Selesai, disetujui Owner 2026-09-09 | 100% | — |
 | 4 — Harga Minimum | Selesai, default OFF | 100% | Menunggu Owner mengaktifkan toggle bila diperlukan |
-| 5 — Nominal Cepat | Belum mulai | 0% | Independen, belum dimulai |
+| 5 — Nominal Cepat | Selesai, menunggu review Owner | 100% | Jangan mulai Fase 6 sebelum laporan ini disetujui |
 | 6 — Struk | Belum mulai | 0% | Tunggu Fase 1–2 |
 | 7 — Invoice A4 | Belum mulai | 0% | Tunggu Fase 2 |
 | 8 — Fix Export | Belum mulai | 0% | Independen, belum dimulai |
@@ -144,4 +144,132 @@ Angka sebelum/sesudah tetap **Rp7.000 → Rp7.000**; `unchanged=true`. Jadi peru
 
 - Bootstrap database development berhasil: `pnpm install --frozen-lockfile`, schema push, migrasi batch/service type, seed harga minimum, dan seed akun demo.
 - Workflow utama `API Server` (port 8080) dan `Start application` (port 5000) berjalan `RUNNING`.
-- Fase 4 selesai dan siap direview Owner. Fase 5 belum dimulai.
+- Fase 4 selesai dan siap direview Owner. Fase 5 selesai dan menunggu review Owner; Fase 6 belum dimulai.
+
+## Laporan Akhir Fase 5 — Nominal Cepat, Idempotency, dan Validasi Pembayaran
+
+### Catatan Implementasi
+
+- Dependency workspace dipasang ulang dari `pnpm-lock.yaml`. `pnpm typecheck` seluruh workspace lulus; build API dan frontend lulus dengan warning sourcemap/chunk-size non-fatal. Workflow utama `API Server` (port 8080) dan `Start application` (port 5000) berjalan RUNNING; `/api/healthz` mengembalikan HTTP 200.
+- Transaksi baru sekarang memakai `Idempotency-Key`, unique index database, row lock paket, dan satu DB transaction untuk transaksi + payment + update status paket.
+
+### Bukti 1 — Idempotency double submit
+
+Request POST `/api/transactions` dikirim dua kali berturut-turut secepat mungkin dengan body dan `Idempotency-Key: f5-idempotency-001` yang sama.
+
+Response request pertama:
+
+```text
+HTTP 201
+transaction.id=1
+transaction.transactionNo=TRX-20260909-00001
+payment.id=1
+payment.transactionId=1
+```
+
+Response request kedua:
+
+```text
+HTTP 200
+transaction.id=1
+transaction.transactionNo=TRX-20260909-00001
+payment.id=1
+payment.transactionId=1
+```
+
+Query SQL sesudah dua request:
+
+```text
+id | transaction_no       | idempotency_key       | payment_status | payment_rows
+1  | TRX-20260909-00001   | f5-idempotency-001    | LUNAS          | 1
+```
+
+Hasil: hanya 1 transaction dan 1 payment; request kedua mengembalikan hasil yang sama, bukan error atau duplikat.
+
+### Bukti 2 — Regresi cicilan UAT-13
+
+Transaksi nyata `TRX-20260909-00008` (ID 8), total Rp500.000:
+
+```text
+Tahap              sisa_piutang   payment_status   jumlah payment
+Awal               Rp500.000      BELUM_BAYAR      0
+Bayar Rp200.000    Rp300.000      BAYAR_SEBAGIAN   1
+Bayar Rp300.000    Rp0            LUNAS             2
+```
+
+Query payment SQL:
+
+```text
+id | payment_type       | payment_method | total_amount | paid_amount | transaction_id
+10 | PELUNASAN_PIUTANG  | tunai          | 200000.00    | 200000.00   | 8
+11 | PELUNASAN_PIUTANG  | tunai          | 300000.00    | 300000.00   | 8
+```
+
+Query akhir: `total=500000.00`, `sisa_piutang=0.00`, `payment_status=LUNAS`, `payment_rows=2`, `payment_total=500000.00`, dan tetap hanya 1 transaction.
+
+### Bukti 3 — Regresi VOID UAT-07
+
+Skenario terisolasi menggunakan `TRX-20260909-00010` (ID 10), payment asli ID 12, dan shift 2. Transaksi tunai Rp100.000 dibuat melalui endpoint, lalu VOID diajukan Admin dan disetujui Owner.
+
+Query sebelum VOID:
+
+```text
+shift_id | cash_received | refund_cash | system_cash
+2        | 100000.00     | 0           | 100000.00
+```
+
+Response approval Owner: HTTP 200; `void.id=2`, `transactionId=10`, `status_after=VOID`, `reversal_amount=100000.00`, `packageIdsReturned=[11]`; transaksi menjadi `VOID`.
+
+Query sesudah VOID:
+
+```text
+shift_id | cash_received | refund_cash | system_cash
+2        | 100000.00     | 100000.00   | 0.00
+```
+
+Query status akhir:
+
+```text
+transaction_id | transaction_status | void_status | reversal_amount | package_status | status_pengambilan
+10              | VOID                | VOID        | 100000.00       | pending        | BELUM_DIAMBIL
+```
+
+Row transaction, payment asli, reversal, void, dan package tetap ada; tidak ada hard delete.
+
+### Bukti 4 — UAT-05/UAT-06 endpoint nyata
+
+Uji POST `/api/transactions` menggunakan data runtime nyata dengan total tagihan Rp50.000:
+
+```text
+Tombol/nominal      paid_amount   total_amount   change_amount   HTTP
+Pas                 50.000        50.000         0               201
+Rp50.000            50.000        50.000         0               201
+Rp100.000           100.000       50.000         50.000          201
+Rp150.000           150.000       50.000         100.000         201
+Rp200.000           200.000       50.000         150.000         201
+```
+
+Uji uang diterima kurang dari total setelah validasi server-side:
+
+```text
+Request: total_amount=500000, paid_amount=400000, paymentMethod=tunai
+HTTP 400
+{"error":"Uang diterima kurang dari total tagihan"}
+```
+
+Catatan: satu request eksplorasi sebelum patch (`f5-less-001`) sempat membuat transaksi partial; row tersebut sengaja tidak dihapus karena merupakan histori finansial. Setelah patch, key `f5-less-postfix-001` ditolak HTTP 400 dan tidak membuat transaction.
+
+### Validasi server-side field piutang wajib
+
+POST `/api/transactions` langsung tanpa `penanggungJawab`, `jatuhTempo`, dan `notes`:
+
+```text
+HTTP 400
+{"error":"Nama penanggung jawab wajib diisi untuk piutang"}
+```
+
+Query sesudah request: `missing_debt_transactions=0`.
+
+### Status akhir
+
+Fase 5 selesai dan siap direview Owner. Semua empat bukti diminta sudah dijalankan melalui endpoint sungguhan dan query database development. Fase 6 belum dimulai.

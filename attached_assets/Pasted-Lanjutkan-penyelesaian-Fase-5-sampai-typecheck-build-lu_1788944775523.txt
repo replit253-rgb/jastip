@@ -1,0 +1,45 @@
+Lanjutkan penyelesaian Fase 5 sampai typecheck/build lulus penuh dan workflow
+utama berjalan normal. Sebelum mengirim laporan akhir, buktikan empat hal ini
+lewat runtime nyata (bukan unit test terisolasi, bukan deskripsi kode):
+
+1. IDEMPOTENCY — double submit dicegah nyata
+   Kirim request POST pembayaran/transaksi yang PERSIS SAMA (idempotency key
+   sama) dua kali berturut-turut secara cepat, mensimulasikan klik ganda
+   kasir. Query database setelahnya dan buktikan hanya SATU transaksi dan
+   SATU payment yang tercipta, bukan dua. Tunjukkan response HTTP untuk
+   kedua request (yang kedua idealnya mengembalikan hasil yang sama dengan
+   yang pertama, bukan error atau data duplikat) dan hasil query row count.
+
+2. REGRESI Fase 2 dan Fase 3 — pastikan tidak rusak
+   Karena update status paket sekarang disatukan ke transaksi DB yang sama
+   dengan payment, jalankan ulang minimal:
+   - Satu skenario cicilan (seperti UAT-13): transaksi Rp500.000, cicilan
+     Rp200.000 lalu Rp300.000, buktikan sisa_piutang dan payment_status
+     tetap benar di tiap tahap seperti sebelumnya.
+   - Satu skenario VOID (seperti UAT-07): transaksi tunai, VOID, buktikan
+     reversal dan pengurangan kas shift tetap bekerja seperti yang sudah
+     disetujui di Fase 3.
+   Laporkan angka konkret dari kedua pengujian ulang ini, sama seperti
+   format UAT-13/UAT-07 sebelumnya.
+
+3. UAT-05 dan UAT-06 lewat endpoint sungguhan
+   Uji tombol nominal cepat (Pas/50rb/100rb/150rb/200rb) dan validasi
+   kembalian melalui endpoint API sungguhan dengan data uji nyata, bukan
+   memanggil fungsi kalkulasi secara langsung. Buktikan juga: konfirmasi
+   pembayaran ditolak jika uang diterima kurang dari total tagihan (tunjukkan
+   response error-nya).
+
+4. VALIDASI SERVER-SIDE field piutang wajib
+   Coba submit transaksi piutang TANPA mengisi penanggung_jawab/jatuh_tempo/
+   catatan langsung lewat API (skip UI/form), buktikan server MENOLAK request
+   tersebut dengan error yang jelas — bukan hanya required di form frontend.
+
+Setelah keempat bukti ini lengkap dengan angka/response konkret, update
+Catatan Implementasi Fase 5 di implementasi.md dan Laporan Akhir Fase 5 di
+progres.md dengan bukti tersebut (format sama seperti fase-fase sebelumnya:
+ID transaksi nyata, angka before-after, response HTTP, hasil query SQL).
+
+Tempelkan teks asli kedua bagian dokumentasi itu di laporan akhirmu, bukan
+ringkasan proses.
+
+Jangan mulai Fase 6 sampai saya review dan approve laporan akhir Fase 5 ini.
