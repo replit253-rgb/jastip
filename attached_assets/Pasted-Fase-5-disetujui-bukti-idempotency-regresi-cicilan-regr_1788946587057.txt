@@ -1,0 +1,39 @@
+Fase 5 disetujui — bukti idempotency, regresi cicilan, regresi VOID, dan
+UAT-05/06 semuanya lengkap dan meyakinkan.
+
+Silakan mulai Fase 6 (Struk Transaksi) sesuai implementasi.md. Sebelum
+mulai, baca ulang bagian "Prinsip Wajib", terutama soal audit trail
+mengikuti pola tarif_history.
+
+Item kerja Fase 6:
+- Setting Owner: PENGATURAN > KASIR > CETAK STRUK — Otomatis / Tanya
+  Sebelum Cetak / Nonaktif.
+- Template struk thermal 80mm (fallback A4/PDF). Gunakan print-label.ts
+  sebagai REFERENSI STRUKTUR saja, bukan reuse langsung — struk (bukti
+  pembayaran) dan label (identitas paket fisik) punya isi berbeda.
+- Isi minimum struk sesuai dokumen sumber Bagian 9: identitas usaha, nomor
+  transaksi, kasir + shift yang bertugas, rincian paket, subtotal, diskon,
+  total, metode bayar, uang diterima, kembalian, status pembayaran
+  (LUNAS/BAYAR_SEBAGIAN/BELUM_BAYAR untuk piutang).
+- Cetak ulang (reprint) → label "SALINAN/REPRINT" ditampilkan jelas di
+  struk, dan tercatat ke tabel print_logs (siapa, kapan, berapa kali,
+  transaksi mana).
+
+Standar bukti yang WAJIB dipenuhi di laporan akhir nanti (sudah jadi standar
+tetap sejak Fase 4-5, jangan turun kualitasnya):
+- UAT-08 dan UAT-09 dibuktikan lewat endpoint/render sungguhan, bukan unit
+  test terisolasi.
+- Tunjukkan hasil struk untuk MINIMAL 3 skenario berbeda: transaksi tunai
+  lunas, transaksi piutang belum bayar, dan transaksi cicilan sebagian —
+  buktikan status pembayaran yang tercetak di struk sesuai kondisi
+  transaksi masing-masing (jangan sampai struk piutang salah menampilkan
+  LUNAS).
+- Buktikan setting Owner (Otomatis/Tanya/Nonaktif) benar-benar mengubah
+  perilaku cetak, bukan cuma tersimpan di database tanpa efek.
+- Buktikan print_logs benar-benar bertambah row setiap kali cetak ulang
+  dilakukan, dengan angka before-after row count.
+- Tempelkan teks ASLI dari Catatan Implementasi dan Laporan Akhir Fase 6 di
+  chat, bukan ringkasan proses — ini akan selalu saya minta di setiap fase.
+
+Jangan lanjut otomatis ke Fase 7 setelah Fase 6 selesai — tunggu review
+saya.
