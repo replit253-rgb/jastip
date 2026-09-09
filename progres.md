@@ -84,6 +84,7 @@ Validasi tambahan: `transaction_id` tetap 1 pada kedua payment, `matching_transa
 
 ## Laporan Akhir Fase 3 — VOID & hard delete
 
+- UAT cicilan campuran: LULUS. Melalui runtime API, transaksi `TRX-20260909-00001` (ID 1) dibayar dengan cicilan pertama Rp200.000 tunai dan cicilan kedua Rp300.000 transfer hingga `LUNAS`. Query SQL langsung sebelum VOID menunjukkan `cash_received=Rp200.000`, `refund_cash=Rp0`, `system_cash=Rp200.000`. Setelah VOID disetujui Owner, reversal agregat tercatat `-Rp500.000`, tetapi query sesudahnya menunjukkan `original_cash_portion=Rp200.000`, `refund_cash=Rp200.000`, `system_cash=Rp0`. Kas fisik berkurang tepat Rp200.000, bukan Rp500.000; porsi transfer tidak masuk pengurangan kas.
 - `DELETE /api/packages/:id` dan `PATCH /api/batches/:id` dengan `statusBatch=HAPUS` memakai guard Owner-only. Admin mendapat HTTP 403 dengan pesan yang jelas.
 - Tombol hard delete disembunyikan pada halaman Admin; Owner tetap dapat menghapus paket/batch secara permanen.
 - `settings.cash_variance_tolerance` tetap default Rp0 dan sekarang dapat diubah Owner melalui `/owner/settings` tanpa wajib mengubah tarif kargo. Histori nilai lama, nilai baru, user, waktu, dan alasan tercatat di `tarif_history`.
