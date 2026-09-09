@@ -171,7 +171,7 @@ Referensi: Transaksi, Struk & Invoice, Bagian 3.
  Pelni Surabaya: Rp18.000
  Hemat: Rp10.000
  Cargo: Rp25.000
- Semua toggle default: perlu konfirmasi Owner apakah langsung ON saat rilis atau OFF dulu (TODO_KONFIRMASI_OWNER).
+  Semua toggle default: OFF saat rilis. Toggle hanya dapat diaktifkan Owner melalui `/owner/tarif`.
 4.3 Logika
  Terapkan di titik perhitungan ongkir yang sudah ada (server-side, bagian 12 PRD as-is): Total Ongkir Final = toggle_ON ? MAX(hasil_normal, minimum) : hasil_normal.
  Berlaku terhadap total ongkir per customer dalam satu transaksi/layanan, bukan per baris paket individual (cek ulang contoh Doni: 2 item 0.2+0.5kg dihitung gabungan, bukan per item).
@@ -181,7 +181,11 @@ Referensi: Transaksi, Struk & Invoice, Bagian 3.
 
 Kriteria selesai Fase 4: 4 skenario uji di dokumen (Bagian 3.3) menghasilkan angka yang tepat — jadikan ini test case otomatis.
 
-Catatan Implementasi: (isi setelah selesai)
+Catatan Implementasi:
+  2026-09-09 — Skema `settings_shipping_minimum` ditegaskan unik per `service_id + origin_city` melalui migration additive `0005_shipping_minimum_unique.sql`. Nilai awal di-seed idempoten untuk Pelni Jakarta Rp20.000, Pelni Surabaya Rp18.000, Hemat Surabaya Rp10.000, dan Kargo Jakarta/Surabaya Rp25.000; seluruh toggle OFF.
+  2026-09-09 — Logika minimum diterapkan server-side pada total ongkir gabungan customer/layanan. Toggle OFF mempertahankan rumus lama; toggle ON memakai `MAX(ongkir_normal, minimum)` dan hasilnya didistribusikan kembali ke baris paket agar jumlah tepat tanpa menerapkan minimum per baris.
+  2026-09-09 — Endpoint Owner `GET/PATCH /api/settings/shipping-minimum` dan section `/owner/tarif` selesai. PATCH mencatat nilai lama, nilai baru, Owner, waktu, serta alasan ke `tarif_history`. Perubahan setting tidak menjalankan recalculate otomatis terhadap paket lama.
+  2026-09-09 — UAT-03 lulus melalui pembatasan route Owner-only dan UI toggle per layanan/kota. UAT-04 lulus melalui 4 skenario otomatis: OFF mempertahankan Rp4.000; Hemat Rp2.000→Rp10.000; Pelni Jakarta Rp10.000→Rp20.000; total Kargo dua baris Rp15.000→Rp25.000 dengan distribusi tepat Rp8.334 + Rp16.666.
 
 FASE 5 — Tombol Nominal Cepat & UX Pembayaran
 
@@ -277,7 +281,8 @@ Tanggal	Area	Ambiguitas	Asumsi yang dipakai	Perlu konfirmasi Owner?
 2026-09-09	Hard delete paket dan batch	Owner menegaskan hak hapus permanen tanpa membatasi status transaksi	Hard delete tetap tersedia untuk Owner; Admin menerima 403 dan tidak melihat tombol hapus permanen. Edit/input normal Admin tetap diizinkan	Tidak
 2026-09-08	Backfill payment legacy	Tabel payments lama tidak memiliki penanda final eksplisit	Tunai/transfer dianggap final dan dibuat sebagai transaksi LUNAS; piutang dibuat sebagai transaksi BELUM_BAYAR	Ya, sebelum laporan transaksi Fase 2
 2026-09-08	Waktu WIT	Schema baru memakai timestamp with time zone, tetapi endpoint shift/transaksi belum dibuat	Instan waktu dipertahankan oleh database; normalisasi tampilan dan aturan WIT diverifikasi saat Fase 1–2	Ya, sebelum rilis transaksi
-2026-09-09	Rumus kas shift (Fase 1)	Belum ada tabel khusus Refund Tunai dan Setoran Kas	Refund tunai dihitung dari porsi pembayaran asli tunai pada `VOID_REVERSAL`; reversal transfer dikecualikan. Reversal pada shift yang masih aktif memakai shift sumber, sedangkan VOID pasca-closing tidak mengubah closing yang sudah terkunci. Setoran Kas tetap 0 sampai sumber datanya ditetapkan.	Ya — Owner perlu mengonfirmasi apakah Setoran Kas (uang disetor ke brankas/bank di tengah shift) dibutuhkan sekarang atau bisa ditunda sampai ada kebutuhan nyata
+2026-09-09	Rumus kas shift (Fase 1)	Belum ada tabel khusus Refund Tunai	Refund tunai dihitung dari porsi pembayaran asli tunai pada `VOID_REVERSAL`; reversal transfer dikecualikan. Reversal pada shift yang masih aktif memakai shift sumber, sedangkan VOID pasca-closing tidak mengubah closing yang sudah terkunci.	Tidak — disetujui Owner 2026-09-09
+2026-09-09	Setoran Kas (Fase 1)	Belum ada sumber data setoran kas	Nilai Setoran Kas tetap 0; Owner sudah diberi pertanyaan dan secara sadar menunda keputusan sampai ada kebutuhan nyata. Rumus kas tetap berjalan normal dan asumsi ini tidak menghalangi fase berikutnya.	Ya — keputusan ditunda oleh Owner, bukan pertanyaan yang terlewat
 2026-09-08	State database development saat import	Database reachable tetapi tabel Fase 1 belum tersedia; bukti lokal tidak membedakan database baru/reset dari schema yang belum pernah diterapkan	Anggap ini sebagai development database aktif untuk workspace ini; schema, migrasi legacy, dan seed dijalankan ulang sesuai prosedur setup. Database production/staging wajib diverifikasi sebagai instance/environment terpisah sebelum dipakai.	Ya, Owner perlu memastikan environment staging/production memakai database terpisah dan persistence yang benar
 2026-09-08	Versi Orval untuk codegen	`orval@8.9.1` terblokir registry firewall dan versi terbaru saat itu belum melewati minimum release age	Dependency dikunci persis ke `orval@8.29.0`; codegen tidak dijalankan setelah penggantian dependency, sehingga file generated API client tidak berubah dan diff output codegen kosong.	Ya, pertahankan pin ini dan jangan mengubah versi diam-diam di fase berikutnya
 2026-09-08	Catatan keamanan kredensial	`.env.example` sempat berisi kredensial database development dan berstatus untracked, sehingga tidak pernah masuk commit tetapi tetap dianggap berpotensi terekspos	File tersebut dihapus; `.gitignore` kini memakai pola `.env*` dan verifikasi `git check-ignore` mengonfirmasi `.env` serta `.env.example` dikecualikan. Rotasi kredensial database development masih menunggu tindakan pada Database tool Replit karena binding `DATABASE_URL`/`PG*` bersifat runtime-managed; Fase 2 tidak dimulai sebelum rotasi dan smoke test koneksi selesai.	Ya, Owner perlu melakukan/menyetujui rotasi melalui Database tool dan mengonfirmasi koneksi baru
@@ -286,15 +291,15 @@ Tanggal	Area	Ambiguitas	Asumsi yang dipakai	Perlu konfirmasi Owner?
 2026-09-09	`seed-batch2.ts`: ARCHIVED → ARSIP	Semantik perubahan script seed perlu dibedakan dari perubahan schema/data	Verifikasi tracked diff = kosong; histori tracked hanya memuat `ARSIP`, schema enum tetap `OPEN/CLOSED/ARSIP`, dan script seed-batch2 tidak dijalankan. Perubahan murni perbaikan tipe pada script, tanpa update enum atau row batch pada database development maupun data lama hasil migrasi.	Ya, jangan jalankan seed-batch2 di production tanpa review data tujuan
 2026-09-09	Workflow setelah bootstrap	Dua workflow utama dan tiga workflow artifact duplikat memiliki status berbeda	Gunakan `API Server` port 8080 dan `Start application` port 5000 sebagai workflow utama yang harus RUNNING; workflow artifact duplikat dibiarkan dikelola artifact manager agar tidak menambah bentrok port.	Tidak, hanya perlu dipantau saat deployment
 2026-09-09	Batas toleransi selisih kas	Owner ingin menentukan nilai sendiri lewat pengaturan	Nilai disimpan di `settings.cash_variance_tolerance`, default Rp0, dapat diubah dari Pengaturan Owner, dan setiap perubahan masuk `tarif_history`	Tidak
-  Default toggle harga minimum saat rilis	Tidak disebutkan ON/OFF default	—	Ya, wajib sebelum Fase 4 rilis
+   TODO_KONFIRMASI_OWNER — Default toggle harga minimum saat rilis	Tidak disebutkan ON/OFF default	Toggle dirilis OFF agar tidak mengubah perilaku ongkir existing; Owner dapat mengaktifkannya secara eksplisit melalui `/owner/tarif`.	Ya — Owner perlu mengaktifkan per layanan/kota bila sudah siap
   Role Supervisor	Disebut "opsional" tanpa kepastian	Diimplementasikan sebagai role opsional (kode siap, tidak wajib dipakai)	Ya
 5. Ringkasan Status per Fase (update terus)
  Fase	Status	% Selesai	Blocker
 0 — Skema DB	Selesai	100%	—
  1 — Shift Kasir	Selesai	100%	Konfirmasi Owner atas toleransi bisnis dan kebutuhan Setoran Kas
  2 — Transaksi/Payment	Selesai	100%	—
- 3 — VOID	Selesai	100%	—
-4 — Harga Minimum	Belum mulai	0%	Independen, bisa paralel dengan Fase 1–2
+ 3 — VOID	Selesai, disetujui Owner 2026-09-09	100%	—
+ 4 — Harga Minimum	Selesai, default OFF	100%	Menunggu Owner mengaktifkan toggle bila diperlukan
 5 — Nominal Cepat	Belum mulai	0%	Independen, bisa paralel
 6 — Struk	Belum mulai	0%	Tunggu Fase 1, 2
 7 — Invoice A4	Belum mulai	0%	Tunggu Fase 2

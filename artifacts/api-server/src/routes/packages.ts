@@ -5,9 +5,14 @@ import {
   usersTable,
   serviceTypesTable,
   batchesTable,
+  settingsShippingMinimumTable,
 } from "@workspace/db";
 import { eq, and, ne, inArray, ilike, sql, gte, lte, or } from "drizzle-orm";
 import { requireAuth, requireRole } from "../middlewares/auth";
+import {
+  applyShippingMinimum,
+  distributeShippingTotal,
+} from "../lib/shipping-minimum";
 import crypto from "crypto";
 
 const router = Router();
@@ -30,6 +35,39 @@ function toNum(val: any): number | null {
   if (val === null || val === undefined) return null;
   const n = Number(val);
   return isNaN(n) ? null : n;
+}
+
+async function getShippingMinimum(
+  serviceType: string | null | undefined,
+  deliveryRoute: string | null | undefined,
+) {
+  if (!serviceType || !deliveryRoute) return null;
+  const originCity = String(deliveryRoute).split("→")[0]?.trim();
+  if (!originCity) return null;
+  const rows = await db
+    .select({
+      enabled: settingsShippingMinimumTable.enabled,
+      minimumAmount: settingsShippingMinimumTable.minimumAmount,
+    })
+    .from(settingsShippingMinimumTable)
+    .innerJoin(
+      serviceTypesTable,
+      eq(settingsShippingMinimumTable.serviceId, serviceTypesTable.id),
+    )
+    .where(
+      and(
+        eq(serviceTypesTable.name, serviceType),
+        eq(settingsShippingMinimumTable.originCity, originCity),
+      ),
+    )
+    .limit(1);
+  const row = rows[0];
+  return row
+    ? {
+        enabled: row.enabled,
+        minimumAmount: Number(row.minimumAmount) || 0,
+      }
+    : null;
 }
 
 // ── Pesawat: pembulatan berat gabungan & recalc ongkir ──────────────────────
@@ -74,38 +112,28 @@ async function recalcPesawatCustomerOngkir(
   });
   const totalEffectiveWeight = pkgEffectiveWeights.reduce((s, w) => s + w, 0);
   const roundedWeight = roundPesawatGroupWeight(totalEffectiveWeight);
-  const totalGroupOngkir = Math.round(roundedWeight * 77000);
+  const normalTotalOngkir = Math.round(roundedWeight * 77000);
+  const minimum = await getShippingMinimum(
+    "jastip pesawat",
+    customerPkgs[0].deliveryRoute,
+  );
+  const totalGroupOngkir = applyShippingMinimum(normalTotalOngkir, minimum);
+  const distributedTotals = distributeShippingTotal(
+    totalGroupOngkir,
+    pkgEffectiveWeights,
+  );
 
   // Distribusi ongkir proporsional ke setiap paket agar sum = totalGroupOngkir
-  const updates: Array<{ id: number; pkgOngkir: number }> = [];
-  let distributed = 0;
-  for (let i = 0; i < customerPkgs.length; i++) {
-    const pkg = customerPkgs[i];
-    const pkgEffWeight = pkgEffectiveWeights[i];
-    let pkgOngkir: number;
-    if (customerPkgs.length === 1) {
-      pkgOngkir = totalGroupOngkir;
-    } else if (i === customerPkgs.length - 1) {
-      pkgOngkir = totalGroupOngkir - distributed; // sisa agar total tepat
-    } else {
-      pkgOngkir =
-        totalEffectiveWeight > 0
-          ? Math.round((pkgEffWeight / totalEffectiveWeight) * totalGroupOngkir)
-          : Math.round(totalGroupOngkir / customerPkgs.length);
-      distributed += pkgOngkir;
-    }
-    updates.push({ id: pkg.id, pkgOngkir });
-  }
   await Promise.all(
-    updates.map(({ id, pkgOngkir }) =>
+    customerPkgs.map((pkg, index) =>
       db
         .update(packagesTable)
         .set({
           shippingRate: "77000",
-          totalShipping: String(pkgOngkir),
+          totalShipping: String(distributedTotals[index]),
           updatedAt: new Date(),
         })
-        .where(eq(packagesTable.id, id)),
+        .where(eq(packagesTable.id, pkg.id)),
     ),
   );
 }
@@ -151,39 +179,28 @@ async function recalcHematCustomerOngkir(
     beratDigunakan = totalBerat; // >1 paket: jumlah langsung, tanpa pembulatan per paket
   }
 
-  const totalGroupOngkir = Math.round(beratDigunakan * 10000);
+  const normalTotalOngkir = Math.round(beratDigunakan * 10000);
+  const minimum = await getShippingMinimum(
+    "jastip hemat+",
+    customerPkgs[0].deliveryRoute,
+  );
+  const totalGroupOngkir = applyShippingMinimum(normalTotalOngkir, minimum);
+  const distributedTotals = distributeShippingTotal(
+    totalGroupOngkir,
+    customerPkgs.map((pkg) => Number(pkg.usedWeight) || 0),
+  );
 
   // Distribusi proporsional ke tiap paket agar sum = totalGroupOngkir
-  const updates: Array<{ id: number; pkgOngkir: number }> = [];
-  let distributed = 0;
-  for (let i = 0; i < customerPkgs.length; i++) {
-    const pkg = customerPkgs[i];
-    let pkgOngkir: number;
-    if (customerPkgs.length === 1) {
-      pkgOngkir = totalGroupOngkir;
-    } else if (i === customerPkgs.length - 1) {
-      pkgOngkir = totalGroupOngkir - distributed;
-    } else {
-      pkgOngkir =
-        totalBerat > 0
-          ? Math.round(
-              ((Number(pkg.usedWeight) || 0) / totalBerat) * totalGroupOngkir,
-            )
-          : Math.round(totalGroupOngkir / customerPkgs.length);
-      distributed += pkgOngkir;
-    }
-    updates.push({ id: pkg.id, pkgOngkir });
-  }
   await Promise.all(
-    updates.map(({ id, pkgOngkir }) =>
+    customerPkgs.map((pkg, index) =>
       db
         .update(packagesTable)
         .set({
           shippingRate: "10000",
-          totalShipping: String(pkgOngkir),
+          totalShipping: String(distributedTotals[index]),
           updatedAt: new Date(),
         })
-        .where(eq(packagesTable.id, id)),
+        .where(eq(packagesTable.id, pkg.id)),
     ),
   );
 }
@@ -249,20 +266,75 @@ async function recalcPelniCustomerOngkir(
   const rate = getPelniRateByTotalWeight(totalWeight, deliveryRoute);
   if (!rate) return;
 
-  // Update setiap paket: shippingRate = rate, totalShipping = usedWeight × rate
+  const normalTotals = customerPkgs.map((pkg) =>
+    Math.round((Number(pkg.usedWeight) || 0) * rate),
+  );
+  const normalTotalOngkir = normalTotals.reduce((sum, amount) => sum + amount, 0);
+  const minimum = await getShippingMinimum("jastip pelni", deliveryRoute);
+  const totalGroupOngkir = applyShippingMinimum(normalTotalOngkir, minimum);
+  const distributedTotals = distributeShippingTotal(
+    totalGroupOngkir,
+    customerPkgs.map((pkg) => Number(pkg.usedWeight) || 0),
+  );
+
+  // Update setiap paket: shippingRate = rate, totalShipping dibagi dari total customer
   await Promise.all(
-    customerPkgs.map((pkg) => {
-      const pkgWeight = Number(pkg.usedWeight) || 0;
-      const pkgTotalShipping = Math.round(pkgWeight * rate);
+    customerPkgs.map((pkg, index) => {
       return db
         .update(packagesTable)
         .set({
           shippingRate: String(rate),
-          totalShipping: String(pkgTotalShipping),
+          totalShipping: String(distributedTotals[index]),
           updatedAt: new Date(),
         })
         .where(eq(packagesTable.id, pkg.id));
     }),
+  );
+}
+
+async function recalcKargoCustomerOngkir(
+  batchId: number,
+  customerName: string,
+  deliveryRoute: string | null | undefined,
+): Promise<void> {
+  if (!batchId || !customerName || !deliveryRoute) return;
+  const minimum = await getShippingMinimum("jastip kargo", deliveryRoute);
+  if (!minimum?.enabled) return;
+
+  const allBatchKargo = await db
+    .select()
+    .from(packagesTable)
+    .where(
+      and(
+        eq(packagesTable.batchId, batchId),
+        eq(packagesTable.serviceType, "jastip kargo"),
+      ),
+    );
+  const customerLower = customerName.trim().toLowerCase();
+  const customerPkgs = allBatchKargo.filter(
+    (pkg) =>
+      (pkg.customerName || "").trim().toLowerCase() === customerLower &&
+      pkg.deliveryRoute === deliveryRoute,
+  );
+  if (!customerPkgs.length) return;
+
+  const normalTotals = customerPkgs.map((pkg) => Number(pkg.totalShipping) || 0);
+  const normalTotalOngkir = normalTotals.reduce((sum, amount) => sum + amount, 0);
+  if (normalTotalOngkir <= 0 || normalTotalOngkir >= minimum.minimumAmount) return;
+  const distributedTotals = distributeShippingTotal(
+    minimum.minimumAmount,
+    normalTotals,
+  );
+  await Promise.all(
+    customerPkgs.map((pkg, index) =>
+      db
+        .update(packagesTable)
+        .set({
+          totalShipping: String(distributedTotals[index]),
+          updatedAt: new Date(),
+        })
+        .where(eq(packagesTable.id, pkg.id)),
+    ),
   );
 }
 
@@ -655,6 +727,20 @@ router.post(
         if (refreshed[0]) pkg = refreshed[0];
       }
 
+      if (serviceType === "jastip kargo" && pkg.batchId && pkg.customerName) {
+        await recalcKargoCustomerOngkir(
+          pkg.batchId,
+          pkg.customerName,
+          pkg.deliveryRoute,
+        );
+        const refreshed = await db
+          .select()
+          .from(packagesTable)
+          .where(eq(packagesTable.id, pkg.id))
+          .limit(1);
+        if (refreshed[0]) pkg = refreshed[0];
+      }
+
       const adminMap = new Map<number, any>();
       if (pkg.adminId) {
         const admin = await db
@@ -901,6 +987,33 @@ router.post(
         }
         for (const customerName of hematCustomers) {
           await recalcHematCustomerOngkir(Number(batchId), customerName);
+        }
+      }
+
+      const kargoRows = (rows as any[]).filter(
+        (r: any) => r.serviceType === "jastip kargo",
+      );
+      if (kargoRows.length > 0) {
+        const kargoGroups = new Map<
+          string,
+          { customerName: string; deliveryRoute: string }
+        >();
+        for (const r of kargoRows) {
+          if (!r.customerName || !r.deliveryRoute) continue;
+          const key = `${String(r.customerName).trim().toLowerCase()}|${r.deliveryRoute}`;
+          if (!kargoGroups.has(key)) {
+            kargoGroups.set(key, {
+              customerName: String(r.customerName),
+              deliveryRoute: String(r.deliveryRoute),
+            });
+          }
+        }
+        for (const { customerName, deliveryRoute } of kargoGroups.values()) {
+          await recalcKargoCustomerOngkir(
+            Number(batchId),
+            customerName,
+            deliveryRoute,
+          );
         }
       }
 
@@ -1306,6 +1419,24 @@ router.patch(
         pkg.customerName
       ) {
         await recalcHematCustomerOngkir(pkg.batchId, pkg.customerName);
+        const refreshed = await db
+          .select()
+          .from(packagesTable)
+          .where(eq(packagesTable.id, pkg.id))
+          .limit(1);
+        if (refreshed[0]) pkg = refreshed[0];
+      }
+
+      if (
+        pkg.serviceType === "jastip kargo" &&
+        pkg.batchId &&
+        pkg.customerName
+      ) {
+        await recalcKargoCustomerOngkir(
+          pkg.batchId,
+          pkg.customerName,
+          pkg.deliveryRoute,
+        );
         const refreshed = await db
           .select()
           .from(packagesTable)

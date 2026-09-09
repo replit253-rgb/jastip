@@ -8,6 +8,8 @@
     "seed-demo": "tsx ./src/seed-demo.ts",
     "seed-batches": "tsx ./src/seed-batches.ts",
     "migrate-finance-foundation": "tsx ./src/migrate-finance-foundation.ts",
+    "migrate-shipping-minimum": "tsx ./src/migrate-shipping-minimum.ts",
+    "test:shipping-minimum": "tsx ./src/test-shipping-minimum.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

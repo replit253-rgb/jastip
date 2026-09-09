@@ -14,6 +14,7 @@ import {
 import {
   Settings, Save, Loader2, Plane, Ship, Package, Truck, History, Plus, Trash2,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface PelniTier {
@@ -27,6 +28,17 @@ interface TarifData {
   kargoRate?: number;
   pelniTiersJakarta?: PelniTier[];
   pelniTiersSurabaya?: PelniTier[];
+}
+
+interface ShippingMinimumRow {
+  id: number;
+  serviceId: number;
+  serviceName: string;
+  serviceLabel: string;
+  originCity: string;
+  enabled: boolean;
+  minimumAmount: number;
+  updatedAt: string;
 }
 
 interface HistoryRow {
@@ -219,6 +231,7 @@ export default function OwnerTarif() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingMinimum, setIsSavingMinimum] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [alasan, setAlasan] = useState("");
 
@@ -228,6 +241,7 @@ export default function OwnerTarif() {
   const [kargoRate, setKargoRate] = useState<string>("");
   const [pelniTiersJakarta, setPelniTiersJakarta] = useState<PelniTier[]>(DEFAULT_TIERS_JKT);
   const [pelniTiersSurabaya, setPelniTiersSurabaya] = useState<PelniTier[]>(DEFAULT_TIERS_SBY);
+  const [shippingMinimums, setShippingMinimums] = useState<ShippingMinimumRow[]>([]);
 
   // Tab state untuk Pelni
   const [pelniTab, setPelniTab] = useState<"jakarta" | "surabaya">("jakarta");
@@ -239,18 +253,63 @@ export default function OwnerTarif() {
   async function fetchSettings() {
     setIsLoading(true);
     try {
-      const res = await fetch("/api/settings", { headers: authHeaders() });
-      if (!res.ok) throw new Error("Gagal memuat");
-      const d: TarifData = await res.json();
+      const [settingsRes, minimumRes] = await Promise.all([
+        fetch("/api/settings", { headers: authHeaders() }),
+        fetch("/api/settings/shipping-minimum", { headers: authHeaders() }),
+      ]);
+      if (!settingsRes.ok || !minimumRes.ok) throw new Error("Gagal memuat");
+      const d: TarifData = await settingsRes.json();
+      const minimumRows: ShippingMinimumRow[] = await minimumRes.json();
       if (d.pesawatRate) setPesawatRate(String(d.pesawatRate));
       if (d.hematRate) setHematRate(String(d.hematRate));
       if (d.kargoRate) setKargoRate(String(d.kargoRate));
       setPelniTiersJakarta(parseTiers(d.pelniTiersJakarta, DEFAULT_TIERS_JKT));
       setPelniTiersSurabaya(parseTiers(d.pelniTiersSurabaya, DEFAULT_TIERS_SBY));
+      setShippingMinimums(minimumRows);
     } catch {
       toast({ variant: "destructive", title: "Gagal memuat tarif" });
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function handleSaveMinimums() {
+    if (shippingMinimums.some((row) => !Number.isInteger(Number(row.minimumAmount)) || Number(row.minimumAmount) < 0)) {
+      toast({ variant: "destructive", title: "Nominal minimum tidak valid" });
+      return;
+    }
+    setIsSavingMinimum(true);
+    try {
+      const res = await fetch("/api/settings/shipping-minimum", {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          _alasan: alasan,
+          settings: shippingMinimums.map((row) => ({
+            serviceId: row.serviceId,
+            originCity: row.originCity,
+            enabled: row.enabled,
+            minimumAmount: Number(row.minimumAmount),
+          })),
+        }),
+      });
+      if (!res.ok) {
+        const error = await res.json().catch(() => null);
+        throw new Error(error?.error || "Gagal menyimpan");
+      }
+      setShippingMinimums(await res.json());
+      toast({
+        title: "✓ Harga minimum berhasil disimpan",
+        description: "Pengaturan hanya berlaku untuk paket baru; toggle awal tetap OFF.",
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Gagal menyimpan harga minimum",
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setIsSavingMinimum(false);
     }
   }
 
@@ -445,6 +504,87 @@ export default function OwnerTarif() {
           ) : (
             <TierEditor tiers={pelniTiersSurabaya} onChange={setPelniTiersSurabaya} />
           )}
+        </CardContent>
+      </Card>
+
+      {/* Harga minimum Fase 4 */}
+      <Card className="border-primary/20">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Settings className="w-4 h-4 text-primary" /> Harga Ongkir Minimum
+          </CardTitle>
+          <CardDescription>
+            Berlaku sebagai batas total ongkir per customer dan layanan, bukan per baris paket.
+            Semua toggle dimulai OFF agar ongkir existing tidak berubah.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {shippingMinimums.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nilai awal belum tersedia. Jalankan migrasi seed Fase 4 terlebih dahulu.
+            </p>
+          ) : (
+            shippingMinimums.map((row) => (
+              <div
+                key={row.id}
+                className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr,170px,auto] sm:items-center"
+              >
+                <div>
+                  <p className="font-medium">{row.serviceLabel}</p>
+                  <p className="text-xs text-muted-foreground">{row.originCity} → Manokwari</p>
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">Rp</span>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    className="pl-9"
+                    value={row.minimumAmount}
+                    onChange={(event) => {
+                      const value = event.target.value === "" ? 0 : Number(event.target.value);
+                      setShippingMinimums((current) =>
+                        current.map((item) =>
+                          item.id === row.id ? { ...item, minimumAmount: value } : item,
+                        ),
+                      );
+                    }}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={row.enabled}
+                    onCheckedChange={(enabled) => {
+                      setShippingMinimums((current) =>
+                        current.map((item) =>
+                          item.id === row.id ? { ...item, enabled } : item,
+                        ),
+                      );
+                    }}
+                    aria-label={`Aktifkan minimum ${row.serviceLabel} ${row.originCity}`}
+                  />
+                  <span className="text-sm font-medium">{row.enabled ? "ON" : "OFF"}</span>
+                </div>
+              </div>
+            ))
+          )}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+            <p className="text-xs text-muted-foreground">
+              Perubahan dicatat di riwayat tarif dengan nilai lama, nilai baru, waktu, dan Owner.
+            </p>
+            <Button
+              onClick={handleSaveMinimums}
+              disabled={isSavingMinimum || shippingMinimums.length === 0}
+              variant="outline"
+              className="gap-2"
+            >
+              {isSavingMinimum ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Menyimpan...</>
+              ) : (
+                <><Save className="w-4 h-4" /> Simpan Harga Minimum</>
+              )}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

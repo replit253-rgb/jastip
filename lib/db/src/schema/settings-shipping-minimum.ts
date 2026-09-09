@@ -6,6 +6,7 @@ import {
   boolean,
   numeric,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { serviceTypesTable } from "./service-types";
 import { usersTable } from "./users";
@@ -30,6 +31,12 @@ export const settingsShippingMinimumTable = pgTable(
       .notNull()
       .defaultNow(),
   },
+  (table) => ({
+    serviceOriginUnique: uniqueIndex("settings_shipping_minimum_service_origin_idx").on(
+      table.serviceId,
+      table.originCity,
+    ),
+  }),
 );
 
 export type SettingsShippingMinimum =

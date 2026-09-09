@@ -8,8 +8,8 @@ Terakhir diperbarui: 2026-09-09
 | 0 — Persiapan Skema Database | Selesai | 100% | — |
 | 1 — Shift Kasir | Selesai | 100% | — |
 | 2 — Transaksi/Payment | Selesai | 100% | — |
-| 3 — VOID | Selesai | 100% | — |
-| 4 — Harga Minimum | Belum mulai | 0% | Independen, belum dimulai |
+| 3 — VOID | Selesai, disetujui Owner 2026-09-09 | 100% | — |
+| 4 — Harga Minimum | Selesai, default OFF | 100% | Menunggu Owner mengaktifkan toggle bila diperlukan |
 | 5 — Nominal Cepat | Belum mulai | 0% | Independen, belum dimulai |
 | 6 — Struk | Belum mulai | 0% | Tunggu Fase 1–2 |
 | 7 — Invoice A4 | Belum mulai | 0% | Tunggu Fase 2 |

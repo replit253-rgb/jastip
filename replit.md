@@ -32,7 +32,10 @@ pnpm --filter @workspace/db run push
 # 3. Seed service_types and create legacy batch (required before any package creation)
 pnpm --filter @workspace/scripts exec tsx ./migrate-batch-legacy.ts
 
-# 4. Seed demo accounts and sample data
+# 4. Seed Phase 4 shipping minimums (all toggles OFF by default)
+pnpm --filter @workspace/scripts run migrate-shipping-minimum
+
+# 5. Seed demo accounts and sample data
 pnpm --filter @workspace/scripts run seed-demo
 ```
 
