@@ -17,6 +17,7 @@ export const transactionsTable = pgTable(
   {
     id: serial("id").primaryKey(),
     transactionNo: text("transaction_no").notNull().unique(),
+    idempotencyKey: text("idempotency_key").unique(),
     customerId: integer("customer_id").references(() => usersTable.id),
     customerName: text("customer_name").notNull(),
     packageIds: jsonb("package_ids")

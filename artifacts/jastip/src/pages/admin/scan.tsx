@@ -96,7 +96,13 @@ export default function AdminScan() {
 
   const [showPayModal, setShowPayModal] = useState(false);
   const [uangDibayar, setUangDibayar] = useState("");
+  const [quickCashAmount, setQuickCashAmount] = useState<number | null>(null);
   const [paymentType, setPaymentType] = useState<PaymentType>("tunai");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [penanggungJawab, setPenanggungJawab] = useState("");
+  const [nominalPiutang, setNominalPiutang] = useState("0");
+  const [jatuhTempo, setJatuhTempo] = useState("");
+  const [catatanPiutang, setCatatanPiutang] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   // ── Diskon State ─────────────────────────────────────────────────────────
@@ -109,6 +115,8 @@ export default function AdminScan() {
   const manualRef = useRef<HTMLInputElement>(null);
   const lastScannedCodeRef = useRef<string>("");
   const isScanProcessingRef = useRef<boolean>(false);
+  const isSavingRef = useRef<boolean>(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
   const itemsRef = useRef<ScannedItem[]>([]);
   const addedIdsRef = useRef<Set<number>>(new Set());
   const SCANNER_ID = "admin-scan-pos-scanner";
@@ -315,7 +323,13 @@ export default function AdminScan() {
     setExpandedIds(new Set());
     setManualInput("");
     setUangDibayar("");
+    setQuickCashAmount(null);
     setPaymentType("tunai");
+    setPaymentReference("");
+    setPenanggungJawab("");
+    setNominalPiutang("0");
+    setJatuhTempo("");
+    setCatatanPiutang("");
     setAlreadyDelivered(null);
     setDiskon("");
     setAlasanDiskon("");
@@ -325,7 +339,13 @@ export default function AdminScan() {
 
   function openPayModal() {
     setUangDibayar("");
+    setQuickCashAmount(null);
     setPaymentType("tunai");
+    setPaymentReference("");
+    setPenanggungJawab("");
+    setNominalPiutang("0");
+    setJatuhTempo("");
+    setCatatanPiutang("");
     setDiskon("");
     setAlasanDiskon("");
     setShowPayModal(true);
@@ -333,7 +353,18 @@ export default function AdminScan() {
 
   function handleUangInput(val: string) {
     const digits = val.replace(/\D/g, "");
+    setQuickCashAmount(null);
     setUangDibayar(digits ? Number(digits).toLocaleString("id-ID") : "");
+  }
+
+  function handleQuickCash(amount: number) {
+    setQuickCashAmount(amount);
+    setUangDibayar(amount.toLocaleString("id-ID"));
+  }
+
+  function handlePiutangNominalInput(val: string) {
+    const digits = val.replace(/\D/g, "");
+    setNominalPiutang(digits ? Number(digits).toLocaleString("id-ID") : "");
   }
 
   function handleDiskonInput(val: string) {
@@ -342,20 +373,50 @@ export default function AdminScan() {
   }
 
   async function handleKonfirmasiBayar() {
+    if (isSavingRef.current) return;
     // Validasi diskon: jika ada diskon, alasan wajib diisi
     if (diskonNum > 0 && !alasanDiskon.trim()) {
       toast({ variant: "destructive", title: "Alasan diskon wajib diisi", description: "Isi alasan/catatan diskon sebelum konfirmasi." });
       return;
     }
+    if (
+      paymentType === "piutang" &&
+      (!penanggungJawab.trim() || !nominalPiutang.trim() || !jatuhTempo || !catatanPiutang.trim())
+    ) {
+      toast({
+        variant: "destructive",
+        title: "Data piutang belum lengkap",
+        description: "Isi penanggung jawab, nominal, jatuh tempo, dan catatan.",
+      });
+      return;
+    }
 
+    isSavingRef.current = true;
     setIsSaving(true);
     try {
       const token = localStorage.getItem("jaj_token");
+      const idempotencyKey = idempotencyKeyRef.current ?? crypto.randomUUID();
+      idempotencyKeyRef.current = idempotencyKey;
+      const discountNote = diskonNum > 0
+        ? `Diskon: ${formatRp(diskonNum)} | Total ongkir: ${formatRp(totalTagihan)} | Total setelah diskon: ${formatRp(totalAkhir)} | Alasan: ${alasanDiskon}`
+        : null;
+      const notes = paymentType === "piutang"
+        ? [catatanPiutang.trim(), discountNote].filter(Boolean).join(" | ")
+        : discountNote;
       const body = {
         paymentType,
+        paymentMethod: paymentType,
+        subtotal: totalTagihan,
         totalAmount: totalAkhir,
-        paidAmount: (paymentType === "tunai" || paymentType === "transfer") ? uangNum : null,
-        changeAmount: (paymentType === "tunai" || paymentType === "transfer") ? kembalian : null,
+        paidAmount: paymentType === "tunai"
+          ? uangNum
+          : paymentType === "transfer"
+            ? totalAkhir
+            : Number(nominalPiutang.replace(/\D/g, "")) || 0,
+        changeAmount: paymentType === "tunai" ? kembalian : 0,
+        paymentReference: paymentType === "transfer" ? paymentReference.trim() || null : null,
+        penanggungJawab: paymentType === "piutang" ? penanggungJawab.trim() : null,
+        jatuhTempo: paymentType === "piutang" ? jatuhTempo : null,
         packageIds: items.map((i) => i.id),
         packageSummary: items.map((i) => ({
           id: i.id,
@@ -370,47 +431,53 @@ export default function AdminScan() {
           totalShipping: i.totalShipping,
           packageDate: i.packageDate,
         })),
-        notes: diskonNum > 0
-          ? `Diskon: ${formatRp(diskonNum)} | Total ongkir: ${formatRp(totalTagihan)} | Total setelah diskon: ${formatRp(totalAkhir)} | Alasan: ${alasanDiskon}`
-          : null,
+        notes,
       };
 
       const res = await fetch("/api/transactions", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          "Idempotency-Key": idempotencyKey,
+        },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error("Gagal menyimpan pembayaran");
-
-      const results = await Promise.allSettled(
-        items.map((i) =>
-          fetch(`/api/packages/${i.id}/serahkan`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          }),
-        ),
-      );
-      const failedCount = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && !r.value.ok)).length;
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => null);
+        throw new Error(errorBody?.error || "Gagal menyimpan pembayaran");
+      }
 
       const typeLabel = PAYMENT_TYPES.find((t) => t.value === paymentType)?.label || paymentType;
       const diskonInfo = diskonNum > 0 ? ` | Diskon: ${formatRp(diskonNum)}` : "";
       toast({
         title: "✓ Pembayaran & Serah Terima Selesai",
-        description: `${typeLabel} — ${formatRp(totalAkhir)}${diskonInfo}${(paymentType === "tunai" || paymentType === "transfer") ? ` | Kembalian: ${formatRp(kembalian)}` : ""}${failedCount > 0 ? ` (${failedCount} paket gagal diupdate)` : ""}`,
+        description: `${typeLabel} — ${formatRp(totalAkhir)}${diskonInfo}${paymentType === "tunai" ? ` | Kembalian: ${formatRp(kembalian)}` : ""}`,
       });
       setShowPayModal(false);
+      idempotencyKeyRef.current = null;
       resetAll();
-    } catch {
-      toast({ variant: "destructive", title: "Gagal menyimpan pembayaran", description: "Coba lagi." });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Gagal menyimpan pembayaran",
+        description: error?.message || "Coba lagi dengan tombol yang sama.",
+      });
     } finally {
+      isSavingRef.current = false;
       setIsSaving(false);
     }
   }
 
   const canConfirm =
     (diskonNum === 0 || alasanDiskon.trim().length > 0) && (
-      paymentType === "piutang" ||
-      ((paymentType === "tunai" || paymentType === "transfer") && uangNum >= totalAkhir)
+      paymentType === "transfer" ||
+      (paymentType === "piutang" &&
+        penanggungJawab.trim().length > 0 &&
+        nominalPiutang.trim().length > 0 &&
+        jatuhTempo.length > 0 &&
+        catatanPiutang.trim().length > 0) ||
+      (paymentType === "tunai" && uangNum >= totalAkhir)
     );
 
   return (
@@ -777,7 +844,10 @@ export default function AdminScan() {
                     <button
                       key={pt.value}
                       type="button"
-                      onClick={() => setPaymentType(pt.value)}
+                      onClick={() => {
+                        setPaymentType(pt.value);
+                        setQuickCashAmount(null);
+                      }}
                       className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all text-center ${colorMap[pt.color]} ${!isSelected ? "border-muted" : ""}`}
                     >
                       <Icon className="w-5 h-5" />
@@ -789,8 +859,28 @@ export default function AdminScan() {
               </div>
             </div>
 
-            {(paymentType === "tunai" || paymentType === "transfer") && (
+            {paymentType === "tunai" && (
               <>
+                <div>
+                  <p className="text-sm font-semibold mb-2">Nominal Cepat</p>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {[totalAkhir, 50_000, 100_000, 150_000, 200_000].map((amount, index) => (
+                      <Button
+                        key={`${amount}-${index}`}
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className={`px-1 text-xs ${quickCashAmount === amount ? "border-green-500 bg-green-50 text-green-700 ring-1 ring-green-500" : ""}`}
+                        onClick={() => handleQuickCash(amount)}
+                      >
+                        {index === 0 ? "Pas" : `${amount / 1000}rb`}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1.5">
+                    Pilih nominal untuk mengisi Uang Diterima. Input manual akan mengganti pilihan.
+                  </p>
+                </div>
                 <div>
                   <label className="text-sm font-semibold block mb-1.5">Uang Diterima dari Customer</label>
                   <div className="relative">
@@ -825,11 +915,66 @@ export default function AdminScan() {
               </>
             )}
 
+            {paymentType === "transfer" && (
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-2">
+                <label className="text-sm font-semibold text-blue-900 block">
+                  Referensi Pembayaran <span className="font-normal text-xs text-blue-700">(opsional)</span>
+                </label>
+                <Input
+                  placeholder="No. referensi transfer / QRIS"
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  maxLength={120}
+                />
+                <p className="text-xs text-blue-700">
+                  Total transfer otomatis ditetapkan sebesar {formatRp(totalAkhir)}.
+                </p>
+              </div>
+            )}
+
             {paymentType === "piutang" && (
-              <div className="rounded-xl p-4 border-2 border-orange-200 bg-orange-50 text-orange-800 text-sm text-center">
-                <Clock className="w-6 h-6 mx-auto mb-1" />
-                <p className="font-semibold">Piutang / Bayar Nanti</p>
-                <p className="text-xs text-orange-600 mt-1">Tercatat sebagai hutang customer. Paket tetap diserahkan sekarang.</p>
+              <div className="rounded-xl p-4 border-2 border-orange-200 bg-orange-50 text-orange-800 text-sm space-y-3">
+                <div className="text-center">
+                  <Clock className="w-6 h-6 mx-auto mb-1" />
+                  <p className="font-semibold">Piutang / Bayar Nanti</p>
+                  <p className="text-xs text-orange-600 mt-1">Tercatat sebagai hutang customer. Paket tetap diserahkan sekarang.</p>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold block mb-1">Penanggung jawab *</label>
+                  <Input
+                    placeholder="Nama pihak yang bertanggung jawab"
+                    value={penanggungJawab}
+                    onChange={(e) => setPenanggungJawab(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold block mb-1">Nominal dibayar sekarang (Rp) *</label>
+                  <Input
+                    className="font-bold"
+                    placeholder="0 = seluruhnya piutang"
+                    value={nominalPiutang}
+                    onChange={(e) => handlePiutangNominalInput(e.target.value)}
+                  />
+                  <p className="text-[11px] text-orange-700 mt-1">Isi 0 jika belum ada pembayaran awal.</p>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold block mb-1">Jatuh tempo *</label>
+                  <Input
+                    type="date"
+                    value={jatuhTempo}
+                    onChange={(e) => setJatuhTempo(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold block mb-1">Catatan *</label>
+                  <textarea
+                    className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    placeholder="Alasan atau kesepakatan piutang"
+                    value={catatanPiutang}
+                    onChange={(e) => setCatatanPiutang(e.target.value)}
+                    maxLength={500}
+                  />
+                </div>
               </div>
             )}
           </div>

@@ -64,9 +64,28 @@ function getCustomerName(body: any) {
 
 function getPackageIds(value: unknown) {
   if (!Array.isArray(value)) return [];
-  return value
-    .map((id) => Number(id))
-    .filter((id) => Number.isInteger(id) && id > 0);
+  return [...new Set(
+    value
+      .map((id) => Number(id))
+      .filter((id) => Number.isInteger(id) && id > 0),
+  )];
+}
+
+function getIdempotencyKey(req: any) {
+  const key = String(req.get("Idempotency-Key") ?? req.body?.idempotencyKey ?? "").trim();
+  if (!key || key.length > 128) {
+    throw new Error("Idempotency key wajib diisi dan maksimal 128 karakter");
+  }
+  return key;
+}
+
+function isUniqueViolation(err: unknown) {
+  return Boolean(
+    err &&
+      typeof err === "object" &&
+      "code" in err &&
+      (err as { code?: string }).code === "23505",
+  );
 }
 
 router.get(
@@ -183,6 +202,7 @@ router.post(
   async (req, res) => {
     try {
       const body = req.body ?? {};
+      const idempotencyKey = getIdempotencyKey(req);
       const packageIds = getPackageIds(body.packageIds);
       const subtotal = amount(body.subtotal ?? body.totalAmount, "Subtotal");
       const discount = amount(body.discount ?? 0, "Diskon");
@@ -205,8 +225,27 @@ router.post(
         return;
       }
 
+      if (method === "piutang") {
+        if (!String(body.penanggungJawab ?? "").trim()) {
+          res.status(400).json({ error: "Nama penanggung jawab wajib diisi untuk piutang" });
+          return;
+        }
+        if (!String(body.jatuhTempo ?? "").trim()) {
+          res.status(400).json({ error: "Jatuh tempo wajib diisi untuk piutang" });
+          return;
+        }
+        if (!String(body.notes ?? "").trim()) {
+          res.status(400).json({ error: "Catatan wajib diisi untuk piutang" });
+          return;
+        }
+        if (body.paidAmount == null || String(body.paidAmount).trim() === "") {
+          res.status(400).json({ error: "Nominal piutang wajib diisi" });
+          return;
+        }
+      }
+
       const received = method === "piutang"
-        ? amount(body.paidAmount ?? 0, "Nominal pembayaran")
+        ? amount(body.paidAmount, "Nominal pembayaran")
         : amount(body.paidAmount ?? 0, "Nominal diterima");
        if (method === "piutang" && received >= total && total > 0) {
          res.status(400).json({
@@ -230,11 +269,48 @@ router.post(
 
       const user = (req as any).user;
       const activeShift = (req as any).activeShift;
-      const created = await db.transaction(async (tx) => {
+      let replayed = false;
+      let created;
+      try {
+        created = await db.transaction(async (tx) => {
+          const [existing] = await tx
+            .select()
+            .from(transactionsTable)
+            .where(eq(transactionsTable.idempotencyKey, idempotencyKey))
+            .limit(1);
+          if (existing) {
+            replayed = true;
+            const existingPayments = await tx
+              .select()
+              .from(paymentsTable)
+              .where(eq(paymentsTable.transactionId, existing.id))
+              .orderBy(desc(paymentsTable.createdAt));
+            return { transaction: existing, payment: existingPayments[0] ?? null };
+          }
+
+          const lockedPackages = await tx
+            .select({
+              id: packagesTable.id,
+              status: packagesTable.status,
+              statusPengambilan: packagesTable.statusPengambilan,
+            })
+            .from(packagesTable)
+            .where(inArray(packagesTable.id, packageIds))
+            .for("update");
+          if (lockedPackages.length !== packageIds.length) {
+            throw new Error("Satu atau lebih paket tidak ditemukan");
+          }
+          if (lockedPackages.some((pkg) =>
+            pkg.status === "diserahkan" || pkg.statusPengambilan === "SUDAH_DIAMBIL"
+          )) {
+            throw new Error("Satu atau lebih paket sudah diserahkan");
+          }
+
         const [transaction] = await tx
           .insert(transactionsTable)
           .values({
             transactionNo: await nextTransactionNo(tx),
+            idempotencyKey,
             customerId: body.customerId ? Number(body.customerId) : null,
             customerName: getCustomerName(body),
             packageIds,
@@ -263,6 +339,9 @@ router.post(
               totalAmount: String(credited),
               paidAmount: String(received),
               changeAmount: String(Math.max(0, received - credited)),
+              paymentReference: method === "transfer"
+                ? String(body.paymentReference ?? "").trim() || null
+                : null,
               packageIds,
               packageSummary: Array.isArray(body.packageSummary)
                 ? body.packageSummary
@@ -276,15 +355,41 @@ router.post(
             .returning();
           payment = insertedPayment;
         }
+        await tx
+          .update(packagesTable)
+          .set({
+            status: "diserahkan",
+            statusPengambilan: "SUDAH_DIAMBIL",
+            pickedUpAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(inArray(packagesTable.id, packageIds));
         return { transaction, payment };
-      });
+        });
+      } catch (err) {
+        if (!isUniqueViolation(err)) throw err;
+        const [existing] = await db
+          .select()
+          .from(transactionsTable)
+          .where(eq(transactionsTable.idempotencyKey, idempotencyKey))
+          .limit(1);
+        if (!existing) throw err;
+        const existingPayments = await db
+          .select()
+          .from(paymentsTable)
+          .where(eq(paymentsTable.transactionId, existing.id))
+          .orderBy(desc(paymentsTable.createdAt));
+        replayed = true;
+        created = { transaction: existing, payment: existingPayments[0] ?? null };
+      }
 
-      res.status(201).json(created);
+      res.status(replayed ? 200 : 201).json(created);
     } catch (err: any) {
       (req as any).log?.error?.(err);
       const message = err instanceof Error ? err.message : "Data transaksi tidak valid";
-      res.status(message.includes("harus") ? 400 : 500).json({
-        error: message.includes("harus") ? message : "Gagal membuat transaksi",
+      const isClientError = /wajib|harus|tidak valid|tidak ditemukan|sudah diserahkan/i.test(message);
+      res.status(isClientError ? 400 : 500).json({
+        error: isClientError ? message : "Gagal membuat transaksi",
       });
     }
   },

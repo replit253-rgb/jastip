@@ -33,6 +33,7 @@ export const paymentsTable = pgTable(
     totalAmount: numeric("total_amount", { precision: 15, scale: 2 }).notNull(),
     paidAmount: numeric("paid_amount", { precision: 15, scale: 2 }),
     changeAmount: numeric("change_amount", { precision: 15, scale: 2 }),
+    paymentReference: text("payment_reference"),
     packageIds: jsonb("package_ids").notNull().$type<number[]>(),
     packageSummary: jsonb("package_summary").$type<
       { id: number; resiNumber: string; customerName: string; totalShipping: number }[]
