@@ -1,0 +1,45 @@
+Lanjutkan pekerjaan Fase 8 sekarang — jangan hanya konfirmasi pemahaman,
+kerjakan langsung. Lanjutkan dari audit titik export yang sedang kamu
+kerjakan (Arsip, Keuangan, Laporan, Pengeluaran, Barcode), lalu:
+
+1. Perbaiki agar Excel dan PDF di setiap halaman memakai query/fungsi
+   sumber data yang sama — jangan biarkan dua implementasi terpisah.
+2. Tambahkan info filter (layanan, batch, tanggal, status, kasir, waktu
+   export) di header semua file export.
+3. Format nominal konsisten (Rp + pemisah ribuan), berat maksimal 2 desimal,
+   di seluruh titik export.
+4. PDF Cargo: lebarkan kolom "Jenis Barang" + aktifkan text wrapping supaya
+   teks ≥60 karakter tidak terpotong.
+5. Header tabel berulang otomatis di tiap halaman PDF; baris tidak boleh
+   terpotong antar halaman.
+6. Footer PDF: nomor halaman, waktu export, nama user yang export.
+
+Ikuti aturan kerja yang sudah berlaku sejak Fase 0:
+- Migrasi/perubahan bersifat additive dan tidak merusak fitur export yang
+  sudah aktif dipakai.
+- Jika menemukan ambiguitas atau perlu keputusan yang tidak dijelaskan
+  dokumen sumber, catat di Log Keputusan & Asumsi dengan asumsi paling
+  konservatif, jangan menebak diam-diam.
+
+Setelah implementasi selesai, jalankan bukti runtime sesuai standar yang
+sudah disepakati di seluruh fase sebelumnya (bukan unit test terisolasi,
+bukan deskripsi kode):
+
+1. UAT-01: Bandingkan hasil Excel vs PDF untuk 3 SAMPEL BATCH BERBEDA —
+   tunjukkan jumlah baris dan grand total dari kedua format berdampingan,
+   harus identik persis.
+2. UAT-02: Buktikan kolom "Jenis Barang" PDF Cargo tidak terpotong untuk
+   teks ≥60 karakter — tunjukkan contoh teks panjang dan hasil wrapping-nya.
+3. Uji terhadap DATA YANG SUDAH ADA di database development (bukan hanya
+   data uji baru yang kamu buat), untuk memastikan laporan historis dari
+   Fase 0-7 tetap akurat dan tidak rusak oleh perubahan Fase 8.
+4. Tunjukkan query SQL atau response API yang jadi sumber data, berdampingan
+   dengan hasil akhir Excel/PDF, supaya jelas keduanya benar-benar dari
+   sumber yang sama.
+
+Setelah semua bukti terkumpul, update Catatan Implementasi Fase 8 dan
+Laporan Akhir Fase 8 di kedua dokumen (implementasi.md dan progres.md).
+Karena ini FASE TERAKHIR dari rencana 8 fase, laporan akhir juga WAJIB
+mencakup:
+
+- Ringkasan status

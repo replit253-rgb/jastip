@@ -5,6 +5,21 @@ import * as XLSX from "xlsx";
 export type ExportFilters = Record<string, string | number | null | undefined>;
 export type ExportCell = string | number | null | undefined;
 
+export function withExportContext(
+  filters: ExportFilters,
+  exportedBy = "Pengguna aktif",
+) {
+  return {
+    Layanan: "Semua",
+    Batch: "Semua",
+    Tanggal: "Semua",
+    Status: "Semua",
+    Kasir: "Semua",
+    ...filters,
+    "Diekspor Oleh": filters["Diekspor Oleh"] || exportedBy,
+  };
+}
+
 export function formatRp(value: unknown, emptyValue = "-") {
   if (value == null || value === "") return emptyValue;
   const amount = Number(value);
@@ -41,10 +56,11 @@ export function exportFilterRows(filters: ExportFilters) {
 }
 
 export function exportInfoRows(title: string, filters: ExportFilters) {
+  const normalizedFilters = withExportContext(filters);
   return [
     [title],
     ["Waktu Export", exportTimestamp()],
-    ...exportFilterRows(filters),
+    ...exportFilterRows(normalizedFilters),
   ];
 }
 
@@ -72,8 +88,9 @@ export function createExportSheet({
   rows: ExportCell[][];
   columnWidths?: { wch: number }[];
 }) {
+  const normalizedFilters = withExportContext(filters);
   const sheet = XLSX.utils.aoa_to_sheet([
-    ...exportInfoRows(title, filters),
+    ...exportInfoRows(title, normalizedFilters),
     [],
     columns,
     ...rows,
@@ -114,6 +131,7 @@ export function saveTabularPdf({
   exportedBy = "Pengguna aktif",
   columnStyles,
   fontSize = 7,
+  generatedAt: suppliedGeneratedAt,
 }: {
   filename: string;
   title: string;
@@ -125,6 +143,7 @@ export function saveTabularPdf({
   exportedBy?: string;
   columnStyles?: Record<number, object>;
   fontSize?: number;
+  generatedAt?: string;
 }) {
   const doc = new jsPDF({
     orientation: landscape ? "landscape" : "portrait",
@@ -133,7 +152,8 @@ export function saveTabularPdf({
   });
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 12;
-  const generatedAt = exportTimestamp();
+  const generatedAt = suppliedGeneratedAt || exportTimestamp();
+  const normalizedFilters = withExportContext(filters, exportedBy);
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
@@ -143,7 +163,7 @@ export function saveTabularPdf({
   doc.text(`Waktu export: ${generatedAt}`, margin, 20);
 
   let metadataY = 26;
-  for (const [label, value] of exportFilterRows(filters)) {
+  for (const [label, value] of exportFilterRows(normalizedFilters)) {
     doc.text(`${label}: ${value}`, margin, metadataY);
     metadataY += 4;
   }

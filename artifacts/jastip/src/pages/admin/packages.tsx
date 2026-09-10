@@ -23,6 +23,7 @@ import {
   addExportInfoSheet,
   createExportSheet,
   drawExportFooter,
+  exportTimestamp,
   formatNumber,
   formatRp as formatExportRp,
   saveTabularPdf,
@@ -99,6 +100,7 @@ export default function AdminPackages() {
 
   const [xlsxOpen, setXlsxOpen] = useState(false);
   const [xlsxBatchId, setXlsxBatchId] = useState<string>("__all__");
+  const [xlsxJenis, setXlsxJenis] = useState<string>("all");
 
   const { data: allPackages, isLoading } = useListPackages({
     search: search || undefined,
@@ -125,7 +127,10 @@ export default function AdminPackages() {
 
   function handleXlsxOpenChange(open: boolean) {
     setXlsxOpen(open);
-    if (open) setXlsxBatchId(XLSX_ALL);
+    if (open) {
+      setXlsxBatchId(XLSX_ALL);
+      setXlsxJenis(filterJenis === "all" ? "all" : filterJenis);
+    }
   }
 
   const selectedXlsxBatch = xlsxBatchId !== XLSX_ALL
@@ -165,7 +170,13 @@ export default function AdminPackages() {
   function resetTableFilters() { setFilterJenis("all"); setFilterDateFrom(""); setFilterDateTo(""); setPage(1); }
 
   function getPackagesForExport(batchId = "", serviceType = "all") {
-    return filterPackagesForExport(packages || [], { batchId, serviceType });
+    return filterPackagesForExport(packages || [], {
+      batchId,
+      serviceType,
+      status,
+      dateFrom: filterDateFrom,
+      dateTo: filterDateTo,
+    });
   }
 
   function getFilteredPackages() {
@@ -212,9 +223,12 @@ export default function AdminPackages() {
     const filters = {
       Batch: batchLabel,
       Layanan: pdfJenis === "all" ? "Semua" : pdfJenis,
-      Tanggal: "Semua",
+      Tanggal: filterDateFrom || filterDateTo
+        ? `${filterDateFrom || "—"} s/d ${filterDateTo || "—"}`
+        : "Semua",
       Status: status === "all" ? "Semua" : status,
       Kasir: "Semua",
+      "Diekspor Oleh": user?.name || "Pengguna aktif",
     };
     const cargoColumns = CARGO_EXPORT_COLUMNS;
     const cargoRows = buildCargoExportRows(sorted);
@@ -243,7 +257,7 @@ export default function AdminPackages() {
         3: { cellWidth: 26 },
         4: { cellWidth: 13, halign: "center" },
         5: { cellWidth: 13 },
-        6: { cellWidth: 46, overflow: "linebreak" },
+        6: { cellWidth: 52, overflow: "linebreak" },
         7: { cellWidth: 21, halign: "center" },
         8: { cellWidth: 16, halign: "right" },
         9: { cellWidth: 24, halign: "right" },
@@ -272,6 +286,8 @@ export default function AdminPackages() {
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     const pageW = 297;
     const margin = 10;
+    const generatedAt = exportTimestamp();
+    const exportedBy = user?.name || "Pengguna aktif";
 
     const totalPaket = filtered.length;
     const totalBeratAll = filtered.reduce((s: number, p: any) => s + (Number(p.usedWeight) || 0), 0);
@@ -296,7 +312,9 @@ export default function AdminPackages() {
     const infoRows: [string, string][] = [
       ["Rute", rute],
       ["Jumlah Paket", `${totalPaket} Item`],
-      ["Filter", `Layanan ${pdfJenis === "all" ? "Semua" : pdfJenis} · Tanggal Semua · Status ${status === "all" ? "Semua" : status} · Kasir Semua`],
+      ["Filter", `Layanan ${pdfJenis === "all" ? "Semua" : pdfJenis} · Tanggal ${filterDateFrom || filterDateTo ? `${filterDateFrom || "—"} s/d ${filterDateTo || "—"}` : "Semua"} · Status ${status === "all" ? "Semua" : status} · Kasir Semua`],
+      ["Waktu Export", generatedAt],
+      ["Diekspor Oleh", exportedBy],
     ];
 
     doc.setFontSize(8);
@@ -387,7 +405,7 @@ export default function AdminPackages() {
         startY: y,
         head: tableHead,
         body: rows,
-        didDrawPage: () => drawExportFooter(doc, user?.name || "Pengguna aktif"),
+         didDrawPage: () => drawExportFooter(doc, exportedBy, generatedAt),
         styles: { fontSize: 5.8, cellPadding: 1.1, overflow: "linebreak", lineColor: [200, 200, 200], lineWidth: 0.1 },
         headStyles: { fillColor: [185, 28, 28], textColor: 255, fontStyle: "bold", fontSize: 5.8, halign: "center", valign: "middle" },
         alternateRowStyles: { fillColor: [253, 248, 248] },
@@ -425,9 +443,12 @@ export default function AdminPackages() {
     const filters = {
       Batch: batchLabel,
       Layanan: pdfJenis === "all" ? "Semua" : pdfJenis,
-      Tanggal: "Semua",
+      Tanggal: filterDateFrom || filterDateTo
+        ? `${filterDateFrom || "—"} s/d ${filterDateTo || "—"}`
+        : "Semua",
       Status: status === "all" ? "Semua" : status,
       Kasir: "Semua",
+      "Diekspor Oleh": user?.name || "Pengguna aktif",
     };
     const safeBatch = selectedPdfBatch
       ? selectedPdfBatch.namaKapal.replace(/\s+/g, "-").toLowerCase()
@@ -461,7 +482,10 @@ export default function AdminPackages() {
 
   function exportExcel() {
     if (!packages || packages.length === 0) return;
-    const data = getPackagesForExport(xlsxBatchId === XLSX_ALL ? "" : xlsxBatchId);
+    const data = getPackagesForExport(
+      xlsxBatchId === XLSX_ALL ? "" : xlsxBatchId,
+      xlsxJenis,
+    );
     if (!data.length) {
       toast({ variant: "destructive", title: "Tidak ada data", description: "Tidak ada paket untuk batch yang dipilih." });
       return;
@@ -469,21 +493,27 @@ export default function AdminPackages() {
     const batchInfo = selectedXlsxBatch
       ? `${selectedXlsxBatch.namaKapal} (${selectedXlsxBatch.kotaAsal} → ${selectedXlsxBatch.tujuan})`
       : "Semua Batch";
+    const isXlsxCargo = KARGO_JENIS.includes(xlsxJenis.toLowerCase());
     const filters = {
-      Layanan: "Semua",
+      Layanan: xlsxJenis === "all" ? "Semua" : xlsxJenis,
       Batch: batchInfo,
-      Tanggal: "Semua",
+      Tanggal: filterDateFrom || filterDateTo
+        ? `${filterDateFrom || "—"} s/d ${filterDateTo || "—"}`
+        : "Semua",
       Status: status === "all" ? "Semua" : status,
-      Kasir: user?.name || "Pengguna aktif",
+      Kasir: "Semua",
       "Diekspor Oleh": user?.name || "Pengguna aktif",
     };
-    const rows = buildSharedPackageExportRows(data);
+    const columns = isXlsxCargo ? CARGO_EXPORT_COLUMNS : PACKAGE_EXPORT_COLUMNS;
+    const rows = isXlsxCargo
+      ? buildCargoExportRows(data)
+      : buildSharedPackageExportRows(data);
 
     const wb = XLSX.utils.book_new();
     const sheet = createExportSheet({
       title: "Laporan Paket — Jastip Anggun Jaya",
       filters,
-      columns: PACKAGE_EXPORT_COLUMNS,
+      columns,
       rows,
       columnWidths: [
         { wch: 5 }, { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 24 },
@@ -738,13 +768,29 @@ export default function AdminPackages() {
               <p className="text-xs text-muted-foreground">Kosongkan untuk ekspor semua paket tanpa filter batch.</p>
             </div>
 
+            <div className="space-y-1.5">
+              <Label>Jenis Jastip</Label>
+              <Select value={xlsxJenis} onValueChange={setXlsxJenis}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Semua jenis" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua Jenis</SelectItem>
+                  {JENIS_JASTIP.map((jenis) => (
+                    <SelectItem key={jenis} value={jenis}>{jenis}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Preview counts */}
             {packages && (
               <div className="rounded-md bg-muted/40 border px-4 py-3 space-y-1.5 text-sm">
                 {(() => {
-                  const preview = xlsxBatchId !== XLSX_ALL
-                    ? packages.filter((p: any) => String(p.batchId) === xlsxBatchId)
-                    : packages;
+                  const preview = getPackagesForExport(
+                    xlsxBatchId !== XLSX_ALL ? xlsxBatchId : "",
+                    xlsxJenis,
+                  );
                   return (
                     <>
                       <div className="flex justify-between">
