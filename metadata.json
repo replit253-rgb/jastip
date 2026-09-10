@@ -1,0 +1,6 @@
+{
+  "name": "Jastip Anggun Jaya",
+  "description": "Sistem manajemen ekspedisi dan kargo Jastip Anggun Jaya untuk pencatatan paket, batch pengiriman, scan barcode, cetak thermal dan invoice, riwayat transaksi, dan kasir shift.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

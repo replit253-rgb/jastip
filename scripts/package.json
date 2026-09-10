@@ -13,11 +13,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@workspace/db": "workspace:*",
-    "drizzle-orm": "catalog:"
+    "@workspace/db": "*",
+    "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
-    "@types/node": "catalog:",
-    "tsx": "catalog:"
+    "@types/node": "^25.3.3",
+    "tsx": "^4.21.0"
   }
 }
