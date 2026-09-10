@@ -7,10 +7,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/pagination";
 import { FileDown, Printer, Loader2 } from "lucide-react";
+import * as XLSX from "xlsx";
+import { addExportInfoSheet, saveTabularPdf } from "@/lib/export-utils";
+import { useAuth } from "@/lib/auth";
 
 const PAGE_SIZE = 10;
 
 export default function OwnerReports() {
+  const { user } = useAuth();
   const [type, setType] = useState<GetReportType>("daily");
   const [page, setPage] = useState(1);
 
@@ -39,17 +43,50 @@ export default function OwnerReports() {
 
   const exportExcel = () => {
     if (!report || !entries.length) return;
-    const headers = ["Label", "Paket Masuk", "Paket Keluar"];
-    const rows = entries.map(e => [e.label, e.incoming, e.outgoing]);
-    const csvContent = [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `laporan-${type}-${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    const wb = XLSX.utils.book_new();
+    addExportInfoSheet(wb, "Laporan Operasional — Jastip Anggun Jaya", {
+      Periode: report.period,
+      Tipe: type === "daily" ? "Harian" : type === "monthly" ? "Bulanan" : "Tahunan",
+      Tanggal: type === "daily" ? date : "Semua",
+      Bulan: type === "monthly" ? month : "Semua",
+      Tahun: type === "yearly" ? year : "Semua",
+      Status: "Semua",
+      Kasir: "Semua",
+      "Diekspor Oleh": user?.name || "Pengguna aktif",
+    });
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ["Label", "Paket Masuk", "Paket Keluar"],
+      ...entries.map((entry) => [entry.label, entry.incoming, entry.outgoing]),
+    ]);
+    sheet["!cols"] = [{ wch: 24 }, { wch: 16 }, { wch: 18 }];
+    XLSX.utils.book_append_sheet(wb, sheet, "Laporan");
+    XLSX.writeFile(wb, `laporan-${type}-${Date.now()}.xlsx`);
+  };
+
+  const exportPdf = () => {
+    if (!report || !entries.length) return;
+    saveTabularPdf({
+      filename: `laporan-${type}-${Date.now()}.pdf`,
+      title: "Laporan Operasional — Jastip Anggun Jaya",
+      filters: {
+        Periode: report.period,
+        Tipe: type === "daily" ? "Harian" : type === "monthly" ? "Bulanan" : "Tahunan",
+        Tanggal: type === "daily" ? date : "Semua",
+        Bulan: type === "monthly" ? month : "Semua",
+        Tahun: type === "yearly" ? year : "Semua",
+        Status: "Semua",
+        Kasir: "Semua",
+      },
+      columns: ["Label", "Paket Masuk", "Paket Keluar"],
+      rows: entries.map((entry) => [entry.label, entry.incoming, entry.outgoing]),
+      summaryRows: [
+        ["Total Paket Masuk", report.totalPackages],
+        ["Total Paket Selesai", report.pickedUp],
+        ["Total Pending", report.pending],
+      ],
+      landscape: false,
+      exportedBy: user?.name || "Pengguna aktif",
+    });
   };
 
   return (
@@ -63,8 +100,8 @@ export default function OwnerReports() {
           <Button variant="outline" onClick={exportExcel} disabled={!report || entries.length === 0}>
             <FileDown className="w-4 h-4 mr-2" />Excel
           </Button>
-          <Button onClick={() => window.print()} disabled={!report}>
-            <Printer className="w-4 h-4 mr-2" />Cetak PDF
+          <Button onClick={exportPdf} disabled={!report || entries.length === 0}>
+            <Printer className="w-4 h-4 mr-2" />Export PDF
           </Button>
         </div>
       </div>

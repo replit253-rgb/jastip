@@ -17,9 +17,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import {
-  Plus, Wallet, Pencil, Trash2, Download, TrendingDown, Filter,
+  Plus, Wallet, Pencil, Trash2, Download, FileDown, TrendingDown, Filter,
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import { addExportInfoSheet, saveTabularPdf } from "@/lib/export-utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Pengeluaran {
@@ -343,6 +344,17 @@ export default function OwnerPengeluaran() {
       "Dicatat Oleh": d.namaPencatat || "-",
       Catatan: d.catatan || "",
     }));
+    const wb = XLSX.utils.book_new();
+    addExportInfoSheet(wb, "Pengeluaran Harian — Jastip Anggun Jaya", {
+      Dari: dari,
+      Sampai: sampai,
+      Kategori: filterKategori || "Semua",
+      Metode: filterMetode || "Semua",
+      Layanan: "Semua",
+      Status: "Semua",
+      Kasir: "Semua",
+      "Diekspor Oleh": user?.name || "Pengguna aktif",
+    });
     rows.push({
       Tanggal: "TOTAL",
       Kategori: "",
@@ -352,9 +364,37 @@ export default function OwnerPengeluaran() {
       Catatan: "",
     });
     const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Pengeluaran");
     XLSX.writeFile(wb, `pengeluaran_${dari}_${sampai}.xlsx`);
+  }
+
+  function exportPdf() {
+    saveTabularPdf({
+      filename: `pengeluaran_${dari}_${sampai}.pdf`,
+      title: "Pengeluaran Harian — Jastip Anggun Jaya",
+      filters: {
+        Dari: dari,
+        Sampai: sampai,
+        Kategori: filterKategori || "Semua",
+        Metode: filterMetode || "Semua",
+        Layanan: "Semua",
+        Status: "Semua",
+        Kasir: "Semua",
+        "Diekspor Oleh": user?.name || "Pengguna aktif",
+      },
+      columns: ["Tanggal", "Kategori", "Nominal (Rp)", "Metode Pembayaran", "Dicatat Oleh", "Catatan"],
+      rows: data.map((d) => [
+        formatDate(d.tanggal),
+        d.kategori,
+        Number(d.nominal),
+        d.metodePembayaran,
+        d.namaPencatat || "-",
+        d.catatan || "",
+      ]),
+      summaryRows: [["TOTAL", "", totalNominal, "", "", ""]],
+      landscape: true,
+      exportedBy: user?.name || "Pengguna aktif",
+    });
   }
 
   const totalNominal = data.reduce((s, d) => s + Number(d.nominal), 0);
@@ -390,6 +430,9 @@ export default function OwnerPengeluaran() {
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" className="gap-1.5" onClick={exportExcel} disabled={data.length === 0}>
             <Download className="w-4 h-4" /> Export Excel
+          </Button>
+          <Button variant="outline" className="gap-1.5" onClick={exportPdf} disabled={data.length === 0}>
+            <FileDown className="w-4 h-4" /> Export PDF
           </Button>
           <Button className="gap-1.5" onClick={() => { setEditData(null); setShowForm(true); }}>
             <Plus className="w-4 h-4" /> Tambah Pengeluaran

@@ -10,9 +10,11 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
-import { Download, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+import { Download, FileDown, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import * as XLSX from "xlsx";
 import OwnerFinanceTransactions from "./finance-transactions";
+import { addExportInfoSheet, saveTabularPdf } from "@/lib/export-utils";
+import { useAuth } from "@/lib/auth";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -123,6 +125,7 @@ function MethodCard({
 
 export default function OwnerFinance() {
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
 
   // ── Filters ──────────────────────────────────────────────────────────────
   const [dateFrom, setDateFrom] = useState(todayIso());
@@ -371,6 +374,16 @@ export default function OwnerFinance() {
       !dateFrom && !dateTo
         ? "Semua"
         : `${dateFrom || "—"} s/d ${dateTo || "—"}`;
+    addExportInfoSheet(wb, "Laporan Keuangan — Jastip Anggun Jaya", {
+      Periode: rangeStr,
+      Layanan: layananFilter === "all" ? "Semua" : SERVICE_LABELS[layananFilter] || layananFilter,
+      Batch: batchFilter === "all"
+        ? "Semua"
+        : batchList.find((batch: any) => String(batch.id) === batchFilter)?.namaKapal || batchFilter,
+      Status: "Semua",
+      Kasir: adminFilter === "all" ? "Semua" : adminFilter,
+      "Diekspor Oleh": user?.name || "Pengguna aktif",
+    });
     XLSX.utils.book_append_sheet(
       wb,
       XLSX.utils.aoa_to_sheet([
@@ -439,6 +452,56 @@ export default function OwnerFinance() {
     XLSX.writeFile(wb, `keuangan-${dateFrom || "all"}_${dateTo || "all"}.xlsx`);
   }
 
+  function exportPdf() {
+    const rangeStr =
+      !dateFrom && !dateTo
+        ? "Semua"
+        : `${dateFrom || "—"} s/d ${dateTo || "—"}`;
+    const filters = {
+      Periode: rangeStr,
+      Layanan: layananFilter === "all" ? "Semua" : SERVICE_LABELS[layananFilter] || layananFilter,
+      Batch: batchFilter === "all"
+        ? "Semua"
+        : batchList.find((batch: any) => String(batch.id) === batchFilter)?.namaKapal || batchFilter,
+      Metode: metodeFilter === "all" ? "Semua" : metodeFilter,
+      Status: "Semua",
+      Kasir: adminFilter === "all" ? "Semua" : adminFilter,
+      "Diekspor Oleh": user?.name || "Pengguna aktif",
+    };
+    saveTabularPdf({
+      filename: `keuangan-${dateFrom || "all"}_${dateTo || "all"}.pdf`,
+      title: "Laporan Keuangan — Jastip Anggun Jaya",
+      filters,
+      columns: ["Jenis Data", "Waktu/Tanggal", "Admin/Kategori", "Metode", "Nominal (Rp)", "Keterangan"],
+      rows: [
+        ...filteredPayments.map((p) => [
+          "Pembayaran",
+          formatTime(p.createdAt),
+          p.adminName || "-",
+          p.paymentType,
+          Number(p.totalAmount || 0),
+          p.notes || "",
+        ]),
+        ...filteredPengeluaran.map((e) => [
+          "Pengeluaran",
+          e.tanggal,
+          e.kategori,
+          e.metodePembayaran,
+          Number(e.nominal || 0),
+          e.keterangan || "",
+        ]),
+      ],
+      summaryRows: [
+        ["Pembayaran Diterima", formatRp(kpi.pembayaranDiterima)],
+        ["Pengeluaran", formatRp(kpi.totalPengeluaran)],
+        ["Arus Kas Bersih", formatRp(kpi.arusKas)],
+        ["Piutang Terbuka", formatRp(kpi.piutangTerbuka)],
+      ],
+      landscape: true,
+      exportedBy: user?.name || "Pengguna aktif",
+    });
+  }
+
   const isLoading = pkgLoading || loadingPay;
   const dateLabel =
     !dateFrom && !dateTo
@@ -479,14 +542,14 @@ export default function OwnerFinance() {
             Seluruh penerimaan, pengeluaran, piutang, dan status closing
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={exportExcel}
-          className="gap-2 self-start"
-        >
-          <Download className="w-4 h-4" /> Export Excel
-        </Button>
+        <div className="flex gap-2 self-start">
+          <Button variant="outline" size="sm" onClick={exportExcel} className="gap-2">
+            <Download className="w-4 h-4" /> Export Excel
+          </Button>
+          <Button variant="outline" size="sm" onClick={exportPdf} className="gap-2">
+            <FileDown className="w-4 h-4" /> Export PDF
+          </Button>
+        </div>
       </div>
 
       <OwnerFinanceTransactions />

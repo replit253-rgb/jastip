@@ -23,6 +23,8 @@ import {
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { addExportInfoSheet, drawExportFooter } from "@/lib/export-utils";
+import { useAuth } from "@/lib/auth";
 
 const PAGE_SIZE = 10;
 
@@ -53,6 +55,7 @@ export default function OwnerPackages() {
   const [status, setStatus] = useState<string>("all");
   const [page, setPage] = useState(1);
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -108,12 +111,17 @@ export default function OwnerPackages() {
     ? sortedBatches.find((b: any) => String(b.id) === xlsxBatchId)
     : undefined;
 
-  function getFilteredPackages() {
+  function getPackagesForExport(batchId = "", serviceType = "all") {
     if (!packages) return [];
-    let filtered = [...packages] as any[];
-    if (pdfBatchId) filtered = filtered.filter((p) => String(p.batchId) === pdfBatchId);
-    if (pdfJenis !== "all") filtered = filtered.filter((p) => (p.serviceType || "").toLowerCase() === pdfJenis.toLowerCase());
-    return filtered;
+    return (packages as any[]).filter((p) =>
+      (!batchId || String(p.batchId) === batchId) &&
+      (serviceType === "all" ||
+        (p.serviceType || "").toLowerCase() === serviceType.toLowerCase())
+    );
+  }
+
+  function getFilteredPackages() {
+    return getPackagesForExport(pdfBatchId, pdfJenis);
   }
 
   function isGroupedExport() { return GROUPED_JENIS.includes(pdfJenis.toLowerCase()); }
@@ -139,6 +147,7 @@ export default function OwnerPackages() {
     doc.text(`Batch: ${batchLabel}`, margin, 17);
     doc.text(`Total Paket: ${filtered.length} paket`, margin, 21);
     doc.text(`Dicetak: ${new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })}`, margin, 25);
+    doc.text(`Filter: Layanan ${pdfJenis === "all" ? "Semua" : pdfJenis} · Tanggal Semua · Status ${status === "all" ? "Semua" : status} · Kasir Semua`, margin, 29);
     const head = [["No","Nama Konsumen","Tgl Masuk","No Resi / Kurir","Total Koli","Koli","Jenis Barang","Ukuran (cm)","Pakai (M³)","Ongkir Paket","Status"]];
     const rows = filtered.map((p: any, i: number) => [
       i + 1, p.customerName || "-", formatDate(p.packageDate || p.createdAt), p.resiNumber || "-",
@@ -149,7 +158,8 @@ export default function OwnerPackages() {
       p.status === "diserahkan" ? "Diserahkan" : "Pending",
     ]);
     autoTable(doc, {
-      startY: 30, head, body: rows,
+      startY: 34, head, body: rows,
+      didDrawPage: () => drawExportFooter(doc, user?.name || "Pengguna aktif"),
       styles: { fontSize: 6.5, cellPadding: 1.3, overflow: "ellipsize", lineColor: [200,200,200], lineWidth: 0.1 },
       headStyles: { fillColor: [234,88,12], textColor: 255, fontStyle: "bold", fontSize: 6.5, halign: "center", valign: "middle" },
       alternateRowStyles: { fillColor: [255,247,237] },
@@ -185,7 +195,7 @@ export default function OwnerPackages() {
     doc.text(titleText, pageW / 2, 11, { align: "center" });
     doc.setFontSize(8); doc.setFont("helvetica", "normal");
     let y = 17;
-    for (const [lbl, val] of [["Rute", rute], ["Jumlah Paket", `${filtered.length} Item`]] as [string,string][]) {
+     for (const [lbl, val] of [["Rute", rute], ["Jumlah Paket", `${filtered.length} Item`], ["Filter", `Layanan ${pdfJenis === "all" ? "Semua" : pdfJenis} · Tanggal Semua · Status ${status === "all" ? "Semua" : status} · Kasir Semua`]] as [string,string][]) {
       doc.text(lbl, 45, y); doc.text(val, 95, y); y += 4.2;
     }
     y += 3;
@@ -215,6 +225,7 @@ export default function OwnerPackages() {
       ]);
       autoTable(doc, {
         startY: y, head: tableHead, body: rows,
+        didDrawPage: () => drawExportFooter(doc, user?.name || "Pengguna aktif"),
         styles: { fontSize: 5.8, cellPadding: 1.1, overflow: "ellipsize", lineColor: [200,200,200], lineWidth: 0.1 },
         headStyles: { fillColor: [185,28,28], textColor: 255, fontStyle: "bold", fontSize: 5.8, halign: "center", valign: "middle" },
         alternateRowStyles: { fillColor: [253,248,248] },
@@ -243,6 +254,7 @@ export default function OwnerPackages() {
     doc.text(`Jenis Jastip     : ${judul}`, 14, 26);
     doc.text(`Dicetak          : ${new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })}`, 14, 31);
     doc.text(`Total Paket      : ${filtered.length} paket`, 14, 36);
+    doc.text(`Filter           : Layanan ${pdfJenis === "all" ? "Semua" : pdfJenis} · Tanggal Semua · Status ${status === "all" ? "Semua" : status} · Kasir Semua`, 14, 41);
     const rows = filtered.map((p: any, i: number) => [
       i+1, formatDate(p.packageDate||p.createdAt), p.resiNumber||"-", p.packageNumber||"-",
       p.customerName||"-", p.serviceType||"-", p.itemName||"-",
@@ -251,9 +263,10 @@ export default function OwnerPackages() {
       p.status==="diserahkan"?"Diserahkan":"Pending",
     ]);
     autoTable(doc, {
-      startY: 40,
+      startY: 46,
       head: [["No","Tanggal","No Resi","No Paket","Nama Konsumen","Jenis Jastip","Jenis Barang","Berat Real","Berat Digunakan","Total Berat","Total Ongkir","Status"]],
       body: rows,
+      didDrawPage: () => drawExportFooter(doc, user?.name || "Pengguna aktif"),
       styles: { fontSize: 7, cellPadding: 1.5 },
       headStyles: { fillColor: [200,30,30], textColor: 255, fontStyle: "bold", fontSize: 7 },
       alternateRowStyles: { fillColor: [250,245,245] },
@@ -271,8 +284,7 @@ export default function OwnerPackages() {
 
   function exportExcel() {
     if (!packages || packages.length === 0) return;
-    let data = [...packages] as any[];
-    if (xlsxBatchId && xlsxBatchId !== XLSX_ALL) data = data.filter((p) => String(p.batchId) === xlsxBatchId);
+    const data = getPackagesForExport(xlsxBatchId === XLSX_ALL ? "" : xlsxBatchId);
     if (!data.length) {
       toast({ variant: "destructive", title: "Tidak ada data", description: "Tidak ada paket untuk batch yang dipilih." });
       return;
@@ -319,6 +331,13 @@ export default function OwnerPackages() {
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Paket");
+    addExportInfoSheet(wb, "Monitor Paket — Jastip Anggun Jaya", {
+      Layanan: "Semua",
+      Batch: batchInfo,
+      Tanggal: "Semua",
+      Status: status === "all" ? "Semua" : status,
+      Kasir: "Semua",
+    });
 
     // Info sheet
     const infoRows = [

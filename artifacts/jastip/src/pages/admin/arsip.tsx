@@ -8,10 +8,11 @@ import { Badge } from "@/components/ui/badge";
 import { Pagination } from "@/components/pagination";
 import {
   Archive, Search, Ship, CheckCircle2, Lock, Clock,
-  ChevronDown, Download, Package,
+  ChevronDown, Download, FileDown, Package,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import * as XLSX from "xlsx";
+import { addExportInfoSheet, saveTabularPdf } from "@/lib/export-utils";
 
 const PAGE_SIZE = 5;
 
@@ -82,8 +83,52 @@ export default function AdminArsip() {
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
+    addExportInfoSheet(wb, "Arsip Paket — Jastip Anggun Jaya", {
+      Layanan: "Semua",
+      Batch: "Semua",
+      Tanggal: "Semua",
+      Status: "Diserahkan",
+      Kasir: "Semua",
+      "Diekspor Oleh": user?.name || "Pengguna aktif",
+    });
     XLSX.utils.book_append_sheet(wb, ws, "Arsip Paket");
     XLSX.writeFile(wb, `arsip-paket-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  }
+
+  function exportPdf() {
+    saveTabularPdf({
+      filename: `arsip-paket-${new Date().toISOString().slice(0, 10)}.pdf`,
+      title: "Arsip Paket — Jastip Anggun Jaya",
+      filters: {
+        Layanan: "Semua",
+        Batch: "Semua",
+        Tanggal: "Semua",
+        Status: "Diserahkan",
+        Kasir: "Semua",
+        "Diekspor Oleh": user?.name || "Pengguna aktif",
+      },
+      columns: [
+        "No", "Tanggal Paket", "Nama Penerima", "No Resi", "No Paket",
+        "Jenis Jastip", "Rute Pengiriman", "Berat Real (Kg)",
+        "Berat Digunakan (Kg)", "Total Ongkir (Rp)", "Status Pembayaran", "Tanggal Diambil",
+      ],
+      rows: arsipPackages.map((p: any, i: number) => [
+        i + 1,
+        formatTgl(p.packageDate),
+        p.customerName || "",
+        p.resiNumber || "",
+        p.packageNumber || "",
+        p.serviceType || "",
+        p.deliveryRoute || "",
+        p.realWeight ?? "",
+        p.usedWeight ?? "",
+        p.totalShipping ?? "",
+        p.statusPembayaran || "",
+        formatTgl(p.pickedUpAt),
+      ]),
+      landscape: true,
+      exportedBy: user?.name || "Pengguna aktif",
+    });
   }
 
   // Hitung per batch
@@ -143,14 +188,14 @@ export default function AdminArsip() {
             Paket dikelompokkan per batch. Klik batch untuk melihat barcode paket yang sudah diserahkan.
           </p>
         </div>
-        <Button
-          variant="outline"
-          onClick={exportExcel}
-          disabled={arsipPackages.length === 0}
-          className="flex items-center gap-2 shrink-0"
-        >
-          <Download className="h-4 w-4" /> Export Excel
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="outline" onClick={exportExcel} disabled={arsipPackages.length === 0} className="flex items-center gap-2">
+            <Download className="h-4 w-4" /> Export Excel
+          </Button>
+          <Button variant="outline" onClick={exportPdf} disabled={arsipPackages.length === 0} className="flex items-center gap-2">
+            <FileDown className="h-4 w-4" /> Export PDF
+          </Button>
+        </div>
       </div>
 
       {/* Summary cards */}
