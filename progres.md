@@ -1,5 +1,5 @@
 Progres Pembaruan Sistem Jastip Anggun Jaya
-Terakhir diperbarui: 2026-09-09
+Terakhir diperbarui: 2026-09-10
 
 ## Ringkasan Status
 
@@ -10,9 +10,9 @@ Terakhir diperbarui: 2026-09-09
 | 2 — Transaksi/Payment | Selesai | 100% | — |
 | 3 — VOID | Selesai, disetujui Owner 2026-09-09 | 100% | — |
 | 4 — Harga Minimum | Selesai, default OFF | 100% | Menunggu Owner mengaktifkan toggle bila diperlukan |
-| 5 — Nominal Cepat | Selesai, menunggu review Owner | 100% | Jangan mulai Fase 6 sebelum laporan ini disetujui |
-| 6 — Struk | Selesai | 100% | — |
-| 7 — Invoice A4 | Belum mulai | 0% | Tunggu Fase 2 |
+| 5 — Nominal Cepat | Selesai | 100% | — |
+| 6 — Struk | Selesai | 100% | Bukti AUTO/ASK/OFF masih tingkat kode, bukan network/runtime UI |
+| 7 — Invoice A4 | Selesai | 100% | — |
 | 8 — Fix Export | Belum mulai | 0% | Independen, belum dimulai |
 
 ## Catatan Fase 0
@@ -144,7 +144,7 @@ Angka sebelum/sesudah tetap **Rp7.000 → Rp7.000**; `unchanged=true`. Jadi peru
 
 - Bootstrap database development berhasil: `pnpm install --frozen-lockfile`, schema push, migrasi batch/service type, seed harga minimum, dan seed akun demo.
 - Workflow utama `API Server` (port 8080) dan `Start application` (port 5000) berjalan `RUNNING`.
-- Fase 4 selesai dan siap direview Owner. Fase 5 selesai dan menunggu review Owner; Fase 6 belum dimulai.
+- Fase 4 selesai dan siap direview Owner. Fase 5, Fase 6, dan Fase 7 selesai; Fase 8 belum dimulai.
 
 ## Laporan Akhir Fase 5 — Nominal Cepat, Idempotency, dan Validasi Pembayaran
 
@@ -272,7 +272,7 @@ Query sesudah request: `missing_debt_transactions=0`.
 
 ### Status akhir
 
-Fase 5 selesai dan siap direview Owner. Semua empat bukti diminta sudah dijalankan melalui endpoint sungguhan dan query database development. Fase 6 belum dimulai.
+Fase 5 selesai. Semua empat bukti diminta sudah dijalankan melalui endpoint sungguhan dan query database development. Fase 6 dan Fase 7 selesai; Fase 8 belum dimulai.
 
 ## Laporan Akhir Fase 6 — Struk dan Mode Cetak
 
@@ -306,7 +306,7 @@ Owner mengubah `receipt_print_mode` melalui `PATCH /api/settings` dan membaca ha
 ASK (awal belum tersedia, lalu dinormalisasi) → OFF → AUTO → ASK
 ```
 
-Response API masing-masing mengembalikan nilai `OFF`, `AUTO`, dan `ASK`. Frontend Scan membaca setting tersebut melalui `GET /api/settings` dan menerapkan perilaku nyata: `AUTO` memanggil alur cetak langsung setelah pembayaran, `ASK` menampilkan konfirmasi kasir, dan `OFF` tidak membuka cetak otomatis. Nilai akhir dikembalikan ke default aman `ASK`.
+Response API masing-masing mengembalikan nilai `OFF`, `AUTO`, dan `ASK`. Bukti runtime browser/network otomatis tidak tersedia di lingkungan ini. Bukti yang tersedia adalah bukti tingkat kode: frontend Scan membaca setting tersebut melalui `GET /api/settings`; `AUTO` memanggil alur cetak langsung setelah pembayaran, `ASK` menampilkan konfirmasi kasir, dan `OFF` tidak membuka cetak otomatis. Ini bukan bukti perilaku runtime UI. Nilai akhir dikembalikan ke default aman `ASK`.
 
 ### Bukti wajib 3 — `print_logs` bertambah dengan angka before-after
 
@@ -337,7 +337,7 @@ Cetak ulang transaksi `id=1` mengembalikan `copyNumber=2`, `isReprint=true`, dan
 ### Bukti wajib 4 — UAT-08/UAT-09 dan validasi build
 
 - UAT-08: LULUS melalui endpoint receipt sungguhan pada tiga skenario di atas.
-- UAT-09: LULUS melalui `PATCH /api/settings`, `GET /api/settings`, dan endpoint print sungguhan; mode AUTO/ASK/OFF mengubah alur frontend, sedangkan cetak ulang tercatat sebagai row `is_reprint=true`.
+- UAT-09: Bukti endpoint setting dan endpoint print lulus; cabang AUTO/ASK/OFF terbukti pada tingkat kode, bukan network/runtime browser. Cetak ulang tercatat sebagai row `is_reprint=true`.
 - `pnpm run typecheck:libs` → lulus setelah library workspace dibangun.
 - Build API → lulus.
 - Build frontend → lulus dengan warning sourcemap/chunk-size non-fatal.
@@ -345,4 +345,4 @@ Cetak ulang transaksi `id=1` mengembalikan `copyNumber=2`, `isReprint=true`, dan
 
 ### Status akhir
 
-Fase 6 selesai dan siap direview Owner. Semua empat bukti wajib dijalankan melalui endpoint sungguhan dan query database development. Fase 7 tidak dimulai.
+Fase 6 selesai dan siap direview Owner. Bukti receipt, print/reprint, dan `print_logs` dijalankan melalui endpoint sungguhan dan query database development; bukti AUTO/ASK/OFF secara eksplisit terbatas pada tingkat kode. Fase 7 selesai dengan UAT-10 dan bukti invariansi snapshot before-after. Fase 8 tidak dimulai.
