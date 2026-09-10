@@ -8,7 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/pagination";
 import { FileDown, Printer, Loader2 } from "lucide-react";
 import * as XLSX from "xlsx";
-import { addExportInfoSheet, saveTabularPdf } from "@/lib/export-utils";
+import {
+  addExportInfoSheet,
+  createExportSheet,
+  saveTabularPdf,
+} from "@/lib/export-utils";
 import { useAuth } from "@/lib/auth";
 
 const PAGE_SIZE = 10;
@@ -41,25 +45,33 @@ export default function OwnerReports() {
 
   function handleTypeChange(v: any) { setType(v); setPage(1); }
 
+  const reportFilters = () => ({
+    Periode: report?.period || "Semua",
+    Tipe: type === "daily" ? "Harian" : type === "monthly" ? "Bulanan" : "Tahunan",
+    Tanggal: type === "daily" ? date : "Semua",
+    Bulan: type === "monthly" ? month : "Semua",
+    Tahun: type === "yearly" ? year : "Semua",
+    Status: "Semua",
+    Kasir: "Semua",
+    "Diekspor Oleh": user?.name || "Pengguna aktif",
+  });
+
+  const reportColumns = ["Label", "Paket Masuk", "Paket Keluar"];
+  const reportRows = entries.map((entry) => [entry.label, entry.incoming, entry.outgoing]);
+
   const exportExcel = () => {
     if (!report || !entries.length) return;
     const wb = XLSX.utils.book_new();
-    addExportInfoSheet(wb, "Laporan Operasional — Jastip Anggun Jaya", {
-      Periode: report.period,
-      Tipe: type === "daily" ? "Harian" : type === "monthly" ? "Bulanan" : "Tahunan",
-      Tanggal: type === "daily" ? date : "Semua",
-      Bulan: type === "monthly" ? month : "Semua",
-      Tahun: type === "yearly" ? year : "Semua",
-      Status: "Semua",
-      Kasir: "Semua",
-      "Diekspor Oleh": user?.name || "Pengguna aktif",
+    const filters = reportFilters();
+    const sheet = createExportSheet({
+      title: "Laporan Operasional — Jastip Anggun Jaya",
+      filters,
+      columns: reportColumns,
+      rows: reportRows,
     });
-    const sheet = XLSX.utils.aoa_to_sheet([
-      ["Label", "Paket Masuk", "Paket Keluar"],
-      ...entries.map((entry) => [entry.label, entry.incoming, entry.outgoing]),
-    ]);
     sheet["!cols"] = [{ wch: 24 }, { wch: 16 }, { wch: 18 }];
     XLSX.utils.book_append_sheet(wb, sheet, "Laporan");
+    addExportInfoSheet(wb, "Laporan Operasional — Jastip Anggun Jaya", filters);
     XLSX.writeFile(wb, `laporan-${type}-${Date.now()}.xlsx`);
   };
 
@@ -68,17 +80,9 @@ export default function OwnerReports() {
     saveTabularPdf({
       filename: `laporan-${type}-${Date.now()}.pdf`,
       title: "Laporan Operasional — Jastip Anggun Jaya",
-      filters: {
-        Periode: report.period,
-        Tipe: type === "daily" ? "Harian" : type === "monthly" ? "Bulanan" : "Tahunan",
-        Tanggal: type === "daily" ? date : "Semua",
-        Bulan: type === "monthly" ? month : "Semua",
-        Tahun: type === "yearly" ? year : "Semua",
-        Status: "Semua",
-        Kasir: "Semua",
-      },
-      columns: ["Label", "Paket Masuk", "Paket Keluar"],
-      rows: entries.map((entry) => [entry.label, entry.incoming, entry.outgoing]),
+      filters: reportFilters(),
+      columns: reportColumns,
+      rows: reportRows,
       summaryRows: [
         ["Total Paket Masuk", report.totalPackages],
         ["Total Paket Selesai", report.pickedUp],

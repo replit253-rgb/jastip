@@ -19,7 +19,14 @@ import { isPackageInBarcodeOrArchive } from "@/lib/package-page-filter";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
-import { addExportInfoSheet, drawExportFooter } from "@/lib/export-utils";
+import {
+  addExportInfoSheet,
+  createExportSheet,
+  drawExportFooter,
+  formatNumber,
+  formatRp as formatExportRp,
+  saveTabularPdf,
+} from "@/lib/export-utils";
 import { useAuth } from "@/lib/auth";
 
 const PAGE_SIZE = 10;
@@ -63,6 +70,29 @@ function fNum(n: any, decimals = 1) {
   if (n == null || n === "") return "";
   const v = Number(n);
   return isNaN(v) ? "" : v.toFixed(decimals);
+}
+
+const PACKAGE_EXPORT_COLUMNS = [
+  "No", "Tanggal", "No Resi", "No Paket", "Nama Konsumen",
+  "Jenis Jastip", "Jenis Barang", "Berat Real (Kg)",
+  "Berat Digunakan (Kg)", "Total Berat (Kg)", "Total Ongkir", "Status",
+];
+
+function buildPackageExportRows(data: any[]) {
+  return data.map((p: any, i: number) => [
+    i + 1,
+    formatDate(p.packageDate || p.createdAt),
+    p.resiNumber || "-",
+    p.packageNumber || "-",
+    p.customerName || "-",
+    serviceTypeLabel(p.serviceType),
+    p.itemName || "-",
+    formatNumber(p.realWeight, 2),
+    formatNumber(p.usedWeight, 2),
+    formatNumber(p.totalWeight, 2),
+    formatExportRp(p.totalShipping),
+    p.status === "diserahkan" ? "Diserahkan" : "Pending",
+  ]);
 }
 
 export default function AdminPackages() {
@@ -183,38 +213,34 @@ export default function AdminPackages() {
 
   function exportPdfKargo() {
     const filtered = getFilteredPackages();
-    if (filtered.length === 0) { toast({ variant: "destructive", title: "Tidak ada data", description: "Tidak ada paket yang cocok dengan filter yang dipilih." }); return; }
+    if (filtered.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Tidak ada data",
+        description: "Tidak ada paket yang cocok dengan filter yang dipilih.",
+      });
+      return;
+    }
 
-    filtered.sort((a: any, b: any) =>
-      (a.customerName || "").localeCompare(b.customerName || "", "id")
+    const sorted = [...filtered].sort((a: any, b: any) =>
+      (a.customerName || "").localeCompare(b.customerName || "", "id"),
     );
-
-    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-    const pageW = 297;
-    const margin = 10;
-
     const batchLabel = selectedPdfBatch
       ? `${selectedPdfBatch.namaKapal} (${selectedPdfBatch.kotaAsal} → ${selectedPdfBatch.tujuan})`
       : "-";
-
-    doc.setFontSize(13);
-    doc.setFont("helvetica", "bold");
-    doc.text("JASTIP CARGO — JASTIP ANGGUN JAYA", pageW / 2, 11, { align: "center" });
-
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Batch: ${batchLabel}`, margin, 17);
-    doc.text(`Total Paket: ${filtered.length} paket`, margin, 21);
-    doc.text(`Dicetak: ${new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })}`, margin, 25);
-    doc.text(`Filter: Layanan ${pdfJenis === "all" ? "Semua" : pdfJenis} · Tanggal Semua · Status ${status === "all" ? "Semua" : status} · Kasir Semua`, margin, 29);
-
-    const head = [[
+    const filters = {
+      Batch: batchLabel,
+      Layanan: pdfJenis === "all" ? "Semua" : pdfJenis,
+      Tanggal: "Semua",
+      Status: status === "all" ? "Semua" : status,
+      Kasir: "Semua",
+    };
+    const cargoColumns = [
       "No", "Nama Konsumen", "Tgl Masuk", "No Resi / Kurir",
       "Total Koli", "Koli", "Jenis Barang", "Ukuran (cm)",
       "Pakai (M³)", "Harga Kubikasi", "Ongkir Paket", "Status",
-    ]];
-
-    const rows = filtered.map((p: any, i: number) => [
+    ];
+    const cargoRows = sorted.map((p: any, i: number) => [
       i + 1,
       p.customerName || "-",
       formatDate(p.packageDate || p.createdAt),
@@ -222,47 +248,45 @@ export default function AdminPackages() {
       p.packageNumber || "-",
       p.packagingType || "-",
       p.itemName || "-",
-      (p.length && p.width && p.height) ? `${p.length}×${p.width}×${p.height}` : "-",
-      p.usedWeight != null ? Number(p.usedWeight).toFixed(4) : "-",
-      p.shippingRate != null ? `Rp ${Number(p.shippingRate).toLocaleString("id-ID")}` : "-",
-      p.totalShipping != null ? `Rp ${Number(p.totalShipping).toLocaleString("id-ID")}` : "-",
+      p.length && p.width && p.height ? `${p.length}×${p.width}×${p.height}` : "-",
+      formatNumber(p.usedWeight, 2),
+      formatExportRp(p.shippingRate),
+      formatExportRp(p.totalShipping),
       p.status === "diserahkan" ? "Diserahkan" : "Pending",
     ]);
+    const totalOngkir = sorted.reduce(
+      (sum: number, p: any) => sum + (Number(p.totalShipping) || 0),
+      0,
+    );
 
-    autoTable(doc, {
-      startY: 34,
-      head,
-      body: rows,
-      didDrawPage: () => drawExportFooter(doc, user?.name || "Pengguna aktif"),
-      styles: { fontSize: 6.5, cellPadding: 1.3, overflow: "ellipsize", lineColor: [200, 200, 200], lineWidth: 0.1 },
-      headStyles: { fillColor: [234, 88, 12], textColor: 255, fontStyle: "bold", fontSize: 6.5, halign: "center", valign: "middle" },
-      alternateRowStyles: { fillColor: [255, 247, 237] },
+    saveTabularPdf({
+      filename: `laporan-kargo${selectedPdfBatch ? `-${selectedPdfBatch.namaKapal.replace(/\s+/g, "-").toLowerCase()}` : ""}.pdf`,
+      title: "JASTIP CARGO — JASTIP ANGGUN JAYA",
+      filters,
+      columns: cargoColumns,
+      rows: cargoRows,
+      summaryRows: [[
+        "Total Paket", sorted.length, "", "", "", "", "", "", "", "",
+        formatExportRp(totalOngkir), "",
+      ]],
+      landscape: true,
+      exportedBy: user?.name || "Pengguna aktif",
+      fontSize: 6.5,
       columnStyles: {
-        0:  { cellWidth: 8,  halign: "center" },
-        1:  { cellWidth: 26 },
-        2:  { cellWidth: 15 },
-        3:  { cellWidth: 26 },
-        4:  { cellWidth: 13, halign: "center" },
-        5:  { cellWidth: 13 },
-        6:  { cellWidth: 30 },
-        7:  { cellWidth: 18, halign: "center" },
-        8:  { cellWidth: 15, halign: "right" },
-        9:  { cellWidth: 22, halign: "right" },
-        10: { cellWidth: 22, halign: "right" },
-        11: { cellWidth: 15, halign: "center" },
+        0: { cellWidth: 8, halign: "center" },
+        1: { cellWidth: 28 },
+        2: { cellWidth: 16 },
+        3: { cellWidth: 26 },
+        4: { cellWidth: 13, halign: "center" },
+        5: { cellWidth: 13 },
+        6: { cellWidth: 46, overflow: "linebreak" },
+        7: { cellWidth: 21, halign: "center" },
+        8: { cellWidth: 16, halign: "right" },
+        9: { cellWidth: 24, halign: "right" },
+        10: { cellWidth: 24, halign: "right" },
+        11: { cellWidth: 17, halign: "center" },
       },
-      margin: { left: margin, right: margin },
     });
-
-    // Rekap total ongkir per konsumen
-    const totalOngkir = filtered.reduce((s: number, p: any) => s + (Number(p.totalShipping) || 0), 0);
-    const finalY = (doc as any).lastAutoTable.finalY + 5;
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "bold");
-    doc.text(`Total Ongkir Keseluruhan: Rp ${totalOngkir.toLocaleString("id-ID")}`, pageW - margin, finalY, { align: "right" });
-
-    const safeBatch = selectedPdfBatch ? `-${selectedPdfBatch.namaKapal.replace(/\s+/g, "-").toLowerCase()}` : "";
-    doc.save(`laporan-kargo${safeBatch}.pdf`);
     setPdfOpen(false);
   }
 
@@ -389,10 +413,10 @@ export default function AdminPackages() {
         p.volumeWeight != null ? fNum(p.volumeWeight, 1) : "0.0",
         p.packagingType || "-",
         fNum(p.usedWeight, 1),
-        p.totalShipping != null ? `Rp ${Number(p.totalShipping).toLocaleString("id-ID")}` : "-",
-        i === 0 ? totalBeratGrup.toFixed(1) : "",
-        i === 0 && hargaPerKg != null ? `Rp ${Number(hargaPerKg).toLocaleString("id-ID")}` : (i === 0 ? "-" : ""),
-        i === 0 ? `Rp ${totalOngkirGrup.toLocaleString("id-ID")}` : "",
+        formatExportRp(p.totalShipping),
+        i === 0 ? formatNumber(totalBeratGrup, 2) : "",
+        i === 0 ? formatExportRp(hargaPerKg) : "",
+        i === 0 ? formatExportRp(totalOngkirGrup) : "",
       ]);
 
       autoTable(doc, {
@@ -400,9 +424,11 @@ export default function AdminPackages() {
         head: tableHead,
         body: rows,
         didDrawPage: () => drawExportFooter(doc, user?.name || "Pengguna aktif"),
-        styles: { fontSize: 5.8, cellPadding: 1.1, overflow: "ellipsize", lineColor: [200, 200, 200], lineWidth: 0.1 },
+        styles: { fontSize: 5.8, cellPadding: 1.1, overflow: "linebreak", lineColor: [200, 200, 200], lineWidth: 0.1 },
         headStyles: { fillColor: [185, 28, 28], textColor: 255, fontStyle: "bold", fontSize: 5.8, halign: "center", valign: "middle" },
         alternateRowStyles: { fillColor: [253, 248, 248] },
+        showHead: "everyPage",
+        rowPageBreak: "avoid",
         columnStyles: colStyles,
         margin: { left: margin, right: margin },
         tableLineColor: [200, 200, 200],
@@ -421,68 +447,51 @@ export default function AdminPackages() {
 
   function exportPdfFlat() {
     const filtered = getFilteredPackages();
-    if (filtered.length === 0) { toast({ variant: "destructive", title: "Tidak ada data", description: "Tidak ada paket yang cocok dengan filter yang dipilih." }); return; }
-
-    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-    const judul = pdfJenis !== "all" ? pdfJenis : "Semua Jenis Jastip";
+    if (filtered.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Tidak ada data",
+        description: "Tidak ada paket yang cocok dengan filter yang dipilih.",
+      });
+      return;
+    }
     const batchLabel = selectedPdfBatch
       ? `${selectedPdfBatch.namaKapal} (${selectedPdfBatch.kotaAsal} → ${selectedPdfBatch.tujuan})`
       : "-";
-
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("Jastip Anggun Jaya — Laporan Paket", 14, 14);
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Batch Pengiriman : ${batchLabel}`, 14, 21);
-    doc.text(`Jenis Jastip     : ${judul}`, 14, 26);
-    doc.text(`Dicetak          : ${new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })}`, 14, 31);
-    doc.text(`Total Paket      : ${filtered.length} paket`, 14, 36);
-    doc.text(`Filter           : Layanan ${pdfJenis === "all" ? "Semua" : pdfJenis} · Tanggal Semua · Status ${status === "all" ? "Semua" : status} · Kasir Semua`, 14, 41);
-
-    const rows = filtered.map((p: any, i: number) => [
-      i + 1,
-      formatDate(p.packageDate || p.createdAt),
-      p.resiNumber || "-",
-      p.packageNumber || "-",
-      p.customerName || "-",
-      p.serviceType || "-",
-      p.itemName || "-",
-      p.realWeight ?? "-",
-      p.usedWeight ?? "-",
-      p.totalWeight ?? "-",
-      p.totalShipping ? `Rp ${Number(p.totalShipping).toLocaleString("id-ID")}` : "-",
-      p.status === "diserahkan" ? "Diserahkan" : "Pending",
-    ]);
-
-    autoTable(doc, {
-      startY: 46,
-      head: [["No", "Tanggal", "No Resi", "No Paket", "Nama Konsumen", "Jenis Jastip", "Jenis Barang", "Berat Real", "Berat Digunakan", "Total Berat", "Total Ongkir", "Status"]],
-      body: rows,
-      didDrawPage: () => drawExportFooter(doc, user?.name || "Pengguna aktif"),
-      styles: { fontSize: 7, cellPadding: 1.5 },
-      headStyles: { fillColor: [200, 30, 30], textColor: 255, fontStyle: "bold", fontSize: 7 },
-      alternateRowStyles: { fillColor: [250, 245, 245] },
+    const filters = {
+      Batch: batchLabel,
+      Layanan: pdfJenis === "all" ? "Semua" : pdfJenis,
+      Tanggal: "Semua",
+      Status: status === "all" ? "Semua" : status,
+      Kasir: "Semua",
+    };
+    const safeBatch = selectedPdfBatch
+      ? selectedPdfBatch.namaKapal.replace(/\s+/g, "-").toLowerCase()
+      : "batch";
+    const safeJenis = pdfJenis === "all"
+      ? "semua"
+      : pdfJenis.replace(/\s+/g, "-").toLowerCase();
+    saveTabularPdf({
+      filename: `laporan-paket_${safeBatch}_${safeJenis}.pdf`,
+      title: "Jastip Anggun Jaya — Laporan Paket",
+      filters,
+      columns: PACKAGE_EXPORT_COLUMNS,
+      rows: buildPackageExportRows(filtered),
+      landscape: true,
+      exportedBy: user?.name || "Pengguna aktif",
       columnStyles: {
         0: { halign: "center", cellWidth: 8 },
         1: { cellWidth: 18 },
         2: { cellWidth: 22 },
         3: { cellWidth: 18 },
+        6: { cellWidth: 30, overflow: "linebreak" },
         7: { halign: "right", cellWidth: 16 },
         8: { halign: "right", cellWidth: 18 },
         9: { halign: "right", cellWidth: 16 },
         10: { halign: "right", cellWidth: 24 },
         11: { halign: "center", cellWidth: 18 },
       },
-      margin: { left: 14, right: 14 },
     });
-
-    const namaFile = [
-      "laporan-paket",
-      selectedPdfBatch ? selectedPdfBatch.namaKapal.replace(/\s+/g, "-").toLowerCase() : "batch",
-      pdfJenis !== "all" ? pdfJenis.replace(/\s+/g, "-").toLowerCase() : "semua",
-    ].join("_") + ".pdf";
-    doc.save(namaFile);
     setPdfOpen(false);
   }
 
@@ -496,68 +505,30 @@ export default function AdminPackages() {
     const batchInfo = selectedXlsxBatch
       ? `${selectedXlsxBatch.namaKapal} (${selectedXlsxBatch.kotaAsal} → ${selectedXlsxBatch.tujuan})`
       : "Semua Batch";
-
-    const rows = data.map((p: any, i: number) => ({
-      "No": i + 1,
-      "Tanggal": formatDate(p.packageDate || p.createdAt),
-      "No Resi": p.resiNumber || "",
-      "No Paket": p.packageNumber || "",
-      "Nama Konsumen": p.customerName || "",
-      "No HP": p.customerPhone || "",
-      "Batch": p.batchId ? (() => { const b = sortedBatches.find((b: any) => b.id === p.batchId); return b ? `${b.namaKapal} · ${b.kotaAsal}→${b.tujuan}` : String(p.batchId); })() : "",
-      "Jenis Jastip": serviceTypeLabel(p.serviceType),
-      "Rute": p.deliveryRoute || "",
-      "Jenis Barang": p.itemName || "",
-      "Berat Real (Kg)": p.realWeight != null ? Number(p.realWeight) : "",
-      "P (cm)": p.length != null ? Number(p.length) : "",
-      "L (cm)": p.width != null ? Number(p.width) : "",
-      "T (cm)": p.height != null ? Number(p.height) : "",
-      "Berat Volume / Pakai (m3)": p.volumeWeight != null ? Number(p.volumeWeight) : "",
-      "Harga Kubikasi / Ongkir per Kg": p.shippingRate != null ? Number(p.shippingRate) : "",
-      "Jenis Paking": p.packagingType || "",
-      "Berat Digunakan (Kg)": p.usedWeight != null ? Number(p.usedWeight) : "",
-      "Total Berat (Kg)": p.totalWeight != null ? Number(p.totalWeight) : "",
-      "Total Ongkir": p.totalShipping != null ? Number(p.totalShipping) : "",
-      "Barcode": p.barcode || "",
-      "Sudah Generate Barcode": p.barcode ? "Ya" : "Belum",
-      "Sudah Diverifikasi": p.statusVerifikasi === "SUDAH_DIVERIFIKASI" ? "Ya" : "Belum",
-      "Sudah Diambil": p.status === "diserahkan" ? "Ya" : "Belum",
-    }));
-
-    const ws = XLSX.utils.json_to_sheet(rows);
-
-    // Column widths
-    ws["!cols"] = [
-      { wch: 4 }, { wch: 12 }, { wch: 22 }, { wch: 12 }, { wch: 22 }, { wch: 14 },
-      { wch: 30 }, { wch: 16 }, { wch: 18 }, { wch: 20 },
-      { wch: 12 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 14 }, { wch: 18 },
-      { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 14 },
-      { wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 14 },
-    ];
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Paket");
-    addExportInfoSheet(wb, "Laporan Paket — Jastip Anggun Jaya", {
-      Layanan: selectedXlsxBatch ? "Semua" : "Semua",
+    const filters = {
+      Layanan: "Semua",
       Batch: batchInfo,
       Tanggal: "Semua",
       Status: status === "all" ? "Semua" : status,
-      Kasir: "Semua",
-    });
+      Kasir: user?.name || "Pengguna aktif",
+      "Diekspor Oleh": user?.name || "Pengguna aktif",
+    };
+    const rows = buildPackageExportRows(data);
 
-    // Info sheet
-    const infoRows = [
-      ["Laporan Paket — Jastip Anggun Jaya"],
-      ["Batch", batchInfo],
-      ["Tanggal Ekspor", new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })],
-      ["Total Paket", data.length],
-      ["Sudah Generate Barcode", data.filter((p: any) => !!p.barcode).length],
-      ["Sudah Diverifikasi", data.filter((p: any) => p.statusVerifikasi === "SUDAH_DIVERIFIKASI").length],
-      ["Sudah Diambil", data.filter((p: any) => p.status === "diserahkan").length],
-    ];
-    const wsInfo = XLSX.utils.aoa_to_sheet(infoRows);
-    wsInfo["!cols"] = [{ wch: 24 }, { wch: 50 }];
-    XLSX.utils.book_append_sheet(wb, wsInfo, "Info");
+    const wb = XLSX.utils.book_new();
+    const sheet = createExportSheet({
+      title: "Laporan Paket — Jastip Anggun Jaya",
+      filters,
+      columns: PACKAGE_EXPORT_COLUMNS,
+      rows,
+      columnWidths: [
+        { wch: 5 }, { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 24 },
+        { wch: 18 }, { wch: 32 }, { wch: 16 }, { wch: 20 }, { wch: 17 },
+        { wch: 20 }, { wch: 16 },
+      ],
+    });
+    XLSX.utils.book_append_sheet(wb, sheet, "Paket");
+    addExportInfoSheet(wb, "Laporan Paket — Jastip Anggun Jaya", filters);
 
     const safeBatch = selectedXlsxBatch
       ? `-${selectedXlsxBatch.namaKapal.replace(/\s+/g, "-").toLowerCase()}`

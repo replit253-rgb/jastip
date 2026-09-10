@@ -5,7 +5,28 @@ import * as XLSX from "xlsx";
 export type ExportFilters = Record<string, string | number | null | undefined>;
 export type ExportCell = string | number | null | undefined;
 
-function exportTimestamp() {
+export function formatRp(value: unknown, emptyValue = "-") {
+  if (value == null || value === "") return emptyValue;
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return emptyValue;
+  return `Rp ${Math.round(amount).toLocaleString("id-ID")}`;
+}
+
+export function formatWeight(value: unknown, emptyValue = "-") {
+  if (value == null || value === "") return emptyValue;
+  const weight = Number(value);
+  if (!Number.isFinite(weight)) return emptyValue;
+  return `${weight.toFixed(2).replace(/\.?0+$/, "")} Kg`;
+}
+
+export function formatNumber(value: unknown, decimals = 2, emptyValue = "-") {
+  if (value == null || value === "") return emptyValue;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return emptyValue;
+  return number.toFixed(decimals).replace(/\.?0+$/, "");
+}
+
+export function exportTimestamp() {
   return new Date().toLocaleString("id-ID", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -19,28 +40,63 @@ export function exportFilterRows(filters: ExportFilters) {
   ]);
 }
 
+export function exportInfoRows(title: string, filters: ExportFilters) {
+  return [
+    [title],
+    ["Waktu Export", exportTimestamp()],
+    ...exportFilterRows(filters),
+  ];
+}
+
 export function addExportInfoSheet(
   workbook: XLSX.WorkBook,
   title: string,
   filters: ExportFilters,
 ) {
-  const rows = [
-    [title],
-    ["Waktu Export", exportTimestamp()],
-    ...exportFilterRows(filters),
-  ];
+  const rows = exportInfoRows(title, filters);
   const sheet = XLSX.utils.aoa_to_sheet(rows);
   sheet["!cols"] = [{ wch: 28 }, { wch: 58 }];
   XLSX.utils.book_append_sheet(workbook, sheet, "Info Export");
 }
 
-export function drawExportFooter(doc: jsPDF, exportedBy = "Pengguna aktif") {
+export function createExportSheet({
+  title,
+  filters,
+  columns,
+  rows,
+  columnWidths,
+}: {
+  title: string;
+  filters: ExportFilters;
+  columns: string[];
+  rows: ExportCell[][];
+  columnWidths?: { wch: number }[];
+}) {
+  const sheet = XLSX.utils.aoa_to_sheet([
+    ...exportInfoRows(title, filters),
+    [],
+    columns,
+    ...rows,
+  ]);
+  if (columnWidths) sheet["!cols"] = columnWidths;
+  return sheet;
+}
+
+export function drawExportFooter(
+  doc: jsPDF,
+  exportedBy = "Pengguna aktif",
+  generatedAt = exportTimestamp(),
+) {
   const margin = 12;
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   doc.setFontSize(7);
   doc.setTextColor(110);
-  doc.text(`Jastip Anggun Jaya · Diekspor oleh: ${exportedBy}`, margin, pageHeight - 7);
+  doc.text(
+    `Jastip Anggun Jaya · Diekspor oleh: ${exportedBy} · ${generatedAt}`,
+    margin,
+    pageHeight - 7,
+  );
   doc.text(`Halaman ${doc.getNumberOfPages()}`, pageWidth - margin, pageHeight - 7, {
     align: "right",
   });
@@ -56,6 +112,8 @@ export function saveTabularPdf({
   summaryRows = [],
   landscape = true,
   exportedBy = "Pengguna aktif",
+  columnStyles,
+  fontSize = 7,
 }: {
   filename: string;
   title: string;
@@ -65,6 +123,8 @@ export function saveTabularPdf({
   summaryRows?: ExportCell[][];
   landscape?: boolean;
   exportedBy?: string;
+  columnStyles?: Record<number, object>;
+  fontSize?: number;
 }) {
   const doc = new jsPDF({
     orientation: landscape ? "landscape" : "portrait",
@@ -93,11 +153,14 @@ export function saveTabularPdf({
     head: [columns],
     body: rows.map((row) => row.map((cell) => cell == null ? "" : String(cell))),
     margin: { left: margin, right: margin, top: 12, bottom: 14 },
-    styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" },
+    styles: { fontSize, cellPadding: 1.5, overflow: "linebreak" },
     headStyles: { fillColor: [185, 28, 28], textColor: 255, fontStyle: "bold" },
     alternateRowStyles: { fillColor: [250, 245, 245] },
+    columnStyles,
+    showHead: "everyPage",
+    rowPageBreak: "avoid",
     didDrawPage: () => {
-      drawExportFooter(doc, exportedBy);
+      drawExportFooter(doc, exportedBy, generatedAt);
     },
   });
 
@@ -109,6 +172,10 @@ export function saveTabularPdf({
       theme: "plain",
       styles: { fontSize: 8, fontStyle: "bold" },
       margin: { left: margin, right: margin },
+      rowPageBreak: "avoid",
+      didDrawPage: () => {
+        drawExportFooter(doc, exportedBy, generatedAt);
+      },
     });
   }
 

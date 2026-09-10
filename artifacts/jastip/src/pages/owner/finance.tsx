@@ -13,13 +13,18 @@ import { useLocation } from "wouter";
 import { Download, FileDown, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import * as XLSX from "xlsx";
 import OwnerFinanceTransactions from "./finance-transactions";
-import { addExportInfoSheet, saveTabularPdf } from "@/lib/export-utils";
+import {
+  addExportInfoSheet,
+  createExportSheet,
+  formatRp as formatExportRp,
+  saveTabularPdf,
+} from "@/lib/export-utils";
 import { useAuth } from "@/lib/auth";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatRp(n: number) {
-  return `Rp${Math.round(n).toLocaleString("id-ID")}`;
+  return `Rp ${Math.round(n).toLocaleString("id-ID")}`;
 }
 function todayIso() {
   return new Date().toISOString().split("T")[0];
@@ -368,129 +373,133 @@ export default function OwnerFinance() {
   }, [filteredPayments, activeMethod]);
 
   // ── Export Excel ──────────────────────────────────────────────────────────
-  function exportExcel() {
-    const wb = XLSX.utils.book_new();
+  function financeExportFilters() {
     const rangeStr =
       !dateFrom && !dateTo
         ? "Semua"
         : `${dateFrom || "—"} s/d ${dateTo || "—"}`;
-    addExportInfoSheet(wb, "Laporan Keuangan — Jastip Anggun Jaya", {
+    return {
       Periode: rangeStr,
-      Layanan: layananFilter === "all" ? "Semua" : SERVICE_LABELS[layananFilter] || layananFilter,
-      Batch: batchFilter === "all"
-        ? "Semua"
-        : batchList.find((batch: any) => String(batch.id) === batchFilter)?.namaKapal || batchFilter,
-      Status: "Semua",
-      Kasir: adminFilter === "all" ? "Semua" : adminFilter,
-      "Diekspor Oleh": user?.name || "Pengguna aktif",
-    });
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.aoa_to_sheet([
-        ["Laporan Keuangan Jastip Anggun Jaya"],
-        ["Periode", rangeStr],
-        ["Admin", adminFilter === "all" ? "Semua" : adminFilter],
-        [
-          "Layanan",
-          layananFilter === "all"
-            ? "Semua"
-            : SERVICE_LABELS[layananFilter] || layananFilter,
-        ],
-        [],
-        ["PEMBAYARAN DITERIMA", kpi.pembayaranDiterima],
-        ["PENGELUARAN", kpi.totalPengeluaran],
-        ["ARUS KAS BERSIH", kpi.arusKas],
-        ["PIUTANG TERBUKA", kpi.piutangTerbuka],
-      ]),
-      "Ringkasan",
-    );
-
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.json_to_sheet(
-        serviceRows.map((r) => ({
-          Layanan: r.label,
-          "Tagihan (Rp)": r.tagihan,
-          "Total yang sudah dibayar (Rp)": r.totalPaid,
-          "Sisa Tagihan (Rp)": r.sisa,
-          "Paket Diserahkan": r.diserahkan,
-          "Total Paket": r.totalPkg,
-        })),
-      ),
-      "Per Jenis Jastip",
-    );
-
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.json_to_sheet(
-        filteredPayments.map((p) => ({
-          Waktu: formatTime(p.createdAt),
-          Admin: p.adminName || "-",
-          Metode: p.paymentType,
-          "Total Tagihan (Rp)": Number(p.totalAmount || 0),
-          "Dibayar (Rp)": Number(p.paidAmount || p.totalAmount || 0),
-          Keterangan: p.notes || "",
-        })),
-      ),
-      "Transaksi",
-    );
-
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.json_to_sheet(
-        filteredPengeluaran.map((e) => ({
-          Tanggal: e.tanggal,
-          Kategori: e.kategori,
-          "Nominal (Rp)": Number(e.nominal || 0),
-          Metode: e.metodePembayaran,
-          Keterangan: e.keterangan || "",
-        })),
-      ),
-      "Pengeluaran",
-    );
-
-    XLSX.writeFile(wb, `keuangan-${dateFrom || "all"}_${dateTo || "all"}.xlsx`);
-  }
-
-  function exportPdf() {
-    const rangeStr =
-      !dateFrom && !dateTo
-        ? "Semua"
-        : `${dateFrom || "—"} s/d ${dateTo || "—"}`;
-    const filters = {
-      Periode: rangeStr,
-      Layanan: layananFilter === "all" ? "Semua" : SERVICE_LABELS[layananFilter] || layananFilter,
-      Batch: batchFilter === "all"
-        ? "Semua"
-        : batchList.find((batch: any) => String(batch.id) === batchFilter)?.namaKapal || batchFilter,
+      Layanan:
+        layananFilter === "all"
+          ? "Semua"
+          : SERVICE_LABELS[layananFilter] || layananFilter,
+      Batch:
+        batchFilter === "all"
+          ? "Semua"
+          : batchList.find((batch: any) => String(batch.id) === batchFilter)
+                ?.namaKapal || batchFilter,
       Metode: metodeFilter === "all" ? "Semua" : metodeFilter,
       Status: "Semua",
       Kasir: adminFilter === "all" ? "Semua" : adminFilter,
       "Diekspor Oleh": user?.name || "Pengguna aktif",
     };
+  }
+
+  function financeTransactionRows() {
+    return [
+      ...filteredPayments.map((p) => [
+        "Pembayaran",
+        formatTime(p.createdAt),
+        p.adminName || "-",
+        p.paymentType,
+        formatExportRp(p.totalAmount || 0),
+        p.notes || "",
+      ]),
+      ...filteredPengeluaran.map((e) => [
+        "Pengeluaran",
+        e.tanggal,
+        e.kategori,
+        e.metodePembayaran,
+        formatExportRp(e.nominal || 0),
+        e.catatan || e.keterangan || "",
+      ]),
+    ];
+  }
+
+  const financeTransactionColumns = [
+    "Jenis Data", "Waktu/Tanggal", "Admin/Kategori", "Metode", "Nominal", "Keterangan",
+  ];
+
+  function exportExcel() {
+    const wb = XLSX.utils.book_new();
+    const filters = financeExportFilters();
+    XLSX.utils.book_append_sheet(
+      wb,
+      createExportSheet({
+        title: "Laporan Keuangan — Jastip Anggun Jaya",
+        filters,
+        columns: ["Ringkasan", "Nominal"],
+        rows: [
+          ["PEMBAYARAN DITERIMA", formatExportRp(kpi.pembayaranDiterima)],
+          ["PENGELUARAN", formatExportRp(kpi.totalPengeluaran)],
+          ["ARUS KAS BERSIH", formatExportRp(kpi.arusKas)],
+          ["PIUTANG TERBUKA", formatExportRp(kpi.piutangTerbuka)],
+        ],
+      }),
+      "Ringkasan",
+    );
+
+    XLSX.utils.book_append_sheet(
+      wb,
+      createExportSheet({
+        title: "Laporan Keuangan — Per Jenis Jastip",
+        filters,
+        columns: [
+          "Layanan", "Tagihan", "Total yang sudah dibayar", "Sisa Tagihan",
+          "Paket Diserahkan", "Total Paket",
+        ],
+        rows: serviceRows.map((r) => [
+          r.label,
+          formatExportRp(r.tagihan),
+          formatExportRp(r.totalPaid),
+          formatExportRp(r.sisa),
+          r.diserahkan,
+          r.totalPkg,
+        ]),
+      }),
+      "Per Jenis Jastip",
+    );
+
+    XLSX.utils.book_append_sheet(
+      wb,
+      createExportSheet({
+        title: "Laporan Keuangan — Transaksi",
+        filters,
+        columns: financeTransactionColumns,
+        rows: financeTransactionRows(),
+      }),
+      "Transaksi",
+    );
+
+    XLSX.utils.book_append_sheet(
+      wb,
+      createExportSheet({
+        title: "Laporan Keuangan — Pengeluaran",
+        filters,
+        columns: ["Tanggal", "Kategori", "Nominal", "Metode", "Keterangan"],
+        rows: filteredPengeluaran.map((e) => [
+          e.tanggal,
+          e.kategori,
+          formatExportRp(e.nominal || 0),
+          e.metodePembayaran,
+          e.catatan || e.keterangan || "",
+        ]),
+      }),
+      "Pengeluaran",
+    );
+
+    addExportInfoSheet(wb, "Laporan Keuangan — Jastip Anggun Jaya", filters);
+    XLSX.writeFile(wb, `keuangan-${dateFrom || "all"}_${dateTo || "all"}.xlsx`);
+  }
+
+  function exportPdf() {
     saveTabularPdf({
       filename: `keuangan-${dateFrom || "all"}_${dateTo || "all"}.pdf`,
       title: "Laporan Keuangan — Jastip Anggun Jaya",
-      filters,
-      columns: ["Jenis Data", "Waktu/Tanggal", "Admin/Kategori", "Metode", "Nominal (Rp)", "Keterangan"],
-      rows: [
-        ...filteredPayments.map((p) => [
-          "Pembayaran",
-          formatTime(p.createdAt),
-          p.adminName || "-",
-          p.paymentType,
-          Number(p.totalAmount || 0),
-          p.notes || "",
-        ]),
-        ...filteredPengeluaran.map((e) => [
-          "Pengeluaran",
-          e.tanggal,
-          e.kategori,
-          e.metodePembayaran,
-          Number(e.nominal || 0),
-          e.keterangan || "",
-        ]),
-      ],
+      filters: financeExportFilters(),
+      columns: financeTransactionColumns,
+      rows: financeTransactionRows(),
       summaryRows: [
         ["Pembayaran Diterima", formatRp(kpi.pembayaranDiterima)],
         ["Pengeluaran", formatRp(kpi.totalPengeluaran)],

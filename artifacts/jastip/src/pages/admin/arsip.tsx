@@ -12,7 +12,13 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import * as XLSX from "xlsx";
-import { addExportInfoSheet, saveTabularPdf } from "@/lib/export-utils";
+import {
+  addExportInfoSheet,
+  createExportSheet,
+  formatNumber,
+  formatRp as formatExportRp,
+  saveTabularPdf,
+} from "@/lib/export-utils";
 
 const PAGE_SIZE = 5;
 
@@ -45,6 +51,30 @@ function batchStatusLabel(status: string) {
   return "Arsip";
 }
 
+const ARSIP_EXPORT_COLUMNS = [
+  "No", "Tanggal Paket", "Nama Penerima", "No Resi", "No Paket",
+  "Jenis Jastip", "Jenis Barang", "Rute Pengiriman", "Berat Real (Kg)",
+  "Berat Digunakan (Kg)", "Total Ongkir", "Status Pembayaran", "Tanggal Diambil",
+];
+
+function buildArsipExportRows(arsipPackages: any[]) {
+  return arsipPackages.map((p: any, i: number) => [
+    i + 1,
+    formatTgl(p.packageDate),
+    p.customerName || "",
+    p.resiNumber || "",
+    p.packageNumber || "",
+    p.serviceType || "",
+    p.itemName || "",
+    p.deliveryRoute || "",
+    formatNumber(p.realWeight, 2, ""),
+    formatNumber(p.usedWeight, 2, ""),
+    formatExportRp(p.totalShipping, ""),
+    p.statusPembayaran || "",
+    formatTgl(p.pickedUpAt),
+  ]);
+}
+
 export default function AdminArsip() {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
@@ -67,65 +97,41 @@ export default function AdminArsip() {
 
   // Untuk export: semua arsip
   function exportExcel() {
-    const rows = arsipPackages.map((p: any, i: number) => ({
-      No: i + 1,
-      "Tanggal Paket": formatTgl(p.packageDate),
-      "Nama Penerima": p.customerName || "",
-      "No Resi": p.resiNumber || "",
-      "No Paket": p.packageNumber || "",
-      "Jenis Jastip": p.serviceType || "",
-      "Rute Pengiriman": p.deliveryRoute || "",
-      "Berat Real (Kg)": p.realWeight ?? "",
-      "Berat Digunakan (Kg)": p.usedWeight ?? "",
-      "Total Ongkir (Rp)": p.totalShipping ?? "",
-      "Status Pembayaran": p.statusPembayaran || "",
-      "Tanggal Diambil": formatTgl(p.pickedUpAt),
-    }));
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    addExportInfoSheet(wb, "Arsip Paket — Jastip Anggun Jaya", {
+    const filters = {
       Layanan: "Semua",
       Batch: "Semua",
       Tanggal: "Semua",
       Status: "Diserahkan",
       Kasir: "Semua",
       "Diekspor Oleh": user?.name || "Pengguna aktif",
-    });
-    XLSX.utils.book_append_sheet(wb, ws, "Arsip Paket");
+    };
+    const rows = buildArsipExportRows(arsipPackages);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, createExportSheet({
+      title: "Arsip Paket — Jastip Anggun Jaya",
+      filters,
+      columns: ARSIP_EXPORT_COLUMNS,
+      rows,
+    }), "Arsip Paket");
+    addExportInfoSheet(wb, "Arsip Paket — Jastip Anggun Jaya", filters);
     XLSX.writeFile(wb, `arsip-paket-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
   function exportPdf() {
+    const filters = {
+      Layanan: "Semua",
+      Batch: "Semua",
+      Tanggal: "Semua",
+      Status: "Diserahkan",
+      Kasir: "Semua",
+      "Diekspor Oleh": user?.name || "Pengguna aktif",
+    };
     saveTabularPdf({
       filename: `arsip-paket-${new Date().toISOString().slice(0, 10)}.pdf`,
       title: "Arsip Paket — Jastip Anggun Jaya",
-      filters: {
-        Layanan: "Semua",
-        Batch: "Semua",
-        Tanggal: "Semua",
-        Status: "Diserahkan",
-        Kasir: "Semua",
-        "Diekspor Oleh": user?.name || "Pengguna aktif",
-      },
-      columns: [
-        "No", "Tanggal Paket", "Nama Penerima", "No Resi", "No Paket",
-        "Jenis Jastip", "Rute Pengiriman", "Berat Real (Kg)",
-        "Berat Digunakan (Kg)", "Total Ongkir (Rp)", "Status Pembayaran", "Tanggal Diambil",
-      ],
-      rows: arsipPackages.map((p: any, i: number) => [
-        i + 1,
-        formatTgl(p.packageDate),
-        p.customerName || "",
-        p.resiNumber || "",
-        p.packageNumber || "",
-        p.serviceType || "",
-        p.deliveryRoute || "",
-        p.realWeight ?? "",
-        p.usedWeight ?? "",
-        p.totalShipping ?? "",
-        p.statusPembayaran || "",
-        formatTgl(p.pickedUpAt),
-      ]),
+      filters,
+      columns: ARSIP_EXPORT_COLUMNS,
+      rows: buildArsipExportRows(arsipPackages),
       landscape: true,
       exportedBy: user?.name || "Pengguna aktif",
     });

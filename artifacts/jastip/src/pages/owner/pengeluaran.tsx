@@ -20,7 +20,12 @@ import {
   Plus, Wallet, Pencil, Trash2, Download, FileDown, TrendingDown, Filter,
 } from "lucide-react";
 import * as XLSX from "xlsx";
-import { addExportInfoSheet, saveTabularPdf } from "@/lib/export-utils";
+import {
+  addExportInfoSheet,
+  createExportSheet,
+  formatRp as formatExportRp,
+  saveTabularPdf,
+} from "@/lib/export-utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Pengeluaran {
@@ -75,6 +80,25 @@ function formatDate(d: string | null | undefined) {
 function authHeaders() {
   const token = localStorage.getItem("jaj_token");
   return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+}
+
+const PENGELUARAN_EXPORT_COLUMNS = [
+  "Tanggal", "Kategori", "Nominal", "Metode Pembayaran", "Dicatat Oleh", "Catatan",
+];
+
+function buildPengeluaranExportRows(data: Pengeluaran[], totalNominal: number) {
+  const rows = data.map((d) => [
+    formatDate(d.tanggal),
+    d.kategori,
+    formatExportRp(d.nominal),
+    d.metodePembayaran,
+    d.namaPencatat || "-",
+    d.catatan || "",
+  ]);
+  return [
+    ...rows,
+    ["TOTAL", "", formatExportRp(totalNominal), "", "", ""],
+  ];
 }
 
 // ── Form Dialog ───────────────────────────────────────────────────────────────
@@ -336,16 +360,7 @@ export default function OwnerPengeluaran() {
   }
 
   function exportExcel() {
-    const rows = data.map((d) => ({
-      Tanggal: formatDate(d.tanggal),
-      Kategori: d.kategori,
-      "Nominal (Rp)": Number(d.nominal),
-      "Metode Pembayaran": d.metodePembayaran,
-      "Dicatat Oleh": d.namaPencatat || "-",
-      Catatan: d.catatan || "",
-    }));
-    const wb = XLSX.utils.book_new();
-    addExportInfoSheet(wb, "Pengeluaran Harian — Jastip Anggun Jaya", {
+    const filters = {
       Dari: dari,
       Sampai: sampai,
       Kategori: filterKategori || "Semua",
@@ -354,44 +369,39 @@ export default function OwnerPengeluaran() {
       Status: "Semua",
       Kasir: "Semua",
       "Diekspor Oleh": user?.name || "Pengguna aktif",
+    };
+    const wb = XLSX.utils.book_new();
+    const rows = buildPengeluaranExportRows(data, totalNominal);
+    const ws = createExportSheet({
+      title: "Pengeluaran Harian — Jastip Anggun Jaya",
+      filters,
+      columns: PENGELUARAN_EXPORT_COLUMNS,
+      rows,
     });
-    rows.push({
-      Tanggal: "TOTAL",
-      Kategori: "",
-      "Nominal (Rp)": totalNominal,
-      "Metode Pembayaran": "",
-      "Dicatat Oleh": "",
-      Catatan: "",
-    });
-    const ws = XLSX.utils.json_to_sheet(rows);
     XLSX.utils.book_append_sheet(wb, ws, "Pengeluaran");
+    addExportInfoSheet(wb, "Pengeluaran Harian — Jastip Anggun Jaya", filters);
     XLSX.writeFile(wb, `pengeluaran_${dari}_${sampai}.xlsx`);
   }
 
   function exportPdf() {
+    const filters = {
+      Dari: dari,
+      Sampai: sampai,
+      Kategori: filterKategori || "Semua",
+      Metode: filterMetode || "Semua",
+      Layanan: "Semua",
+      Status: "Semua",
+      Kasir: "Semua",
+      "Diekspor Oleh": user?.name || "Pengguna aktif",
+    };
+    const rows = buildPengeluaranExportRows(data, totalNominal);
     saveTabularPdf({
       filename: `pengeluaran_${dari}_${sampai}.pdf`,
       title: "Pengeluaran Harian — Jastip Anggun Jaya",
-      filters: {
-        Dari: dari,
-        Sampai: sampai,
-        Kategori: filterKategori || "Semua",
-        Metode: filterMetode || "Semua",
-        Layanan: "Semua",
-        Status: "Semua",
-        Kasir: "Semua",
-        "Diekspor Oleh": user?.name || "Pengguna aktif",
-      },
-      columns: ["Tanggal", "Kategori", "Nominal (Rp)", "Metode Pembayaran", "Dicatat Oleh", "Catatan"],
-      rows: data.map((d) => [
-        formatDate(d.tanggal),
-        d.kategori,
-        Number(d.nominal),
-        d.metodePembayaran,
-        d.namaPencatat || "-",
-        d.catatan || "",
-      ]),
-      summaryRows: [["TOTAL", "", totalNominal, "", "", ""]],
+      filters,
+      columns: PENGELUARAN_EXPORT_COLUMNS,
+      rows: rows.slice(0, -1),
+      summaryRows: [rows[rows.length - 1]],
       landscape: true,
       exportedBy: user?.name || "Pengguna aktif",
     });
