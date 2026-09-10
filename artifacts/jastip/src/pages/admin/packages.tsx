@@ -27,6 +27,13 @@ import {
   formatRp as formatExportRp,
   saveTabularPdf,
 } from "@/lib/export-utils";
+import {
+  buildCargoExportRows,
+  buildPackageExportRows as buildSharedPackageExportRows,
+  CARGO_EXPORT_COLUMNS,
+  filterPackagesForExport,
+  PACKAGE_EXPORT_COLUMNS as SHARED_PACKAGE_EXPORT_COLUMNS,
+} from "@/lib/package-export";
 import { useAuth } from "@/lib/auth";
 
 const PAGE_SIZE = 10;
@@ -72,28 +79,7 @@ function fNum(n: any, decimals = 1) {
   return isNaN(v) ? "" : v.toFixed(decimals);
 }
 
-const PACKAGE_EXPORT_COLUMNS = [
-  "No", "Tanggal", "No Resi", "No Paket", "Nama Konsumen",
-  "Jenis Jastip", "Jenis Barang", "Berat Real (Kg)",
-  "Berat Digunakan (Kg)", "Total Berat (Kg)", "Total Ongkir", "Status",
-];
-
-function buildPackageExportRows(data: any[]) {
-  return data.map((p: any, i: number) => [
-    i + 1,
-    formatDate(p.packageDate || p.createdAt),
-    p.resiNumber || "-",
-    p.packageNumber || "-",
-    p.customerName || "-",
-    serviceTypeLabel(p.serviceType),
-    p.itemName || "-",
-    formatNumber(p.realWeight, 2),
-    formatNumber(p.usedWeight, 2),
-    formatNumber(p.totalWeight, 2),
-    formatExportRp(p.totalShipping),
-    p.status === "diserahkan" ? "Diserahkan" : "Pending",
-  ]);
-}
+const PACKAGE_EXPORT_COLUMNS = SHARED_PACKAGE_EXPORT_COLUMNS;
 
 export default function AdminPackages() {
   const [search, setSearch] = useState("");
@@ -179,12 +165,7 @@ export default function AdminPackages() {
   function resetTableFilters() { setFilterJenis("all"); setFilterDateFrom(""); setFilterDateTo(""); setPage(1); }
 
   function getPackagesForExport(batchId = "", serviceType = "all") {
-    if (!packages) return [];
-    return (packages as any[]).filter((p) =>
-      (!batchId || String(p.batchId) === batchId) &&
-      (serviceType === "all" ||
-        (p.serviceType || "").toLowerCase() === serviceType.toLowerCase())
-    );
+    return filterPackagesForExport(packages || [], { batchId, serviceType });
   }
 
   function getFilteredPackages() {
@@ -235,25 +216,8 @@ export default function AdminPackages() {
       Status: status === "all" ? "Semua" : status,
       Kasir: "Semua",
     };
-    const cargoColumns = [
-      "No", "Nama Konsumen", "Tgl Masuk", "No Resi / Kurir",
-      "Total Koli", "Koli", "Jenis Barang", "Ukuran (cm)",
-      "Pakai (M³)", "Harga Kubikasi", "Ongkir Paket", "Status",
-    ];
-    const cargoRows = sorted.map((p: any, i: number) => [
-      i + 1,
-      p.customerName || "-",
-      formatDate(p.packageDate || p.createdAt),
-      p.resiNumber || "-",
-      p.packageNumber || "-",
-      p.packagingType || "-",
-      p.itemName || "-",
-      p.length && p.width && p.height ? `${p.length}×${p.width}×${p.height}` : "-",
-      formatNumber(p.usedWeight, 2),
-      formatExportRp(p.shippingRate),
-      formatExportRp(p.totalShipping),
-      p.status === "diserahkan" ? "Diserahkan" : "Pending",
-    ]);
+    const cargoColumns = CARGO_EXPORT_COLUMNS;
+    const cargoRows = buildCargoExportRows(sorted);
     const totalOngkir = sorted.reduce(
       (sum: number, p: any) => sum + (Number(p.totalShipping) || 0),
       0,
@@ -476,7 +440,7 @@ export default function AdminPackages() {
       title: "Jastip Anggun Jaya — Laporan Paket",
       filters,
       columns: PACKAGE_EXPORT_COLUMNS,
-      rows: buildPackageExportRows(filtered),
+      rows: buildSharedPackageExportRows(filtered),
       landscape: true,
       exportedBy: user?.name || "Pengguna aktif",
       columnStyles: {
@@ -513,7 +477,7 @@ export default function AdminPackages() {
       Kasir: user?.name || "Pengguna aktif",
       "Diekspor Oleh": user?.name || "Pengguna aktif",
     };
-    const rows = buildPackageExportRows(data);
+    const rows = buildSharedPackageExportRows(data);
 
     const wb = XLSX.utils.book_new();
     const sheet = createExportSheet({

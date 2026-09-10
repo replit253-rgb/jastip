@@ -23,7 +23,20 @@ import {
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { addExportInfoSheet, drawExportFooter } from "@/lib/export-utils";
+import {
+  addExportInfoSheet,
+  createExportSheet,
+  drawExportFooter,
+  formatRp as formatExportRp,
+  saveTabularPdf,
+} from "@/lib/export-utils";
+import {
+  buildCargoExportRows,
+  buildPackageExportRows as buildSharedPackageExportRows,
+  CARGO_EXPORT_COLUMNS,
+  filterPackagesForExport,
+  PACKAGE_EXPORT_COLUMNS,
+} from "@/lib/package-export";
 import { useAuth } from "@/lib/auth";
 
 const PAGE_SIZE = 10;
@@ -112,12 +125,7 @@ export default function OwnerPackages() {
     : undefined;
 
   function getPackagesForExport(batchId = "", serviceType = "all") {
-    if (!packages) return [];
-    return (packages as any[]).filter((p) =>
-      (!batchId || String(p.batchId) === batchId) &&
-      (serviceType === "all" ||
-        (p.serviceType || "").toLowerCase() === serviceType.toLowerCase())
-    );
+    return filterPackagesForExport(packages || [], { batchId, serviceType });
   }
 
   function getFilteredPackages() {
@@ -148,22 +156,19 @@ export default function OwnerPackages() {
     doc.text(`Total Paket: ${filtered.length} paket`, margin, 21);
     doc.text(`Dicetak: ${new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })}`, margin, 25);
     doc.text(`Filter: Layanan ${pdfJenis === "all" ? "Semua" : pdfJenis} · Tanggal Semua · Status ${status === "all" ? "Semua" : status} · Kasir Semua`, margin, 29);
-    const head = [["No","Nama Konsumen","Tgl Masuk","No Resi / Kurir","Total Koli","Koli","Jenis Barang","Ukuran (cm)","Pakai (M³)","Ongkir Paket","Status"]];
-    const rows = filtered.map((p: any, i: number) => [
-      i + 1, p.customerName || "-", formatDate(p.packageDate || p.createdAt), p.resiNumber || "-",
-      p.packageNumber || "-", p.packagingType || "-", p.itemName || "-",
-      (p.length && p.width && p.height) ? `${p.length}×${p.width}×${p.height}` : "-",
-      p.usedWeight != null ? Number(p.usedWeight).toFixed(4) : "-",
-      p.totalShipping != null ? `Rp ${Number(p.totalShipping).toLocaleString("id-ID")}` : "-",
-      p.status === "diserahkan" ? "Diserahkan" : "Pending",
-    ]);
+    const head = [CARGO_EXPORT_COLUMNS];
+    const rows = buildCargoExportRows(filtered).map((row) =>
+      row.map((cell) => (cell == null ? "" : String(cell))),
+    );
     autoTable(doc, {
       startY: 34, head, body: rows,
       didDrawPage: () => drawExportFooter(doc, user?.name || "Pengguna aktif"),
-      styles: { fontSize: 6.5, cellPadding: 1.3, overflow: "ellipsize", lineColor: [200,200,200], lineWidth: 0.1 },
+      styles: { fontSize: 6.5, cellPadding: 1.3, overflow: "linebreak", lineColor: [200,200,200], lineWidth: 0.1 },
       headStyles: { fillColor: [234,88,12], textColor: 255, fontStyle: "bold", fontSize: 6.5, halign: "center", valign: "middle" },
       alternateRowStyles: { fillColor: [255,247,237] },
-      columnStyles: { 0:{cellWidth:8,halign:"center"},1:{cellWidth:28},2:{cellWidth:16},3:{cellWidth:28},4:{cellWidth:14,halign:"center"},5:{cellWidth:20},6:{cellWidth:25},7:{cellWidth:20,halign:"center"},8:{cellWidth:16,halign:"right"},9:{cellWidth:23,halign:"right"},10:{cellWidth:16,halign:"center"} },
+      rowPageBreak: "avoid",
+      showHead: "everyPage",
+      columnStyles: { 0:{cellWidth:8,halign:"center"},1:{cellWidth:28},2:{cellWidth:16},3:{cellWidth:28},4:{cellWidth:14,halign:"center"},5:{cellWidth:20},6:{cellWidth:46, overflow:"linebreak"},7:{cellWidth:20,halign:"center"},8:{cellWidth:16,halign:"right"},9:{cellWidth:23,halign:"right"},10:{cellWidth:16,halign:"center"} },
       margin: { left: margin, right: margin },
     });
     const totalOngkir = filtered.reduce((s: number, p: any) => s + (Number(p.totalShipping) || 0), 0);
@@ -244,37 +249,38 @@ export default function OwnerPackages() {
   function exportPdfFlat() {
     const filtered = getFilteredPackages();
     if (filtered.length === 0) { toast({ variant: "destructive", title: "Tidak ada data", description: "Tidak ada paket yang cocok dengan filter." }); return; }
-    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-    const judul = pdfJenis !== "all" ? pdfJenis : "Semua Jenis Jastip";
     const batchLabel = selectedPdfBatch ? `${selectedPdfBatch.namaKapal} (${selectedPdfBatch.kotaAsal} → ${selectedPdfBatch.tujuan})` : "-";
-    doc.setFontSize(14); doc.setFont("helvetica", "bold");
-    doc.text("Jastip Anggun Jaya — Laporan Paket", 14, 14);
-    doc.setFontSize(9); doc.setFont("helvetica", "normal");
-    doc.text(`Batch Pengiriman : ${batchLabel}`, 14, 21);
-    doc.text(`Jenis Jastip     : ${judul}`, 14, 26);
-    doc.text(`Dicetak          : ${new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })}`, 14, 31);
-    doc.text(`Total Paket      : ${filtered.length} paket`, 14, 36);
-    doc.text(`Filter           : Layanan ${pdfJenis === "all" ? "Semua" : pdfJenis} · Tanggal Semua · Status ${status === "all" ? "Semua" : status} · Kasir Semua`, 14, 41);
-    const rows = filtered.map((p: any, i: number) => [
-      i+1, formatDate(p.packageDate||p.createdAt), p.resiNumber||"-", p.packageNumber||"-",
-      p.customerName||"-", p.serviceType||"-", p.itemName||"-",
-      p.realWeight??"-", p.usedWeight??"-", p.totalWeight??"-",
-      p.totalShipping ? `Rp ${Number(p.totalShipping).toLocaleString("id-ID")}` : "-",
-      p.status==="diserahkan"?"Diserahkan":"Pending",
-    ]);
-    autoTable(doc, {
-      startY: 46,
-      head: [["No","Tanggal","No Resi","No Paket","Nama Konsumen","Jenis Jastip","Jenis Barang","Berat Real","Berat Digunakan","Total Berat","Total Ongkir","Status"]],
-      body: rows,
-      didDrawPage: () => drawExportFooter(doc, user?.name || "Pengguna aktif"),
-      styles: { fontSize: 7, cellPadding: 1.5 },
-      headStyles: { fillColor: [200,30,30], textColor: 255, fontStyle: "bold", fontSize: 7 },
-      alternateRowStyles: { fillColor: [250,245,245] },
-      columnStyles: { 0:{halign:"center",cellWidth:8},1:{cellWidth:18},2:{cellWidth:22},3:{cellWidth:18},7:{halign:"right",cellWidth:16},8:{halign:"right",cellWidth:18},9:{halign:"right",cellWidth:16},10:{halign:"right",cellWidth:24},11:{halign:"center",cellWidth:18} },
-      margin: { left: 14, right: 14 },
+    saveTabularPdf({
+      filename: [
+        "laporan-paket",
+        selectedPdfBatch ? selectedPdfBatch.namaKapal.replace(/\s+/g, "-").toLowerCase() : "batch",
+        pdfJenis !== "all" ? pdfJenis.replace(/\s+/g, "-").toLowerCase() : "semua",
+      ].join("_") + ".pdf",
+      title: "Jastip Anggun Jaya — Laporan Paket",
+      filters: {
+        Batch: batchLabel,
+        Layanan: pdfJenis === "all" ? "Semua" : pdfJenis,
+        Tanggal: "Semua",
+        Status: status === "all" ? "Semua" : status,
+        Kasir: "Semua",
+      },
+      columns: PACKAGE_EXPORT_COLUMNS,
+      rows: buildSharedPackageExportRows(filtered),
+      landscape: true,
+      exportedBy: user?.name || "Pengguna aktif",
+      columnStyles: {
+        0: { halign: "center", cellWidth: 8 },
+        1: { cellWidth: 18 },
+        2: { cellWidth: 22 },
+        3: { cellWidth: 18 },
+        6: { cellWidth: 46, overflow: "linebreak" },
+        7: { halign: "right", cellWidth: 16 },
+        8: { halign: "right", cellWidth: 18 },
+        9: { halign: "right", cellWidth: 16 },
+        10: { halign: "right", cellWidth: 24 },
+        11: { halign: "center", cellWidth: 18 },
+      },
     });
-    const namaFile = ["laporan-paket", selectedPdfBatch?selectedPdfBatch.namaKapal.replace(/\s+/g,"-").toLowerCase():"batch", pdfJenis!=="all"?pdfJenis.replace(/\s+/g,"-").toLowerCase():"semua"].join("_")+".pdf";
-    doc.save(namaFile);
     setPdfOpen(false);
   }
 
@@ -293,41 +299,25 @@ export default function OwnerPackages() {
       ? `${selectedXlsxBatch.namaKapal} (${selectedXlsxBatch.kotaAsal} → ${selectedXlsxBatch.tujuan})`
       : "Semua Batch";
 
-    const rows = data.map((p: any, i: number) => ({
-      "No": i + 1,
-      "Tanggal": formatDate(p.packageDate || p.createdAt),
-      "No Resi": p.resiNumber || "",
-      "No Paket": p.packageNumber || "",
-      "Nama Konsumen": p.customerName || "",
-      "No HP": p.customerPhone || "",
-      "Batch": p.batchId ? (() => { const b = sortedBatches.find((b: any) => b.id === p.batchId); return b ? `${b.namaKapal} · ${b.kotaAsal}→${b.tujuan}` : String(p.batchId); })() : "",
-      "Jenis Jastip": p.serviceType || "",
-      "Rute": p.deliveryRoute || "",
-      "Jenis Barang": p.itemName || "",
-      "Berat Real (Kg)": p.realWeight != null ? Number(p.realWeight) : "",
-      "P (cm)": p.length != null ? Number(p.length) : "",
-      "L (cm)": p.width != null ? Number(p.width) : "",
-      "T (cm)": p.height != null ? Number(p.height) : "",
-      "Berat Volume (Kg)": p.volumeWeight != null ? Number(p.volumeWeight) : "",
-      "Jenis Paking": packagingLabel(p.packagingType),
-      "Berat Digunakan (Kg)": p.usedWeight != null ? Number(p.usedWeight) : "",
-      "Ongkir/Kg": p.shippingRate != null ? Number(p.shippingRate) : "",
-      "Total Berat (Kg)": p.totalWeight != null ? Number(p.totalWeight) : "",
-      "Total Ongkir": p.totalShipping != null ? Number(p.totalShipping) : "",
-      "Barcode": p.barcode || "",
-      "Sudah Generate Barcode": p.barcode ? "Ya" : "Belum",
-      "Sudah Diverifikasi": p.statusVerifikasi === "SUDAH_DIVERIFIKASI" ? "Ya" : "Belum",
-      "Sudah Diambil": p.status === "diserahkan" ? "Ya" : "Belum",
-    }));
-
-    const ws = XLSX.utils.json_to_sheet(rows);
-    ws["!cols"] = [
-      { wch: 4 }, { wch: 12 }, { wch: 22 }, { wch: 12 }, { wch: 22 }, { wch: 14 },
-      { wch: 30 }, { wch: 16 }, { wch: 18 }, { wch: 20 },
-      { wch: 12 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 14 },
-      { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
-      { wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 14 },
-    ];
+    const exportRows = buildSharedPackageExportRows(data);
+    const ws = createExportSheet({
+      title: "Monitor Paket — Jastip Anggun Jaya",
+      filters: {
+        Layanan: "Semua",
+        Batch: batchInfo,
+        Tanggal: "Semua",
+        Status: status === "all" ? "Semua" : status,
+        Kasir: "Semua",
+        "Diekspor Oleh": user?.name || "Pengguna aktif",
+      },
+      columns: PACKAGE_EXPORT_COLUMNS,
+      rows: exportRows,
+      columnWidths: [
+        { wch: 5 }, { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 24 },
+        { wch: 18 }, { wch: 32 }, { wch: 16 }, { wch: 20 }, { wch: 17 },
+        { wch: 20 }, { wch: 16 },
+      ],
+    });
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Paket");
@@ -338,20 +328,6 @@ export default function OwnerPackages() {
       Status: status === "all" ? "Semua" : status,
       Kasir: "Semua",
     });
-
-    // Info sheet
-    const infoRows = [
-      ["Monitor Paket — Jastip Anggun Jaya"],
-      ["Batch", batchInfo],
-      ["Tanggal Ekspor", new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })],
-      ["Total Paket", data.length],
-      ["Sudah Generate Barcode", data.filter((p: any) => !!p.barcode).length],
-      ["Sudah Diverifikasi", data.filter((p: any) => p.statusVerifikasi === "SUDAH_DIVERIFIKASI").length],
-      ["Sudah Diambil", data.filter((p: any) => p.status === "diserahkan").length],
-    ];
-    const wsInfo = XLSX.utils.aoa_to_sheet(infoRows);
-    wsInfo["!cols"] = [{ wch: 24 }, { wch: 50 }];
-    XLSX.utils.book_append_sheet(wb, wsInfo, "Info");
 
     const safeBatch = selectedXlsxBatch
       ? `-${selectedXlsxBatch.namaKapal.replace(/\s+/g, "-").toLowerCase()}`
