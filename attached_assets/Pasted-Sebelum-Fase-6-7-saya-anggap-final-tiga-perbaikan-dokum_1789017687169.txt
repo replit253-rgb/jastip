@@ -1,0 +1,58 @@
+Sebelum Fase 6-7 saya anggap final, tiga perbaikan dokumentasi ini:
+
+1. Update UAT-09 di Checklist UAT Gabungan (implementasi.md) agar mencerminkan
+   batas bukti yang sebenarnya — tambahkan catatan eksplisit bahwa perilaku
+   AUTO/ASK/OFF baru dibuktikan tingkat kode, bukan runtime browser/network,
+   konsisten dengan yang sudah ditulis di Catatan Implementasi Fase 6.
+
+2. Tambahkan anotasi LULUS untuk UAT-10 di Checklist UAT Gabungan, dengan
+   ringkasan bukti (invoice INV-20260910-0001, snapshot Rp90.000 tetap tidak
+   berubah setelah master data diubah ke Rp125.000) — samakan formatnya
+   dengan UAT-05 sampai UAT-09 dan UAT-12 sampai UAT-15 yang sudah ada.
+
+3. Sinkronkan kolom "Blocker" Fase 6 di tabel Ringkasan Status per Fase
+   implementasi.md agar sama dengan progres.md — keduanya harus mencatat
+   catatan yang sama soal keterbatasan bukti AUTO/ASK/OFF, bukan salah satu
+   kosong.
+
+Tambahkan juga SATU entri baru di Log Keputusan & Asumsi: catat eksplisit
+bahwa keterbatasan bukti AUTO/ASK/OFF (tingkat kode, bukan runtime UI) adalah
+risiko residual yang diterima untuk saat ini, dan REKOMENDASIKAN pengujian
+klik manual langsung di browser oleh Owner/kasir sebelum sistem ini
+benar-benar dipakai untuk transaksi nyata di lapangan — karena ini perilaku
+yang akan langsung dialami kasir setiap hari, bukan sekadar detail teknis.
+
+Setelah tiga perbaikan dokumentasi ini selesai, tempelkan teks final bagian
+yang berubah (Checklist UAT Gabungan yang relevan, dan baris tabel Fase 6 di
+kedua dokumen).
+
+Setelah itu, mulai Fase 8 (Perbaikan Export Excel/PDF & Konsistensi Data)
+sesuai implementasi.md. Ini fase terakhir dan sifatnya PERBAIKAN BUG pada
+fitur existing, bukan fitur baru — jadi risikonya beda: fokus pada regresi
+terhadap laporan yang SUDAH dipakai Owner sehari-hari.
+
+Item kerja Fase 8:
+- Audit semua titik export existing (Arsip, Keuangan, Laporan, Pengeluaran,
+  Barcode) — pastikan Excel dan PDF pakai query/fungsi sumber SAMA.
+- Tambah info filter di header semua file export.
+- Format nominal konsisten (Rp + pemisah ribuan), berat maksimal 2 desimal.
+- PDF Cargo: lebarkan kolom "Jenis Barang" + text wrapping untuk teks
+  panjang.
+- Header tabel berulang tiap halaman PDF; baris tidak terpotong antar
+  halaman.
+- Footer PDF: nomor halaman, waktu export, nama user yang export.
+
+Standar bukti WAJIB untuk laporan akhir Fase 8 (fase terakhir, jangan
+turunkan standar):
+- UAT-01 dan UAT-02 dibuktikan dengan MEMBANDINGKAN hasil Excel vs PDF untuk
+  3 sampel batch berbeda — tunjukkan jumlah baris dan grand total dari
+  KEDUA format berdampingan, harus identik.
+- Jalankan pengujian terhadap DATA YANG SUDAH ADA di database development
+  (bukan cuma data uji baru) untuk memastikan perubahan Fase 8 tidak merusak
+  laporan yang sudah dipakai untuk data historis sejak Fase 0-7.
+- Tempelkan teks ASLI dokumentasi seperti standar setiap fase sebelumnya.
+
+Ini fase terakhir dari rencana 8 fase. Setelah selesai, kirim laporan akhir
+lengkap dan RINGKASAN KESELURUHAN PROYEK (semua 9 fase 0-8, status akhir,
+daftar TODO_KONFIRMASI_OWNER yang masih terbuka) — jangan mulai pekerjaan
+baru di luar scope tanpa instruksi lebih lanjut dariku.
