@@ -1,0 +1,47 @@
+Sebelum Fase 6 saya anggap benar-benar selesai, tiga perbaikan ini wajib
+dulu:
+
+1. BUKTIKAN struk transaksi piutang/cicilan (skenario 3, Rp90.000, baru
+   dibayar Rp30.000) menampilkan status pembayaran yang BENAR di payload
+   response-nya — harus BAYAR_SEBAGIAN, bukan LUNAS. Tunjukkan field/value
+   persis dari response GET /api/transactions/:id/receipt untuk transaksi
+   ini. Ini penting karena kalau struk piutang salah menampilkan LUNAS,
+   customer bisa merasa sudah lunas padahal belum.
+
+2. PERKUAT bukti "setting cetak mengubah perilaku nyata" — saat ini masih
+   berupa deskripsi ("AUTO memanggil alur cetak...", dst), bukan bukti
+   konkret. Tunjukkan salah satu dari ini:
+   - Log/network request aktual yang membuktikan frontend memanggil endpoint
+     print secara otomatis saat mode AUTO dan TIDAK memanggilnya saat mode
+     OFF, untuk transaksi pembayaran yang sama persis kecuali settingnya.
+   - Atau, jika pengujian UI otomatis tidak memungkinkan di lingkungan ini,
+     nyatakan secara eksplisit bahwa ini baru bukti tingkat kode (frontend
+     membaca setting dan bercabang sesuai nilai), bukan bukti perilaku
+     runtime UI — jangan mengaburkan keduanya.
+
+3. BERSIHKAN teks basi di tabel "Ringkasan Status per Fase" implementasi.md:
+   baris Fase 5 masih menulis "jangan mulai Fase 6 sebelum laporan ini
+   disetujui" padahal Fase 6 sudah selesai dan sudah saya approve untuk
+   dimulai. Perbaiki jadi mencerminkan kondisi sebenarnya (Fase 5 Selesai,
+   tanpa blocker tersisa).
+
+Soal risiko Orval yang kamu tandai TODO_KONFIRMASI_OWNER: untuk saat ini
+DITUNDA — jangan dikerjakan sekarang. Cukup pastikan catatannya di Log
+Keputusan & Asumsi sudah jelas menyatakan ini backlog yang ditunda atas
+keputusan Owner, bukan terlewat. Saya akan putuskan ini di kemudian hari.
+
+Setelah tiga perbaikan di atas selesai dengan bukti konkret, update Catatan
+Implementasi Fase 6 dan Laporan Akhir Fase 6 dengan tambahan bukti tersebut,
+lalu tempelkan teks asli bagian yang berubah (bukan seluruh dokumen ulang,
+cukup bagian yang berubah) di chat.
+
+Setelah itu, mulai Fase 7 (Invoice A4) sesuai implementasi.md: skema (7.1)
+→ aturan (7.2) → UI (7.3). Ingat standar bukti yang sudah baku sejak Fase 4:
+semua UAT (UAT-10 khususnya) harus lewat endpoint sungguhan dengan data
+nyata dan query database langsung, bukan deskripsi kode atau unit test
+terisolasi. Perhatikan khusus aturan snapshot wajib (7.2): buktikan bahwa
+mengubah data master (misal tarif) SETELAH invoice terbit TIDAK mengubah
+angka di invoice yang sudah ada — uji ini eksplisit dengan angka
+before-after seperti pola invariansi yang sudah kita pakai di Fase 4.
+
+Jangan lanjut otomatis ke Fase 8 setelah Fase 7 selesai — tunggu review saya.

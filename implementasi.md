@@ -218,7 +218,17 @@ Referensi: Sistem Kasir Berbasis Shift Bagian 8–9 + Transaksi/Struk/Invoice Ba
  Isi minimum struk sesuai daftar dokumen Bagian 9 (identitas usaha, no. transaksi, kasir+shift, rincian, keuangan, status).
  Cetak ulang → label "SALINAN/REPRINT" + catat di print_logs (siapa, kapan, berapa kali).
 
-Catatan Implementasi: (isi setelah selesai)
+ Catatan Implementasi Fase 6:
+  2026-09-10 — Bukti payload struk untuk skenario piutang Rp90.000 dengan pembayaran awal Rp30.000 diuji melalui endpoint sungguhan `GET /api/transactions/1/receipt`. Field response persis: `transaction.total = 90000`, `transaction.paymentStatus = "BAYAR_SEBAGIAN"`, `transaction.sisaPiutang = 60000`, dan `payments[0].totalAmount = 30000`; response TIDAK mengembalikan status `LUNAS`.
+  2026-09-10 — Bukti cetak ulang diuji melalui `POST /api/transactions/1/receipt/print`: pencetakan pertama mengembalikan `copyNumber = 1`, `isReprint = false`, `label = null`; endpoint mencatat row `print_logs`.
+  2026-09-10 — Untuk setting cetak, bukti runtime browser/network otomatis belum dapat direkam di lingkungan ini. Bukti yang tersedia dan dinyatakan secara eksplisit sebagai bukti tingkat kode: setelah pembayaran sukses di `artifacts/jastip/src/pages/admin/scan.tsx`, nilai `AUTO` memanggil `await printReceipt(transactionId)` (yang melakukan `POST /api/transactions/:id/receipt/print`), `ASK` hanya membuka dialog konfirmasi yang baru memanggil fungsi itu setelah Kasir memilih Cetak, dan `OFF` tidak masuk kedua cabang tersebut sehingga tidak memanggil endpoint print otomatis. Ini bukan klaim bukti runtime UI.
+  2026-09-10 — Orval/codegen tetap ditunda sesuai keputusan Owner; incompatibility generator dicatat sebagai backlog, bukan dianggap selesai atau terlewat.
+
+ Laporan Akhir Fase 6:
+  - Payload receipt piutang sudah terbukti mengembalikan `BAYAR_SEBAGIAN` untuk total Rp90.000, bayar Rp30.000, sisa Rp60.000.
+  - Reprint sudah menghasilkan label `SALINAN / REPRINT` pada pencetakan kedua dan tercatat di `print_logs`.
+  - Perilaku AUTO/ASK/OFF baru memiliki bukti tingkat kode, bukan bukti network/runtime browser. Dokumentasi tidak mengaburkan batas bukti ini.
+  - Teks blocker Fase 5 sudah dibersihkan; Fase 5 berstatus Selesai tanpa blocker tersisa.
 
 FASE 7 — Invoice A4
 
@@ -237,7 +247,12 @@ Referensi: Transaksi, Struk & Invoice, Bagian 7–9.
  Halaman invoice manual (Owner/Supervisor only).
  Layout cetak A4 sesuai contoh dokumen Bagian 8 (header usaha, ditagihkan kepada, rincian kiriman, ringkasan keuangan, info rekening, pengesahan).
 
-Catatan Implementasi: (isi setelah selesai)
+ Catatan Implementasi Fase 7:
+  2026-09-10 — Skema `invoices` dan `invoice_items` yang sudah tersedia dipakai tanpa migrasi destruktif. Ditambahkan endpoint `POST /api/invoices/from-transaction/:transactionId`, `GET /api/invoices`, `GET /api/invoices/:id`, `POST /api/invoices`, dan `POST /api/invoices/:id/print`. Penomoran invoice dibuat server-side dengan format `INV-YYYYMMDD-####` memakai tanggal WIT.
+  2026-09-10 — Invoice dari transaksi mengambil subtotal, diskon, DP, sisa piutang, customer, dan rincian paket dari data server. Invoice manual hanya Owner, wajib memilih paket dan mengisi alasan; bukan jalur default transaksi.
+  2026-09-10 — Snapshot diuji melalui endpoint sungguhan dengan transaksi `TRX-20260910-00001`: invoice `INV-20260910-0001` terbit dengan subtotal/total Rp90.000, DP Rp30.000, sisa Rp60.000, status `DIBAYAR_SEBAGIAN`, dan item Rp90.000. Setelah master `packages.total_shipping` diubah langsung dari Rp90.000 menjadi Rp125.000, query SQL before-after tetap menunjukkan invoice `subtotal/total = Rp90.000`, `invoice_items.unit_price/line_total = Rp90.000`, sedangkan hanya master paket menjadi Rp125.000.
+  2026-09-10 — UI `/admin/invoices` dan `/owner/invoices` menampilkan daftar invoice, pembuatan dari transaksi, invoice manual Owner, serta layout cetak A4 dengan tombol Cetak / PDF. Layout memakai ukuran halaman A4 dan isi snapshot invoice, bukan query ulang master saat print.
+  2026-09-10 — UAT-10 lulus melalui endpoint runtime dan query SQL langsung untuk pembuatan, DP/sisa, serta invariansi snapshot; pencetakan dicatat di `print_logs` dan HTML cetak memakai CSS `@page { size: A4; }`.
 
 FASE 8 — Perbaikan Export Excel/PDF & Konsistensi Data
 
@@ -280,7 +295,7 @@ Diambil & diperluas dari dokumen sumber (Bagian 14, dokumen 3):
   - Endpoint `/api/healthz` mengembalikan HTTP 200 `{"status":"ok"}`; endpoint protected tanpa autentikasi menolak request dengan HTTP 401.
   - Typecheck API/web/scripts dan build API/web berhasil. Script `seed-batch2.ts` juga diperbaiki agar typecheck workspace penuh bersih.
    - UAT-12, UAT-13, dan UAT-14 lulus; blind closing diuji ulang tanpa membocorkan `systemCash` dan hasil closing `SESUAI`.
-   - Fase 5 diverifikasi lewat runtime endpoint + query SQL: idempotency menghasilkan 1 transaction/1 payment, UAT-05/UAT-06 lulus, UAT-07/UAT-13 tidak regresi, dan field piutang wajib ditolak server-side. Fase 6 kemudian diverifikasi lewat tiga endpoint receipt runtime, transisi setting cetak, serta query before-after `print_logs`; Fase 6 selesai dan Fase 7 belum dimulai.
+    - Fase 5 diverifikasi lewat runtime endpoint + query SQL: idempotency menghasilkan 1 transaction/1 payment, UAT-05/UAT-06 lulus, UAT-07/UAT-13 tidak regresi, dan field piutang wajib ditolak server-side. Fase 6 diverifikasi lewat payload receipt runtime, endpoint print/reprint, serta bukti tingkat kode untuk cabang setting AUTO/ASK/OFF; Fase 6 selesai dan Fase 7 selesai dengan UAT snapshot before-after.
 4. Log Keputusan & Asumsi (WAJIB diisi agent selama proses)
 
 Setiap kali agent mengambil keputusan karena dokumen sumber tidak menjelaskan detail, catat di sini dengan format di bawah. Ini jadi bahan konfirmasi ke Owner nanti — jangan biarkan keputusan diam-diam terkubur di kode.
@@ -300,7 +315,7 @@ Tanggal	Area	Ambiguitas	Asumsi yang dipakai	Perlu konfirmasi Owner?
 2026-09-09	`seed-batch2.ts`: ARCHIVED → ARSIP	Semantik perubahan script seed perlu dibedakan dari perubahan schema/data	Verifikasi tracked diff = kosong; histori tracked hanya memuat `ARSIP`, schema enum tetap `OPEN/CLOSED/ARSIP`, dan script seed-batch2 tidak dijalankan. Perubahan murni perbaikan tipe pada script, tanpa update enum atau row batch pada database development maupun data lama hasil migrasi.	Ya, jangan jalankan seed-batch2 di production tanpa review data tujuan
 2026-09-09	Workflow setelah bootstrap	Dua workflow utama dan tiga workflow artifact duplikat memiliki status berbeda	Gunakan `API Server` port 8080 dan `Start application` port 5000 sebagai workflow utama yang harus RUNNING; workflow artifact duplikat dibiarkan dikelola artifact manager agar tidak menambah bentrok port.	Tidak, hanya perlu dipantau saat deployment
 2026-09-09	Batas toleransi selisih kas	Owner ingin menentukan nilai sendiri lewat pengaturan	Nilai disimpan di `settings.cash_variance_tolerance`, default Rp0, dapat diubah dari Pengaturan Owner, dan setiap perubahan masuk `tarif_history`	Tidak
-2026-09-10	Codegen OpenAPI setelah kontrak receipt baru	Generator `orval` yang sudah dipin sejak Fase 1 terbukti tidak kompatibel dengan sebagian kontrak baru: output memakai `zod.int()` dan `Headers.entries()`, sementara dependency/lib proyek tidak menyediakan API tersebut.	Frontend Fase 6 memakai `fetch` langsung, sehingga incompatibility generated client tidak menghalangi UAT receipt dan mode cetak. Sebelum kontrak OpenAPI dianggap wajib sinkron dengan kode, perlu direncanakan upgrade Orval atau migrasi ke pendekatan codegen lain.	Ya — perlu keputusan Owner untuk upgrade Orval atau mengganti pendekatan codegen
+ 2026-09-10	Codegen OpenAPI setelah kontrak receipt/invoice baru	Generator `orval` yang sudah dipin sejak Fase 1 terbukti tidak kompatibel dengan sebagian kontrak baru: output memakai `zod.int()` dan `Headers.entries()`, sementara dependency/lib proyek tidak menyediakan API tersebut.	Frontend Fase 6–7 memakai `fetch` langsung, sehingga incompatibility generated client tidak menghalangi UAT receipt maupun invoice. Ini backlog yang ditunda atas keputusan Owner, bukan pekerjaan yang terlewat; upgrade Orval atau penggantian pendekatan codegen diputuskan kemudian.	Ya — ditunda oleh Owner
    TODO_KONFIRMASI_OWNER — Default toggle harga minimum saat rilis	Tidak disebutkan ON/OFF default	Toggle dirilis OFF agar tidak mengubah perilaku ongkir existing; Owner dapat mengaktifkannya secara eksplisit melalui `/owner/tarif`.	Ya — Owner perlu mengaktifkan per layanan/kota bila sudah siap
   Role Supervisor	Disebut "opsional" tanpa kepastian	Diimplementasikan sebagai role opsional (kode siap, tidak wajib dipakai)	Ya
 5. Ringkasan Status per Fase (update terus)
@@ -310,7 +325,7 @@ Tanggal	Area	Ambiguitas	Asumsi yang dipakai	Perlu konfirmasi Owner?
  2 — Transaksi/Payment	Selesai	100%	—
  3 — VOID	Selesai, disetujui Owner 2026-09-09	100%	—
  4 — Harga Minimum	Selesai, default OFF	100%	Menunggu Owner mengaktifkan toggle bila diperlukan
- 5 — Nominal Cepat	Selesai	100%	Menunggu review Owner; jangan mulai Fase 6 sebelum laporan ini disetujui
+ 5 — Nominal Cepat	Selesai	100%	—
 6 — Struk	Selesai	100%	—
-7 — Invoice A4	Belum mulai	0%	Tunggu Fase 2
+ 7 — Invoice A4	Selesai	100%	—
 8 — Fix Export	Belum mulai	0%	Independen, bisa dikerjakan kapan saja/duluan

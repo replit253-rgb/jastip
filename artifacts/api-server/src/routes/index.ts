@@ -14,6 +14,7 @@ import shiftsRouter from "./shifts";
 import transactionsRouter from "./transactions";
 import voidsRouter from "./voids";
 import receiptsRouter from "./receipts";
+import invoicesRouter from "./invoices";
 
 const router: IRouter = Router();
 
@@ -32,5 +33,6 @@ router.use("/shifts", shiftsRouter);
 router.use("/transactions", transactionsRouter);
 router.use("/voids", voidsRouter);
 router.use("/", receiptsRouter);
+router.use("/invoices", invoicesRouter);
 
 export default router;

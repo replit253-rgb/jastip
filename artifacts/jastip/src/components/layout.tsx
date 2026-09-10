@@ -63,6 +63,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     { name: "Verifikasi Paket", href: "/admin/verify", icon: ShieldCheck, exact: true },
     { name: "Riwayat Pembayaran", href: "/admin/riwayat-pembayaran", icon: History, exact: true },
     { name: "Transaksi & VOID", href: "/admin/finance", icon: ShieldCheck, exact: true },
+    { name: "Invoice A4", href: "/admin/invoices", icon: FileText, exact: true },
     { name: "Shift Kasir", href: "/admin/shift", icon: WalletCards, exact: true },
     { name: "Profil", href: "/admin/profile", icon: UserCircle, exact: true },
   ];
@@ -75,6 +76,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         { name: "Monitor Paket", href: "/owner/packages", icon: Package },
         { name: "Data Admin", href: "/owner/admins", icon: UserPlus, exact: true },
         { name: "Keuangan", href: "/owner/finance", icon: TrendingUp, exact: true },
+        { name: "Invoice A4", href: "/owner/invoices", icon: FileText, exact: true },
         { name: "Laporan VOID", href: "/owner/voids", icon: ShieldCheck, exact: true },
         { name: "Pengeluaran Harian", href: "/owner/pengeluaran", icon: TrendingDown, exact: true },
         { name: "Laporan", href: "/owner/reports", icon: FileText, exact: true },

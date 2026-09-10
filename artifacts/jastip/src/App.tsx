@@ -44,6 +44,7 @@ import OwnerTarif from "@/pages/owner/tarif";
 import ProfilePage from "@/pages/profile";
 import AdminShift from "@/pages/admin/shift";
 import ShiftHandover from "@/pages/admin/shift-handover";
+import InvoicesPage from "@/pages/invoices";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -170,6 +171,9 @@ function Router() {
       <Route path="/admin/finance">
         {(params) => <ProtectedRoute role="admin" component={OwnerFinanceTransactions} params={params} />}
       </Route>
+      <Route path="/admin/invoices">
+        {(params) => <ProtectedRoute role="admin" component={InvoicesPage} params={params} />}
+      </Route>
       <Route path="/admin/riwayat-pembayaran/batch/:id/detail">
         {(params) => <ProtectedRoute role="admin" component={RiwayatPembayaranDetail} params={params} />}
       </Route>
@@ -219,6 +223,9 @@ function Router() {
       </Route>
       <Route path="/owner/finance">
         {(params) => <ProtectedRoute role="owner" component={OwnerFinance} params={params} />}
+      </Route>
+      <Route path="/owner/invoices">
+        {(params) => <ProtectedRoute role="owner" component={InvoicesPage} params={params} />}
       </Route>
       <Route path="/owner/voids">
         {(params) => <ProtectedRoute role="owner" component={OwnerVoids} params={params} />}
