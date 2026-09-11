@@ -15,7 +15,9 @@
     "start": "node dist/server.mjs",
     "lint": "tsc --build",
     "typecheck:libs": "tsc --build",
-    "typecheck": "tsc --build"
+    "typecheck": "tsc --build",
+    "db:push": "npm run --prefix lib/db push",
+    "db:seed": "tsx scripts/src/seed-demo.ts"
   },
   "dependencies": {
     "express": "^5.2.1"
