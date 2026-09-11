@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { useShift } from "@/lib/shift";
+import { buildShiftClosingDocument } from "@/lib/print-shift-closing";
 import {
   ArrowRightLeft,
   Banknote,
@@ -18,6 +19,7 @@ import {
   Receipt,
   ShieldAlert,
   WalletCards,
+  Printer,
 } from "lucide-react";
 
 const DENOMINATIONS = [100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200];
@@ -105,6 +107,115 @@ export default function AdminShift() {
     }
   }
 
+  const [history, setHistory] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  useEffect(() => {
+    if (!shift) {
+      setLoadingHistory(true);
+      fetch("/api/shifts/history")
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) {
+            setHistory(data);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoadingHistory(false));
+    }
+  }, [shift]);
+
+  const handlePrintCurrentClosing = () => {
+    if (!closingResult) return;
+    const { shift: cShift, closing: cClosing, result, summary: cSummary } = closingResult;
+    const printWindow = window.open("", "_blank", "width=420,height=720");
+    if (!printWindow) {
+      toast({
+        variant: "destructive",
+        title: "Popup diblokir",
+        description: "Mohon aktifkan popup di browser untuk mencetak laporan.",
+      });
+      return;
+    }
+    printWindow.document.write(
+      buildShiftClosingDocument({
+        shift: {
+          id: cShift.id,
+          adminName: user?.name,
+          shiftType: cShift.shiftType,
+          terminalId: cShift.terminalId,
+          actualStart: cShift.actualStart,
+          actualEnd: cShift.actualEnd,
+          openingBalance: cShift.openingBalance,
+        },
+        closing: {
+          systemCash: Number(cClosing.systemCash || 0),
+          actualCash: Number(cClosing.actualCash || 0),
+          selisih: Number(cClosing.selisih || 0),
+          alasanSelisih: cClosing.alasanSelisih,
+          closedAt: cClosing.closedAt,
+        },
+        summary: cSummary,
+        result: result,
+      }),
+    );
+    printWindow.document.close();
+    printWindow.focus();
+  };
+
+  async function handlePrintClosing(item: any) {
+    const printWindow = window.open("", "_blank", "width=420,height=720");
+    if (!printWindow) {
+      toast({
+        variant: "destructive",
+        title: "Popup diblokir",
+        description: "Mohon aktifkan popup di browser untuk mencetak laporan.",
+      });
+      return;
+    }
+    printWindow.document.write("<p style='font:14px Arial;padding:20px'>Menyiapkan laporan closing...</p>");
+    printWindow.document.close();
+
+    try {
+      const response = await fetch(`/api/shifts/${item.id}/summary`);
+      if (!response.ok) throw new Error("Gagal memuat ringkasan kas");
+      const summaryData = await response.json();
+
+      printWindow.document.open();
+      printWindow.document.write(
+        buildShiftClosingDocument({
+          shift: {
+            id: item.id,
+            adminName: item.adminName,
+            shiftType: item.shiftType,
+            terminalId: item.terminalId,
+            actualStart: item.actualStart,
+            actualEnd: item.actualEnd,
+            openingBalance: item.openingBalance,
+          },
+          closing: {
+            systemCash: Number(item.systemCash || 0),
+            actualCash: Number(item.actualCash || 0),
+            selisih: Number(item.selisih || 0),
+            alasanSelisih: item.alasanSelisih,
+            closedAt: item.closedAt,
+          },
+          summary: summaryData,
+          result: item.selisih === 0 ? "SESUAI" : item.selisih > 0 ? "LEBIH" : "KURANG",
+        }),
+      );
+      printWindow.document.close();
+      printWindow.focus();
+    } catch (e) {
+      printWindow.close();
+      toast({
+        variant: "destructive",
+        title: "Gagal mencetak",
+        description: "Tidak dapat memuat detail data closing dari server.",
+      });
+    }
+  }
+
   if (isLoading) {
     return <div className="flex items-center gap-2 p-8 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Memuat status shift...</div>;
   }
@@ -117,10 +228,43 @@ export default function AdminShift() {
           <p className="mt-1 text-muted-foreground">Buka shift sebelum mengakses scan dan transaksi pembayaran.</p>
         </div>
         {closingResult && (
-          <Card className="border-green-200 bg-green-50">
-            <CardContent className="flex items-center gap-3 py-4 text-green-800">
-              <CheckCircle2 className="h-5 w-5" />
-              <span>Closing sebelumnya selesai dengan hasil <strong>{closingResult.result}</strong>.</span>
+          <Card className="border-green-200 bg-green-50/50 shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-green-800">
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+                Laporan Closing Sukses — Shift #{closingResult.shift.id}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-green-700">
+                Shift <strong>{shiftLabel(closingResult.shift.shiftType)}</strong> berhasil ditutup dengan status hasil kas: <strong className="text-green-900 underline">{closingResult.result}</strong>.
+              </p>
+              
+              <div className="grid gap-3 sm:grid-cols-3 bg-white p-4 rounded-lg border border-green-100 text-sm">
+                <div>
+                  <span className="text-xs text-muted-foreground block">Kas Sistem</span>
+                  <span className="font-semibold text-gray-900">{formatRp(closingResult.closing.systemCash)}</span>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground block">Kas Fisik Aktual</span>
+                  <span className="font-semibold text-gray-900">{formatRp(closingResult.closing.actualCash)}</span>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground block">Selisih</span>
+                  <span className={`font-semibold ${closingResult.closing.selisih === 0 ? "text-green-600" : "text-red-600"}`}>
+                    {closingResult.closing.selisih >= 0 ? "+" : ""}{formatRp(closingResult.closing.selisih)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button onClick={handlePrintCurrentClosing} className="bg-green-700 hover:bg-green-800 text-white">
+                  <Printer className="mr-2 h-4 w-4" /> Cetak Laporan Shift (Struk)
+                </Button>
+                <Button variant="outline" onClick={() => setClosingResult(null)} className="text-gray-600 border-gray-300">
+                  Tutup Notifikasi
+                </Button>
+              </div>
             </CardContent>
           </Card>
         )}
@@ -149,9 +293,71 @@ export default function AdminShift() {
             </Button>
           </CardContent>
         </Card>
-        <Button variant="outline" onClick={() => setLocation(user?.role === "owner" ? "/owner/shift/handover" : "/admin/shift/handover")}>
-          <ArrowRightLeft className="mr-2 h-4 w-4" /> Lihat Serah Terima
-        </Button>
+        
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setLocation(user?.role === "owner" ? "/owner/shift/handover" : "/admin/shift/handover")}>
+            <ArrowRightLeft className="mr-2 h-4 w-4" /> Lihat Serah Terima
+          </Button>
+        </div>
+
+        <div className="space-y-4 pt-4">
+          <h2 className="text-xl font-bold tracking-tight">Riwayat Closing Shift</h2>
+          <Card>
+            <CardContent className="p-0">
+              {loadingHistory ? (
+                <div className="p-6 text-center text-muted-foreground flex items-center justify-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Memuat riwayat...
+                </div>
+              ) : history.length === 0 ? (
+                <div className="p-6 text-center text-muted-foreground">
+                  Belum ada riwayat shift yang ditutup.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left border-collapse">
+                    <thead>
+                      <tr className="bg-muted/50 border-b text-xs uppercase tracking-wider text-muted-foreground">
+                        <th className="p-3 font-semibold">ID / Tipe</th>
+                        <th className="p-3 font-semibold">Kasir</th>
+                        <th className="p-3 font-semibold">Waktu Tutup</th>
+                        <th className="p-3 font-semibold text-right">Kas Sistem</th>
+                        <th className="p-3 font-semibold text-right">Kas Aktual</th>
+                        <th className="p-3 font-semibold text-right">Selisih</th>
+                        <th className="p-3 font-semibold text-center">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {history.map((item) => (
+                        <tr key={item.id} className="hover:bg-muted/30 transition-colors">
+                          <td className="p-3">
+                            <div className="font-semibold text-primary">#{item.id}</div>
+                            <div className="text-xs text-muted-foreground">{shiftLabel(item.shiftType)}</div>
+                          </td>
+                          <td className="p-3 font-medium text-gray-900">{item.adminName || "Admin"}</td>
+                          <td className="p-3 text-xs text-muted-foreground">
+                            {item.closedAt ? new Date(item.closedAt).toLocaleString("id-ID") : "-"}
+                          </td>
+                          <td className="p-3 text-right font-mono text-gray-600">{formatRp(item.systemCash)}</td>
+                          <td className="p-3 text-right font-mono font-semibold text-gray-900">{formatRp(item.actualCash)}</td>
+                          <td className="p-3 text-right font-mono">
+                            <span className={Number(item.selisih || 0) === 0 ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
+                              {Number(item.selisih || 0) >= 0 ? "+" : ""}{formatRp(item.selisih)}
+                            </span>
+                          </td>
+                          <td className="p-3 text-center">
+                            <Button size="sm" variant="outline" onClick={() => handlePrintClosing(item)}>
+                              <Printer className="mr-1.5 h-3.5 w-3.5" /> Cetak
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }

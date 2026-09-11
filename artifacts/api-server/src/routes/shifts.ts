@@ -151,6 +151,47 @@ router.get(
   },
 );
 
+// GET /api/shifts/history — get history of all closed shifts with their closings and admin names.
+router.get(
+  "/history",
+  requireAuth,
+  requireRole("admin", "owner"),
+  async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const query = db
+        .select({
+          id: shiftSessionsTable.id,
+          adminId: shiftSessionsTable.adminId,
+          adminName: usersTable.name,
+          shiftType: shiftSessionsTable.shiftType,
+          terminalId: shiftSessionsTable.terminalId,
+          actualStart: shiftSessionsTable.actualStart,
+          actualEnd: shiftSessionsTable.actualEnd,
+          openingBalance: shiftSessionsTable.openingBalance,
+          status: shiftSessionsTable.status,
+          closingId: shiftClosingsTable.id,
+          systemCash: shiftClosingsTable.systemCash,
+          actualCash: shiftClosingsTable.actualCash,
+          selisih: shiftClosingsTable.selisih,
+          alasanSelisih: shiftClosingsTable.alasanSelisih,
+          closedAt: shiftClosingsTable.closedAt,
+        })
+        .from(shiftSessionsTable)
+        .leftJoin(usersTable, eq(shiftSessionsTable.adminId, usersTable.id))
+        .leftJoin(shiftClosingsTable, eq(shiftSessionsTable.id, shiftClosingsTable.shiftSessionId))
+        .where(eq(shiftSessionsTable.status, "CLOSED"))
+        .orderBy(desc(shiftSessionsTable.actualEnd));
+
+      const rows = await query;
+      res.json(rows);
+    } catch (err) {
+      (req as any).log?.error?.(err);
+      res.status(500).json({ error: "Gagal mengambil riwayat shift" });
+    }
+  },
+);
+
 // POST /api/shifts/open
 router.post(
   "/open",
@@ -343,11 +384,14 @@ router.post(
         .where(eq(shiftSessionsTable.id, shift.id))
         .returning();
 
+      const cashSummary = await calculateShiftCash(closedShift);
+
       res.json({
         shift: closedShift,
         closing: updatedClosing,
         result: selisih === 0 ? "SESUAI" : selisih > 0 ? "LEBIH" : "KURANG",
         tolerance,
+        summary: cashSummary,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Gagal closing shift";
@@ -361,6 +405,29 @@ router.post(
       }
       (req as any).log?.error?.(err);
       res.status(500).json({ error: "Gagal closing shift" });
+    }
+  },
+);
+
+// GET /api/shifts/:id/summary — get computed cash summary for any shift session.
+router.get(
+  "/:id/summary",
+  requireAuth,
+  requireRole("admin", "owner"),
+  async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const id = parsePositiveId(req.params.id, "shift id");
+      const shift = await getShiftForActor(id, user);
+      if (!shift) {
+        res.status(404).json({ error: "Shift tidak ditemukan" });
+        return;
+      }
+      const summary = await calculateShiftCash(shift);
+      res.json(summary);
+    } catch (err) {
+      (req as any).log?.error?.(err);
+      res.status(500).json({ error: "Gagal mengambil ringkasan kas shift" });
     }
   },
 );
