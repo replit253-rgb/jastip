@@ -64,6 +64,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     { name: "Transaksi & VOID", href: "/admin/finance", icon: ShieldCheck, exact: true },
     { name: "Invoice A4", href: "/admin/invoices", icon: FileText, exact: true },
     { name: "Shift Kasir", href: "/admin/shift", icon: WalletCards, exact: true },
+    { name: "Scan & Pembayaran", href: "/admin/scan", icon: ScanLine, requiresShift: true },
     { name: "Profil", href: "/admin/profile", icon: UserCircle, exact: true },
   ];
 
@@ -94,6 +95,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         { name: "Label Barcode", href: "/owner/barcode", icon: Barcode, exact: true },
         { name: "Arsip Sudah Diambil", href: "/owner/arsip", icon: Archive, exact: true },
         { name: "Verifikasi Paket", href: "/owner/verify", icon: ShieldCheck, exact: true },
+        { name: "Scan & Pembayaran", href: "/owner/scan", icon: ScanLine, requiresShift: true },
       ],
     },
   ];
