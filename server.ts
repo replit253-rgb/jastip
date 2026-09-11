@@ -24,7 +24,7 @@ async function setupFrontend() {
   } else {
     const distPath = path.resolve(process.cwd(), "artifacts/jastip/dist/public");
     app.use(express.static(distPath));
-    app.get("*", (_req, res) => {
+    app.get("/*splat", (_req, res) => {
       res.sendFile(path.resolve(distPath, "index.html"));
     });
   }
