@@ -1,4 +1,7 @@
 import { Router } from "express";
+import fs from "fs/promises";
+import path from "path";
+import crypto from "crypto";
 import {
   db,
   settingsTable,
@@ -8,6 +11,7 @@ import {
 } from "@workspace/db";
 import { and, desc, eq } from "drizzle-orm";
 import { requireAuth, requireRole } from "../middlewares/auth";
+import { safeIsoString } from "../lib/dates";
 
 const router = Router();
 
@@ -20,6 +24,7 @@ const ALLOWED_KEYS = [
   "pelniTiersSurabaya",
   "cash_variance_tolerance",
   "receipt_print_mode",
+  "qris_image_url",
 ] as const;
 
 // Mapping key → label jenis jastip untuk history
@@ -31,6 +36,7 @@ const KEY_LABEL: Record<string, string> = {
   pelniTiersSurabaya: "Jastip Pelni (Surabaya)",
   cash_variance_tolerance: "Toleransi Selisih Kas",
   receipt_print_mode: "Mode Cetak Struk",
+  qris_image_url: "QRIS — Upload Gambar",
 };
 
 // GET /api/settings — returns all app settings (admin + owner)
@@ -52,6 +58,145 @@ router.get("/", requireAuth, requireRole("admin", "owner"), async (req, res) => 
     res.status(500).json({ error: "Server error" });
   }
 });
+
+// GET /api/settings/qris — get current active QRIS image URL (admin + owner)
+router.get("/qris", requireAuth, requireRole("admin", "owner"), async (req, res) => {
+  try {
+    const [row] = await db
+      .select()
+      .from(settingsTable)
+      .where(eq(settingsTable.key, "qris_image_url"))
+      .limit(1);
+    res.json({ qrisImageUrl: row?.value || null });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Gagal memuat pengaturan QRIS" });
+  }
+});
+
+// POST /api/settings/qris-image — upload QRIS image (Owner only)
+router.post(
+  "/qris-image",
+  requireAuth,
+  requireRole("owner"),
+  async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const body = req.body || {};
+      const { image, dataBase64, mimeType: providedMimeType, _alasan } = body;
+
+      let mimeType = providedMimeType || "";
+      let base64Data = "";
+
+      if (typeof image === "string" && image.startsWith("data:")) {
+        const matches = image.match(/^data:([a-zA-Z0-9/+-]+);base64,(.+)$/);
+        if (matches) {
+          mimeType = matches[1].toLowerCase();
+          base64Data = matches[2];
+        } else {
+          res.status(400).json({ error: "Format data gambar base64 tidak valid" });
+          return;
+        }
+      } else if (typeof dataBase64 === "string" && dataBase64.trim()) {
+        base64Data = dataBase64.trim();
+      } else if (typeof image === "string" && image.trim()) {
+        base64Data = image.trim();
+      } else {
+        res.status(400).json({ error: "File gambar QRIS wajib diunggah" });
+        return;
+      }
+
+      // Validasi tipe MIME
+      const allowedMimes: Record<string, string> = {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/webp": ".webp",
+      };
+
+      if (!mimeType || !allowedMimes[mimeType]) {
+        // Deteksi dari header base64 jika ada
+        const bufferProbe = Buffer.from(base64Data.slice(0, 32), "base64");
+        if (bufferProbe.length >= 4) {
+          if (bufferProbe[0] === 0x89 && bufferProbe[1] === 0x50 && bufferProbe[2] === 0x4e && bufferProbe[3] === 0x47) {
+            mimeType = "image/png";
+          } else if (bufferProbe[0] === 0xff && bufferProbe[1] === 0xd8) {
+            mimeType = "image/jpeg";
+          } else if (bufferProbe[0] === 0x52 && bufferProbe[1] === 0x49 && bufferProbe[2] === 0x46 && bufferProbe[3] === 0x46) {
+            mimeType = "image/webp";
+          }
+        }
+      }
+
+      if (!mimeType || !allowedMimes[mimeType]) {
+        res.status(400).json({
+          error: "Hanya file gambar (PNG, JPEG, WEBP) yang diizinkan",
+        });
+        return;
+      }
+
+      const buffer = Buffer.from(base64Data, "base64");
+      const MAX_SIZE_BYTES = 2 * 1024 * 1024; // 2MB
+      if (buffer.length > MAX_SIZE_BYTES) {
+        res.status(400).json({
+          error: "Ukuran gambar melebihi batas maksimal 2MB",
+        });
+        return;
+      }
+
+      if (buffer.length === 0) {
+        res.status(400).json({ error: "File gambar kosong" });
+        return;
+      }
+
+      // Simpan ke disk
+      const ext = allowedMimes[mimeType] || ".png";
+      const fileName = `qris-${Date.now()}-${crypto.randomBytes(4).toString("hex")}${ext}`;
+      const uploadDir = path.resolve(process.cwd(), "uploads", "qris");
+      await fs.mkdir(uploadDir, { recursive: true });
+      const filePath = path.join(uploadDir, fileName);
+      await fs.writeFile(filePath, buffer);
+
+      const publicUrl = `/uploads/qris/${fileName}`;
+
+      // Ambil nilai lama
+      const [oldRow] = await db
+        .select()
+        .from(settingsTable)
+        .where(eq(settingsTable.key, "qris_image_url"))
+        .limit(1);
+      const oldUrl = oldRow?.value || null;
+
+      // Update settings
+      await db
+        .insert(settingsTable)
+        .values({ key: "qris_image_url", value: publicUrl })
+        .onConflictDoUpdate({
+          target: settingsTable.key,
+          set: { value: publicUrl, updatedAt: new Date() },
+        });
+
+      // Audit trail
+      await db.insert(tarifHistoryTable).values({
+        jenisJastip: "QRIS — Upload Gambar",
+        tarifLama: oldUrl,
+        tarifBaru: publicUrl,
+        alasan: _alasan || "Pembaruan gambar QRIS oleh Owner",
+        diubahOleh: user?.id ?? null,
+        namaUbah: user?.name ?? null,
+      });
+
+      res.status(200).json({
+        success: true,
+        qrisImageUrl: publicUrl,
+        message: "Gambar QRIS berhasil diunggah",
+      });
+    } catch (err) {
+      req.log.error(err);
+      res.status(500).json({ error: "Gagal mengunggah gambar QRIS" });
+    }
+  },
+);
 
 // GET /api/settings/shipping-minimum — Owner configuration for Phase 4.
 router.get(
@@ -82,7 +227,7 @@ router.get(
         rows.map((row) => ({
           ...row,
           minimumAmount: Number(row.minimumAmount) || 0,
-          updatedAt: row.updatedAt.toISOString(),
+          updatedAt: safeIsoString(row.updatedAt),
         })),
       );
     } catch (err) {
@@ -208,7 +353,7 @@ router.patch(
         rows.map((row) => ({
           ...row,
           minimumAmount: Number(row.minimumAmount) || 0,
-          updatedAt: row.updatedAt.toISOString(),
+          updatedAt: safeIsoString(row.updatedAt),
         })),
       );
     } catch (err) {

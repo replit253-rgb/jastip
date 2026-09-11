@@ -290,6 +290,7 @@ function Router() {
         {(params) => <ProtectedRoute role="owner" component={ArsipBatchDetail} params={params} />}
       </Route>
 
+      {/* Fallback */}
       <Route component={NotFound} />
     </Switch>
   );

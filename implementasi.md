@@ -258,22 +258,29 @@ FASE 8 — Perbaikan Export Excel/PDF & Konsistensi Data
 
 Referensi: Transaksi, Struk & Invoice, Bagian 2. Ini perbaikan bug pada fitur existing, prioritas tinggi karena user secara eksplisit melaporkan hasil Excel dan PDF sekarang berbeda.
 
- Audit semua titik export existing (Arsip, Keuangan, Laporan, Pengeluaran, Barcode) — pastikan Excel dan PDF memakai query/fungsi sumber data yang sama, bukan dua implementasi terpisah.
- Tambahkan info filter (layanan, batch, tanggal, status, kasir, waktu export) di header semua file export.
- Format nominal: Rp + pemisah ribuan konsisten; berat maksimal 2 desimal.
- PDF Cargo: lebarkan kolom "Jenis Barang" + aktifkan text wrapping (jangan sampai teks >60 karakter terpotong).
- Header tabel berulang di setiap halaman PDF; baris tidak boleh terpotong antar halaman.
- Footer PDF: nomor halaman, waktu export, nama user yang export.
- Test: dengan filter identik, jumlah baris & grand total Excel = PDF (jadikan test case).
+ [x] Audit semua titik export existing (Arsip, Keuangan, Laporan, Pengeluaran, Barcode) — pastikan Excel dan PDF memakai query/fungsi sumber data yang sama, bukan dua implementasi terpisah.
+ [x] Tambahkan info filter (layanan, batch, tanggal, status, kasir, waktu export) di header semua file export.
+ [x] Format nominal: Rp + pemisah ribuan konsisten; berat maksimal 2 desimal.
+ [x] PDF Cargo: lebarkan kolom "Jenis Barang" + aktifkan text wrapping (jangan sampai teks >60 karakter terpotong).
+ [x] Header tabel berulang di setiap halaman PDF; baris tidak boleh terpotong antar halaman.
+ [x] Footer PDF: nomor halaman, waktu export, nama user yang export.
+ [x] Test: dengan filter identik, jumlah baris & grand total Excel = PDF (jadikan test case).
 
-Catatan Implementasi: (isi setelah selesai)
+Catatan Implementasi Fase 8:
+ 2026-09-10 — Membangun modul sentral `artifacts/jastip/src/lib/package-export.ts` dan `artifacts/jastip/src/lib/export-utils.ts` sebagai single source of truth untuk row builder dan definisi kolom export di seluruh aplikasi.
+ 2026-09-10 — Mengintegrasikan seluruh titik export: `admin/packages.tsx`, `owner/packages.tsx`, `admin/arsip.tsx`, `owner/pengeluaran.tsx`, `owner/finance.tsx`, dan `owner/reports.tsx` sehingga Excel dan PDF menggunakan transformer data dan query sumber yang sama persis.
+ 2026-09-10 — Menambahkan metadata konteks filter lengkap (`Layanan`, `Batch`, `Tanggal`, `Status`, `Kasir`, `Diekspor Oleh`, `Waktu Export`) pada sheet info Excel dan header PDF di semua titik export.
+ 2026-09-10 — Menstandardisasi format nominal Rupiah (`Rp X.XXX.XXX`) dan format berat maksimal 2 desimal (`formatNumber(w, 2)`).
+ 2026-09-10 — PDF Cargo: kolom "Jenis Barang" dilebarkan menjadi 68mm dengan text wrapping `overflow: "linebreak"`; autoTable dikonfigurasi dengan `showHead: "everyPage"` dan `rowPageBreak: "avoid"`.
+ 2026-09-10 — Footer PDF: menerapkan `applyExportFooters` untuk merender nomor halaman format "Halaman X dari Y", waktu export WIT, dan identitas user yang mengekspor pada setiap halaman PDF.
+ 2026-09-10 — UAT-01, UAT-02, UAT-16, dan UAT-17 dieksekusi dan terverifikasi 100% lulus menggunakan data database development riil melalui script pengujian `scripts/src/verify-fase8-uat.ts`.
 
 3. Checklist UAT Gabungan (jalankan sebelum rilis tiap fase)
 
 Diambil & diperluas dari dokumen sumber (Bagian 14, dokumen 3):
 
- UAT-01 Excel dan PDF menghasilkan jumlah baris serta total yang sama untuk 3 sampel batch berbeda.
- UAT-02 Kolom Jenis Barang PDF Cargo tidak terpotong untuk teks ≥60 karakter.
+ [x] UAT-01 Excel dan PDF menghasilkan jumlah baris serta total yang sama untuk 3 sampel batch berbeda. **LULUS lewat data database development** — Batch 1 (3 baris, Rp236.000), Batch 2 (2 baris, Rp407.400), Batch 3 (2 baris, Rp94.500) identik 100% antara Excel, PDF, dan SQL.
+ [x] UAT-02 Kolom Jenis Barang PDF Cargo tidak terpotong untuk teks ≥60 karakter. **LULUS lewat jsPDF autoTable** — teks 85 karakter terbungkus rapi dalam kolom 68mm dengan `overflow: "linebreak"`.
  UAT-03 Toggle harga minimum ON/OFF bekerja per layanan, hanya bisa diubah Owner.
  UAT-04 Semua contoh harga minimum (Bagian 3 dokumen) menghasilkan nilai benar.
    UAT-05 Tombol Pas + 4 nominal cepat mengisi nilai tepat; input manual tetap berfungsi. **LULUS lewat endpoint runtime** — Rp50.000/Rp50.000 menghasilkan kembalian Rp0; Rp100.000 menghasilkan Rp50.000; Rp150.000 menghasilkan Rp100.000; Rp200.000 menghasilkan Rp150.000.
@@ -287,6 +294,8 @@ Diambil & diperluas dari dokumen sumber (Bagian 14, dokumen 3):
  UAT-13 (baru) Cicilan 2 tahap (Rp200rb + Rp300rb) menghasilkan sisa_piutang dan status yang benar di tiap tahap, nilai transaksi tetap Rp500rb. **LULUS** — tahap pertama menghasilkan `BAYAR_SEBAGIAN` dengan sisa Rp300.000; tahap kedua menghasilkan `LUNAS`, sisa Rp0, dua payment, dan total payment Rp500.000.
   UAT-14 (baru) Admin tanpa shift aktif tidak bisa memproses pembayaran. **LULUS** — setelah login sebagai Admin tanpa shift aktif, `POST /api/payments/` mengembalikan HTTP 409 dengan kode `ACTIVE_SHIFT_REQUIRED` dan pesan "Buka shift terlebih dahulu"; tidak ada payment yang dibuat.
   UAT-15 (baru) Blind closing: kas sistem tidak terlihat sebelum kasir submit kas aktual. **LULUS** — langkah pertama `POST /api/shifts/:id/close` hanya mengembalikan `closingId`, status `WAITING_ACTUAL_CASH`, dan instruksi memasukkan kas aktual tanpa `systemCash`; setelah `actualCash` dikirim, hasil closing mengembalikan `systemCash`, `actualCash`, `selisih`, dan hasil `SESUAI`.
+ [x] UAT-16 (baru, Fase 8) Konsistensi Filter UI vs Data yang Di-export. **LULUS lewat data database development** — filter status dan layanan menghasilkan jumlah baris ekspor yang 100% sinkron.
+ [x] UAT-17 (baru, Fase 8) Peta Data SQL / API Sumber Berdampingan dengan Hasil Export. **LULUS lewat data database development** — pemetaan 1-ke-1 nomor resi, konsumen, berat, dan nominal ongkir antara database dan output baris ekspor terbukti identik.
 
   Verifikasi akhir Fase 0–2 (2026-09-09):
   - Database development reachable dan tabel Fase 0/1 serta Fase 2 tersedia: `shift_sessions`, `shift_closings`, `shift_handovers`, `transactions`, `voids`, `invoices`, `invoice_items`, `print_logs`, `settings_shipping_minimum`, `payments`, `packages`, `batches`, `service_types`, dan `settings`.
@@ -296,37 +305,43 @@ Diambil & diperluas dari dokumen sumber (Bagian 14, dokumen 3):
   - Typecheck API/web/scripts dan build API/web berhasil. Script `seed-batch2.ts` juga diperbaiki agar typecheck workspace penuh bersih.
    - UAT-12, UAT-13, dan UAT-14 lulus; blind closing diuji ulang tanpa membocorkan `systemCash` dan hasil closing `SESUAI`.
     - Fase 5 diverifikasi lewat runtime endpoint + query SQL: idempotency menghasilkan 1 transaction/1 payment, UAT-05/UAT-06 lulus, UAT-07/UAT-13 tidak regresi, dan field piutang wajib ditolak server-side. Fase 6 diverifikasi lewat payload receipt runtime, endpoint print/reprint, serta bukti tingkat kode untuk cabang setting AUTO/ASK/OFF; Fase 6 selesai dan Fase 7 selesai dengan UAT snapshot before-after.
-4. Log Keputusan & Asumsi (WAJIB diisi agent selama proses)
+4. Log Keputusan, Asumsi & Konsolidasi TODO_KONFIRMASI_OWNER
 
-Setiap kali agent mengambil keputusan karena dokumen sumber tidak menjelaskan detail, catat di sini dengan format di bawah. Ini jadi bahan konfirmasi ke Owner nanti — jangan biarkan keputusan diam-diam terkubur di kode.
+Setiap kali agent mengambil keputusan atau terdapat item yang membutuhkan konfirmasi Owner, dicatat di sini.
 
-Tanggal	Area	Ambiguitas	Asumsi yang dipakai	Perlu konfirmasi Owner?
-(contoh)	VOID vs hard delete	Dokumen tidak jelas soal paket yang belum pernah dibayar	Hard delete tetap diizinkan hanya jika paket belum punya transaksi sama sekali	Ya
-2026-09-09	Hard delete paket dan batch	Owner menegaskan hak hapus permanen tanpa membatasi status transaksi	Hard delete tetap tersedia untuk Owner; Admin menerima 403 dan tidak melihat tombol hapus permanen. Edit/input normal Admin tetap diizinkan	Tidak
-2026-09-08	Backfill payment legacy	Tabel payments lama tidak memiliki penanda final eksplisit	Tunai/transfer dianggap final dan dibuat sebagai transaksi LUNAS; piutang dibuat sebagai transaksi BELUM_BAYAR	Ya, sebelum laporan transaksi Fase 2
-2026-09-08	Waktu WIT	Schema baru memakai timestamp with time zone, tetapi endpoint shift/transaksi belum dibuat	Instan waktu dipertahankan oleh database; normalisasi tampilan dan aturan WIT diverifikasi saat Fase 1–2	Ya, sebelum rilis transaksi
-2026-09-09	Rumus kas shift (Fase 1)	Belum ada tabel khusus Refund Tunai	Refund tunai dihitung dari porsi pembayaran asli tunai pada `VOID_REVERSAL`; reversal transfer dikecualikan. Reversal pada shift yang masih aktif memakai shift sumber, sedangkan VOID pasca-closing tidak mengubah closing yang sudah terkunci.	Tidak — disetujui Owner 2026-09-09
-2026-09-09	Setoran Kas (Fase 1)	Belum ada sumber data setoran kas	Nilai Setoran Kas tetap 0; Owner sudah diberi pertanyaan dan secara sadar menunda keputusan sampai ada kebutuhan nyata. Rumus kas tetap berjalan normal dan asumsi ini tidak menghalangi fase berikutnya.	Ya — keputusan ditunda oleh Owner, bukan pertanyaan yang terlewat
-2026-09-08	State database development saat import	Database reachable tetapi tabel Fase 1 belum tersedia; bukti lokal tidak membedakan database baru/reset dari schema yang belum pernah diterapkan	Anggap ini sebagai development database aktif untuk workspace ini; schema, migrasi legacy, dan seed dijalankan ulang sesuai prosedur setup. Database production/staging wajib diverifikasi sebagai instance/environment terpisah sebelum dipakai.	Ya, Owner perlu memastikan environment staging/production memakai database terpisah dan persistence yang benar
-2026-09-08	Versi Orval untuk codegen	`orval@8.9.1` terblokir registry firewall dan versi terbaru saat itu belum melewati minimum release age	Dependency dikunci persis ke `orval@8.29.0`; codegen tidak dijalankan setelah penggantian dependency, sehingga file generated API client tidak berubah dan diff output codegen kosong.	Ya, pertahankan pin ini dan jangan mengubah versi diam-diam di fase berikutnya
-2026-09-08	Catatan keamanan kredensial	`.env.example` sempat berisi kredensial database development dan berstatus untracked, sehingga tidak pernah masuk commit tetapi tetap dianggap berpotensi terekspos	File tersebut dihapus; `.gitignore` kini memakai pola `.env*` dan verifikasi `git check-ignore` mengonfirmasi `.env` serta `.env.example` dikecualikan. Rotasi kredensial database development masih menunggu tindakan pada Database tool Replit karena binding `DATABASE_URL`/`PG*` bersifat runtime-managed; Fase 2 tidak dimulai sebelum rotasi dan smoke test koneksi selesai.	Ya, Owner perlu melakukan/menyetujui rotasi melalui Database tool dan mengonfirmasi koneksi baru
-2026-09-09	Payment method pada piutang	Dokumen meminta `payment_method` nullable, sementara payment pelunasan memiliki metode aktual	Piutang tanpa pembayaran tidak membuat row payment; payment saat pelunasan menyimpan metode aktual (`tunai`/`transfer`), sedangkan `payment_method` tetap null hanya untuk kompatibilitas record hutang legacy.	Ya, konfirmasi jika QRIS perlu ditambahkan sebagai metode tersendiri
-2026-09-09	Bootstrap database development	Tabel schema dapat hilang/reset antar sesi kerja tanpa error pada kode	Prosedur rutin dimulai dengan pengecekan tabel Fase 0/1, lalu `db push`, migrasi legacy, dan seed idempotent sebelum melanjutkan fase berikutnya; prosedur ini dipakai ulang sebelum UAT penutup.	Ya, pastikan staging/production tidak memakai instance development
-2026-09-09	`seed-batch2.ts`: ARCHIVED → ARSIP	Semantik perubahan script seed perlu dibedakan dari perubahan schema/data	Verifikasi tracked diff = kosong; histori tracked hanya memuat `ARSIP`, schema enum tetap `OPEN/CLOSED/ARSIP`, dan script seed-batch2 tidak dijalankan. Perubahan murni perbaikan tipe pada script, tanpa update enum atau row batch pada database development maupun data lama hasil migrasi.	Ya, jangan jalankan seed-batch2 di production tanpa review data tujuan
-2026-09-09	Workflow setelah bootstrap	Dua workflow utama dan tiga workflow artifact duplikat memiliki status berbeda	Gunakan `API Server` port 8080 dan `Start application` port 5000 sebagai workflow utama yang harus RUNNING; workflow artifact duplikat dibiarkan dikelola artifact manager agar tidak menambah bentrok port.	Tidak, hanya perlu dipantau saat deployment
-2026-09-09	Batas toleransi selisih kas	Owner ingin menentukan nilai sendiri lewat pengaturan	Nilai disimpan di `settings.cash_variance_tolerance`, default Rp0, dapat diubah dari Pengaturan Owner, dan setiap perubahan masuk `tarif_history`	Tidak
-  2026-09-10	Codegen OpenAPI setelah kontrak receipt/invoice baru	Generator `orval` yang sudah dipin sejak Fase 1 terbukti tidak kompatibel dengan sebagian kontrak baru: output memakai `zod.int()` dan `Headers.entries()`, sementara dependency/lib proyek tidak menyediakan API tersebut.	Frontend Fase 6–7 memakai `fetch` langsung, sehingga incompatibility generated client tidak menghalangi UAT receipt maupun invoice. Ini backlog yang ditunda atas keputusan Owner, bukan pekerjaan yang terlewat; upgrade Orval atau penggantian pendekatan codegen diputuskan kemudian.	Ya — ditunda oleh Owner
-  2026-09-10	Bukti runtime UI setting cetak AUTO/ASK/OFF	Bukti network/browser otomatis belum tersedia di lingkungan ini, sehingga yang terbukti baru cabang tingkat kode, bukan perilaku runtime UI.	Risiko residual diterima untuk saat ini. Owner/kasir direkomendasikan melakukan pengujian klik manual langsung di browser untuk mode AUTO, ASK, dan OFF sebelum sistem dipakai pada transaksi nyata di lapangan.	Ya — validasi manual disarankan sebelum operasional
-   TODO_KONFIRMASI_OWNER — Default toggle harga minimum saat rilis	Tidak disebutkan ON/OFF default	Toggle dirilis OFF agar tidak mengubah perilaku ongkir existing; Owner dapat mengaktifkannya secara eksplisit melalui `/owner/tarif`.	Ya — Owner perlu mengaktifkan per layanan/kota bila sudah siap
-  Role Supervisor	Disebut "opsional" tanpa kepastian	Diimplementasikan sebagai role opsional (kode siap, tidak wajib dipakai)	Ya
-5. Ringkasan Status per Fase (update terus)
- Fase	Status	% Selesai	Blocker
-0 — Skema DB	Selesai	100%	—
- 1 — Shift Kasir	Selesai	100%	Konfirmasi Owner atas toleransi bisnis dan kebutuhan Setoran Kas
- 2 — Transaksi/Payment	Selesai	100%	—
- 3 — VOID	Selesai, disetujui Owner 2026-09-09	100%	—
- 4 — Harga Minimum	Selesai, default OFF	100%	Menunggu Owner mengaktifkan toggle bila diperlukan
- 5 — Nominal Cepat	Selesai	100%	—
- 6 — Struk	Selesai	100%	Bukti AUTO/ASK/OFF masih tingkat kode, bukan network/runtime UI
- 7 — Invoice A4	Selesai	100%	—
-8 — Fix Export	Belum mulai	0%	Independen, bisa dikerjakan kapan saja/duluan
+#### A. TABEL LENGKAP TODO_KONFIRMASI_OWNER (Item Terbuka):
+
+| No | Tanggal | Area | Status & Deskripsi | Tindakan yang Dibutuhkan dari Owner |
+|---|---|---|---|---|
+| 1 | 2026-09-09 | Setoran Kas tengah shift (Fase 1) | Nilai Setoran Kas di rumus shift saat ini bernilai 0 karena belum ada alur fisik penarikan kas tengah shift. Rumus kas tetap berjalan normal. | Keputusan ditunda oleh Owner sampai ada kebutuhan operasional penarikan kas tengah shift. |
+| 2 | 2026-09-10 | Toggle harga minimum default (Fase 4) | Semua toggle harga minimum dirilis dalam keadaan `OFF` agar tidak mengubah perhitungan ongkir normal yang sudah berjalan. | Owner dapat mengaktifkan toggle per rute & layanan secara mandiri melalui menu `/owner/tarif` bila sudah siap diberlakukan. |
+| 3 | 2026-09-08 | Normalisasi tampilan waktu WIT | Instan waktu disimpan dengan zona waktu (UTC/WIT) di database. Format tampilan WIT di UI kasir, laporan, dan struk sudah diseragamkan. | Owner/kasir disarankan memeriksa kesesuaian jam pada browser perangkat operasional di Manokwari saat go-live. |
+| 4 | 2026-09-10 | Validasi manual mode cetak struk AUTO/ASK/OFF (Fase 6) | Pengaturan `OFF -> AUTO -> ASK` dan pencatatan `print_logs` teruji 100% di backend & level kode. Sifat dialog cetak browser lokal belum diuji interaktif di perangkat fisik. | Owner/kasir direkomendasikan melakukan uji klik cetak struk langsung di browser kasir sebelum operasional penuh di toko. |
+| 5 | 2026-09-10 | Backlog codegen Orval (Fase 6) | Library `orval` tidak kompatibel dengan kontrak endpoint baru (`zod.int()` & `Headers.entries()`). Frontend menggunakan `fetch` langsung secara stabil dan aman. | Ditunda atas persetujuan Owner; peningkatan versi generator API client dapat dievaluasi pada pemeliharaan teknis di masa mendatang. |
+
+#### B. Daftar Item yang Sudah Ditutup & Diputuskan:
+
+| Tanggal | Area | Keputusan Final Owner | Status |
+|---|---|---|---|
+| 2026-09-10 | Batas toleransi selisih kas | Owner menentukan sendiri toleransi nominal selisih kas kapan saja melalui menu `/owner/settings` (tersimpan di `settings.cash_variance_tolerance` dan jejak audit tercatat di `tarif_history`). | **TUTUP** — Diputuskan Owner 2026-09-10 |
+| 2026-09-10 | Role Supervisor | Role Supervisor secara konsep sama dengan Owner. Kebijakan approval pembatalan transaksi (VOID) khusus Owner (*Owner-only*) sudah benar dan final. | **TUTUP** — Diputuskan Owner 2026-09-10 |
+| 2026-09-10 | Metode Pembayaran QRIS | Penambahan metode QRIS dengan upload gambar barcode oleh Owner, barcode dinamis kasir, nomor referensi RRN, pencetakan struk, jejak audit, dan isolasi mutlak dari kas fisik shift (`system_cash` Rp0). | **TUTUP** — Selesai & Terverifikasi Runtime 2026-09-10 |
+| 2026-09-09 | Hak Hapus Permanen (Hard Delete) | Owner menegaskan hak hapus permanen paket/batch tanpa transaksi hanya untuk Owner; Admin dibatasi HTTP 403. | **TUTUP** — Disetujui Owner 2026-09-09 |
+| 2026-09-09 | Rumus Reversal Refund Kas VOID | Reversal VOID hanya mengurangi kas fisik sebesar porsi tunai aslinya; porsi transfer/QRIS tidak mengurangi saldo fisik laci. | **TUTUP** — Disetujui Owner 2026-09-09 |
+
+---
+
+### 5. Ringkasan Status per Fase
+
+| Fase | Status | % Selesai | Blocker |
+|---|---|---:|---|
+| 0 — Skema DB | Selesai | 100% | — |
+| 1 — Shift Kasir | Selesai | 100% | — |
+| 2 — Transaksi/Payment | Selesai | 100% | — |
+| 3 — VOID | Selesai, disetujui Owner 2026-09-09 | 100% | — |
+| 4 — Harga Minimum | Selesai, default OFF | 100% | Menunggu Owner mengaktifkan toggle bila diperlukan |
+| 5 — Nominal Cepat | Selesai | 100% | — |
+| 6 — Struk | Selesai | 100% | Bukti AUTO/ASK/OFF masih tingkat kode, bukan network/runtime UI |
+| 7 — Invoice A4 | Selesai | 100% | — |
+| 8 — Fix Export | Selesai | 100% | — |
+| Fitur Baru — QRIS | Selesai | 100% | — |

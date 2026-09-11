@@ -59,7 +59,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     { name: "Import Excel", href: "/admin/packages/import", icon: FileSpreadsheet, exact: true },
     { name: "Label Barcode", href: "/admin/barcode", icon: Barcode, exact: true },
     { name: "Arsip Sudah Diambil", href: "/admin/arsip", icon: Archive, exact: true },
-    { name: "Scan Barcode dan Pembayaran", href: "/admin/scan", icon: ScanLine, exact: true, requiresShift: true },
     { name: "Verifikasi Paket", href: "/admin/verify", icon: ShieldCheck, exact: true },
     { name: "Riwayat Pembayaran", href: "/admin/riwayat-pembayaran", icon: History, exact: true },
     { name: "Transaksi & VOID", href: "/admin/finance", icon: ShieldCheck, exact: true },
@@ -82,7 +81,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         { name: "Laporan", href: "/owner/reports", icon: FileText, exact: true },
         { name: "Pengaturan Tarif", href: "/owner/tarif", icon: Tag, exact: true },
         { name: "Pengaturan Kas", href: "/owner/settings", icon: Settings, exact: true },
-        { name: "Manajemen User", href: "/owner/users", icon: Settings, exact: true },
+        { name: "Manajemen User", href: "/owner/users", icon: Users, exact: true },
         { name: "Profil", href: "/owner/profile", icon: UserCircle, exact: true },
       ],
     },
@@ -94,7 +93,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         { name: "Import Excel", href: "/owner/packages/import", icon: FileSpreadsheet, exact: true },
         { name: "Label Barcode", href: "/owner/barcode", icon: Barcode, exact: true },
         { name: "Arsip Sudah Diambil", href: "/owner/arsip", icon: Archive, exact: true },
-        { name: "Scan Barcode dan Pembayaran", href: "/owner/scan", icon: ScanLine, exact: true, requiresShift: true },
         { name: "Verifikasi Paket", href: "/owner/verify", icon: ShieldCheck, exact: true },
       ],
     },
@@ -164,7 +162,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 </div>
               ))
             ) : (
-               <SidebarMenu>{visibleAdminNav.map(renderNavItem)}</SidebarMenu>
+              <SidebarMenu>{visibleAdminNav.map(renderNavItem)}</SidebarMenu>
             )}
           </SidebarContent>
           <SidebarFooter className="p-4 border-t border-border/50">

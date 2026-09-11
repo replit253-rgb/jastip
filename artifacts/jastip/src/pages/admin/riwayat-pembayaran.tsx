@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useListBatches, useListPackages } from "@workspace/api-client-react";
@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { History, Ship, ChevronRight, CheckCircle2, Lock, Archive } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { Pagination } from "@/components/pagination";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -88,6 +89,14 @@ export default function RiwayatPembayaran() {
     });
   }, [payments, pkgMap]);
 
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 6;
+  const total = batchGroups.length;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const pagedBatchGroups = useMemo(() => {
+    return batchGroups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  }, [batchGroups, page]);
+
   // Grand totals across all batches
   const grandTotal = (payments as any[]).reduce((s, p) => s + Number(p.totalAmount || 0), 0);
   const grandTunai = (payments as any[]).filter(p => p.paymentType === "tunai").reduce((s, p) => s + Number(p.totalAmount || 0), 0);
@@ -137,73 +146,76 @@ export default function RiwayatPembayaran() {
           <p className="text-sm mt-1">Data akan muncul setelah ada pembayaran di Kalkulator Scan</p>
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {batchGroups.map(({ batchId, payments: pmts }) => {
-            const batch = batchMap[batchId];
-            const totalAll = pmts.reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
-            const totalTunai = pmts.filter((p: any) => p.paymentType === "tunai").reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
-            const totalTransfer = pmts.filter((p: any) => p.paymentType === "transfer").reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
-            const totalPiutang = pmts.filter((p: any) => p.paymentType === "piutang").reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
-            const piutangCount = pmts.filter((p: any) => p.paymentType === "piutang").length;
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {pagedBatchGroups.map(({ batchId, payments: pmts }) => {
+              const batch = batchMap[batchId];
+              const totalAll = pmts.reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
+              const totalTunai = pmts.filter((p: any) => p.paymentType === "tunai").reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
+              const totalTransfer = pmts.filter((p: any) => p.paymentType === "transfer").reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
+              const totalPiutang = pmts.filter((p: any) => p.paymentType === "piutang").reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
+              const piutangCount = pmts.filter((p: any) => p.paymentType === "piutang").length;
 
-            return (
-              <Card
-                key={batchId}
-                className="cursor-pointer hover:shadow-lg hover:scale-[1.01] transition-all border-2 hover:border-primary/40"
-                onClick={() => setLocation(`${base}/riwayat-pembayaran/batch/${batchId}`)}
-              >
-                <CardContent className="pt-5 pb-4 space-y-4">
-                  {/* Batch header */}
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 rounded-lg bg-primary/10 shrink-0">
-                      <Ship className="w-4 h-4 text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-bold text-base leading-snug truncate">
-                          {batch?.namaKapal || `Batch #${batchId}`}
-                        </p>
+              return (
+                <Card
+                  key={batchId}
+                  className="cursor-pointer hover:shadow-lg hover:scale-[1.01] transition-all border-2 hover:border-primary/40"
+                  onClick={() => setLocation(`${base}/riwayat-pembayaran/batch/${batchId}`)}
+                >
+                  <CardContent className="pt-5 pb-4 space-y-4">
+                    {/* Batch header */}
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 rounded-lg bg-primary/10 shrink-0">
+                        <Ship className="w-4 h-4 text-primary" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-bold text-base leading-snug truncate">
+                            {batch?.namaKapal || `Batch #${batchId}`}
+                          </p>
+                          {batch && (
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] flex items-center gap-1 ${batchStatusColor(batch.statusBatch)}`}
+                            >
+                              {batchStatusIcon(batch.statusBatch)}
+                              {batchStatusLabel(batch.statusBatch)}
+                            </Badge>
+                          )}
+                        </div>
                         {batch && (
-                          <Badge
-                            variant="outline"
-                            className={`text-[10px] flex items-center gap-1 ${batchStatusColor(batch.statusBatch)}`}
-                          >
-                            {batchStatusIcon(batch.statusBatch)}
-                            {batchStatusLabel(batch.statusBatch)}
-                          </Badge>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {batch.kotaAsal} → {batch.tujuan} &nbsp;·&nbsp; ETD {fmtDate(batch.etd)}
+                          </p>
                         )}
+                        <p className="text-xs text-muted-foreground">{pmts.length} transaksi</p>
                       </div>
-                      {batch && (
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {batch.kotaAsal} → {batch.tujuan} &nbsp;·&nbsp; ETD {fmtDate(batch.etd)}
-                        </p>
-                      )}
-                      <p className="text-xs text-muted-foreground">{pmts.length} transaksi</p>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-1" />
                     </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-1" />
-                  </div>
 
-                  {/* Payment summary grid */}
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { label: "Total", value: totalAll, color: "text-primary", bg: "bg-primary/5 border-primary/20" },
-                      { label: "Tunai", value: totalTunai, color: "text-green-700", bg: "bg-green-50 border-green-200" },
-                      { label: "Transfer", value: totalTransfer, color: "text-blue-700", bg: "bg-blue-50 border-blue-200" },
-                      { label: "Piutang", value: totalPiutang, color: "text-orange-700", bg: "bg-orange-50 border-orange-200" },
-                    ].map((s) => (
-                      <div key={s.label} className={`rounded-lg border p-2.5 ${s.bg}`}>
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{s.label}</p>
-                        <p className={`text-sm font-black mt-0.5 leading-tight ${s.color}`}>{formatRp(s.value)}</p>
-                        {s.label === "Piutang" && piutangCount > 0 && (
-                          <p className="text-[10px] text-orange-600 mt-0.5">{piutangCount} belum lunas</p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                    {/* Payment summary grid */}
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { label: "Total", value: totalAll, color: "text-primary", bg: "bg-primary/5 border-primary/20" },
+                        { label: "Tunai", value: totalTunai, color: "text-green-700", bg: "bg-green-50 border-green-200" },
+                        { label: "Transfer", value: totalTransfer, color: "text-blue-700", bg: "bg-blue-50 border-blue-200" },
+                        { label: "Piutang", value: totalPiutang, color: "text-orange-700", bg: "bg-orange-50 border-orange-200" },
+                      ].map((s) => (
+                        <div key={s.label} className={`rounded-lg border p-2.5 ${s.bg}`}>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{s.label}</p>
+                          <p className={`text-sm font-black mt-0.5 leading-tight ${s.color}`}>{formatRp(s.value)}</p>
+                          {s.label === "Piutang" && piutangCount > 0 && (
+                            <p className="text-[10px] text-orange-600 mt-0.5">{piutangCount} belum lunas</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+          <Pagination page={page} totalPages={totalPages} total={total} pageSize={PAGE_SIZE} onPageChange={setPage} />
         </div>
       )}
     </div>

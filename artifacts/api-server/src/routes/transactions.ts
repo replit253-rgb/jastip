@@ -11,7 +11,7 @@ import { requireActiveShift } from "../middlewares/shift";
 import { requireAuth, requireRole } from "../middlewares/auth";
 
 const router = Router();
-const paymentMethods = new Set(["tunai", "transfer"]);
+const paymentMethods = new Set(["tunai", "transfer", "qris"]);
 
 function getPaymentMethod(body: any) {
   return String(body.paymentMethod ?? body.paymentType ?? "");
@@ -268,8 +268,8 @@ router.post(
         });
         return;
       }
-      if (method === "transfer" && received !== total) {
-        res.status(400).json({ error: "Pembayaran transfer harus sama dengan total" });
+      if ((method === "transfer" || method === "qris") && received !== total) {
+        res.status(400).json({ error: `Pembayaran ${method.toUpperCase()} harus sama dengan total` });
         return;
       }
 
@@ -341,11 +341,11 @@ router.post(
             .insert(paymentsTable)
             .values({
               paymentType: credited >= total ? "TRANSAKSI_BARU" : "CICILAN",
-              paymentMethod: method === "piutang" ? null : method as "tunai" | "transfer",
+              paymentMethod: method === "piutang" ? null : method as "tunai" | "transfer" | "qris",
               totalAmount: String(credited),
               paidAmount: String(received),
               changeAmount: String(Math.max(0, received - credited)),
-              paymentReference: method === "transfer"
+              paymentReference: method === "transfer" || method === "qris"
                 ? String(body.paymentReference ?? "").trim() || null
                 : null,
               packageIds,
@@ -440,10 +440,10 @@ router.post(
       const id = Number(req.params.id);
        const method = getPaymentMethod(req.body);
       if (!paymentMethods.has(method)) {
-        res.status(400).json({ error: "Jenis pembayaran harus tunai atau transfer" });
+        res.status(400).json({ error: "Jenis pembayaran harus tunai, transfer, atau qris" });
         return;
       }
-      const paymentMethod = method as "tunai" | "transfer";
+      const paymentMethod = method as "tunai" | "transfer" | "qris";
 
       const received = amount(
         req.body?.amount ?? req.body?.paidAmount ?? req.body?.totalAmount,
@@ -466,8 +466,8 @@ router.post(
 
         const outstanding = amount(transaction.sisaPiutang, "Sisa piutang");
         if (outstanding <= 0) throw new Error("Transaksi sudah lunas");
-        if (received > outstanding && paymentMethod === "transfer") {
-          throw new Error("Nominal transfer melebihi sisa piutang");
+        if (received > outstanding && (paymentMethod === "transfer" || paymentMethod === "qris")) {
+          throw new Error(`Nominal ${paymentMethod.toUpperCase()} melebihi sisa piutang`);
         }
          const credited = Math.min(received, outstanding);
         const change = Math.max(0, received - credited);

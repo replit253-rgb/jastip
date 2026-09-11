@@ -53,7 +53,8 @@ async function nextInvoiceNo(tx: any) {
     .select({ invoiceNo: invoicesTable.invoiceNo })
     .from(invoicesTable)
     .where(like(invoicesTable.invoiceNo, `${prefix}%`));
-  const largest = rows.reduce((max: number, row: { invoiceNo: string }) => {
+  const largest = rows.reduce((max: number, row: { invoiceNo?: string | null }) => {
+    if (!row?.invoiceNo) return max;
     const suffix = Number(row.invoiceNo.slice(prefix.length));
     return Number.isInteger(suffix) ? Math.max(max, suffix) : max;
   }, 0);
@@ -180,6 +181,7 @@ router.post(
       });
       res.status(201).json(await getInvoiceDetail(invoice.id));
     } catch (err) {
+      console.error("POST /invoices ERROR:", err);
       (req as any).log?.error?.(err);
       res.status(500).json({ error: "Gagal membuat invoice manual" });
     }

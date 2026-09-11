@@ -25,6 +25,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
   addExportInfoSheet,
+  applyExportFooters,
   createExportSheet,
   drawExportFooter,
   formatRp as formatExportRp,
@@ -168,13 +169,14 @@ export default function OwnerPackages() {
       alternateRowStyles: { fillColor: [255,247,237] },
       rowPageBreak: "avoid",
       showHead: "everyPage",
-      columnStyles: { 0:{cellWidth:8,halign:"center"},1:{cellWidth:28},2:{cellWidth:16},3:{cellWidth:28},4:{cellWidth:14,halign:"center"},5:{cellWidth:20},6:{cellWidth:46, overflow:"linebreak"},7:{cellWidth:20,halign:"center"},8:{cellWidth:16,halign:"right"},9:{cellWidth:23,halign:"right"},10:{cellWidth:16,halign:"center"} },
+      columnStyles: { 0:{cellWidth:8,halign:"center"},1:{cellWidth:26},2:{cellWidth:16},3:{cellWidth:24},4:{cellWidth:12,halign:"center"},5:{cellWidth:12},6:{cellWidth:68, overflow:"linebreak"},7:{cellWidth:18,halign:"center"},8:{cellWidth:16,halign:"right"},9:{cellWidth:24,halign:"right"},10:{cellWidth:25,halign:"right"},11:{cellWidth:18,halign:"center"} },
       margin: { left: margin, right: margin },
     });
     const totalOngkir = filtered.reduce((s: number, p: any) => s + (Number(p.totalShipping) || 0), 0);
     const finalY = (doc as any).lastAutoTable.finalY + 5;
     doc.setFontSize(8); doc.setFont("helvetica", "bold");
     doc.text(`Total Ongkir Keseluruhan: Rp ${totalOngkir.toLocaleString("id-ID")}`, pageW - margin, finalY, { align: "right" });
+    applyExportFooters(doc, user?.name || "Pengguna aktif");
     const safeBatch = selectedPdfBatch ? `-${selectedPdfBatch.namaKapal.replace(/\s+/g, "-").toLowerCase()}` : "";
     doc.save(`laporan-kargo${safeBatch}.pdf`);
     setPdfOpen(false);
@@ -231,7 +233,7 @@ export default function OwnerPackages() {
       autoTable(doc, {
         startY: y, head: tableHead, body: rows,
         didDrawPage: () => drawExportFooter(doc, user?.name || "Pengguna aktif"),
-        styles: { fontSize: 5.8, cellPadding: 1.1, overflow: "ellipsize", lineColor: [200,200,200], lineWidth: 0.1 },
+        styles: { fontSize: 5.8, cellPadding: 1.1, overflow: "linebreak", lineColor: [200,200,200], lineWidth: 0.1 },
         headStyles: { fillColor: [185,28,28], textColor: 255, fontStyle: "bold", fontSize: 5.8, halign: "center", valign: "middle" },
         alternateRowStyles: { fillColor: [253,248,248] },
         columnStyles: colStyles, margin: { left: margin, right: margin },
@@ -239,6 +241,7 @@ export default function OwnerPackages() {
       });
       y = (doc as any).lastAutoTable.finalY + 8;
     }
+    applyExportFooters(doc, user?.name || "Pengguna aktif");
     const safeJenis = pdfJenis.replace(/\+/g, "plus").replace(/\s+/g, "-").toLowerCase();
     const safeKapal = pdfNamaKapal ? `-${pdfNamaKapal.replace(/\s+/g, "-")}` : "";
     const safeBatch = selectedPdfBatch ? `-${selectedPdfBatch.namaKapal.replace(/\s+/g, "-").toLowerCase()}` : "";

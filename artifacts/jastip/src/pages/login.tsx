@@ -15,11 +15,6 @@ const loginSchema = z.object({
   password: z.string().min(3, "Password harus diisi minimal 3 karakter"),
 });
 
-const demoAccounts = [
-  { label: "Owner", phone: "081200000000", password: "owner123", color: "bg-amber-500" },
-  { label: "Admin", phone: "081200000001", password: "admin123", color: "bg-blue-500" },
-];
-
 const services = [
   "Jastip Cargo – hemat untuk paket besar",
   "Jastip Hemat+ – lebih cepat, harga tetap terjangkau",
@@ -117,30 +112,6 @@ export default function Login() {
           <div className="mb-7">
             <h2 className="text-3xl font-bold text-gray-900">Selamat Datang</h2>
             <p className="text-muted-foreground mt-1 text-sm">Masuk ke akun Anda untuk melanjutkan</p>
-          </div>
-
-          {/* Demo accounts */}
-          <div className="mb-6 p-4 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-              Akun Demo — Klik untuk isi otomatis
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              {demoAccounts.map((acc) => (
-                <button
-                  key={acc.label}
-                  type="button"
-                  onClick={() => { form.setValue("phone", acc.phone); form.setValue("password", acc.password); }}
-                  className="flex flex-col items-start p-2.5 rounded-lg border bg-white hover:bg-gray-50 hover:border-red-300 transition-all text-left shadow-sm"
-                >
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <span className={`w-2 h-2 rounded-full ${acc.color}`} />
-                    <span className="font-semibold text-xs text-gray-800">{acc.label}</span>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground font-mono leading-tight">{acc.phone}</p>
-                  <p className="text-[10px] text-muted-foreground font-mono leading-tight">{acc.password}</p>
-                </button>
-              ))}
-            </div>
           </div>
 
           <Form {...form}>

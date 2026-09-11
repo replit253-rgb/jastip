@@ -896,7 +896,7 @@ components:
           type: string
         role:
           type: string
-          enum: [customer, admin, owner]
+          enum: [admin, owner]
         isActive:
           type: boolean
         createdAt:

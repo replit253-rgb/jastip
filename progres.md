@@ -13,7 +13,7 @@ Terakhir diperbarui: 2026-09-10
 | 5 — Nominal Cepat | Selesai | 100% | — |
 | 6 — Struk | Selesai | 100% | Bukti AUTO/ASK/OFF masih tingkat kode, bukan network/runtime UI |
 | 7 — Invoice A4 | Selesai | 100% | — |
-| 8 — Fix Export | Belum mulai | 0% | Independen, belum dimulai |
+| 8 — Fix Export | Selesai | 100% | — |
 
 ## Catatan Fase 0
 
@@ -345,4 +345,134 @@ Cetak ulang transaksi `id=1` mengembalikan `copyNumber=2`, `isReprint=true`, dan
 
 ### Status akhir
 
-Fase 6 selesai dan siap direview Owner. Bukti receipt, print/reprint, dan `print_logs` dijalankan melalui endpoint sungguhan dan query database development; bukti AUTO/ASK/OFF secara eksplisit terbatas pada tingkat kode. Fase 7 selesai dengan UAT-10 dan bukti invariansi snapshot before-after. Fase 8 tidak dimulai.
+Fase 6 selesai dan siap direview Owner. Bukti receipt, print/reprint, dan `print_logs` dijalankan melalui endpoint sungguhan dan query database development; bukti AUTO/ASK/OFF secara eksplisit terbatas pada tingkat kode. Fase 7 selesai dengan UAT-10 dan bukti invariansi snapshot before-after. Fase 8 selesai dengan standardisasi ekspor Excel & PDF serta verifikasi UAT-01, UAT-02, UAT-16, dan UAT-17.
+
+## Laporan Akhir Fase 8 — Perbaikan Export Excel/PDF & Konsistensi Data
+
+### Ringkasan Pekerjaan
+
+1. **Sentralisasi Logika Export**:
+   - Membangun `artifacts/jastip/src/lib/package-export.ts` dan `artifacts/jastip/src/lib/export-utils.ts` sebagai sumber kebenaran tunggal untuk seluruh row builder dan definisi kolom export (Paket, Kargo, Arsip, Pengeluaran, Keuangan, Laporan).
+   - Menghilangkan implementasi ganda yang terpisah antara Excel dan PDF di seluruh halaman: `admin/packages.tsx`, `owner/packages.tsx`, `admin/arsip.tsx`, `owner/pengeluaran.tsx`, `owner/finance.tsx`, dan `owner/reports.tsx`.
+2. **Metadata Filter Lengkap**:
+   - Header PDF dan sheet info workbook Excel kini menyertakan konteks filter lengkap: Layanan, Batch, Tanggal, Status, Kasir, Diekspor Oleh, dan Waktu Export (WIT).
+3. **Format Standar Konsisten**:
+   - Format nominal uang diseragamkan dengan format Rupiah baku (`Rp X.XXX.XXX`).
+   - Format berat dibatasi maksimal 2 desimal (`formatNumber(val, 2)`).
+4. **PDF Kargo — Text Wrapping Kolom "Jenis Barang"**:
+   - Kolom "Jenis Barang" dilebarkan menjadi 68mm dengan wrapping teks `overflow: "linebreak"` sehingga nama barang panjang (≥60 karakter) tidak terpotong.
+5. **Header & Footer Berulang di Tiap Halaman PDF**:
+   - Tabel dikonfigurasi dengan `showHead: "everyPage"` dan `rowPageBreak: "avoid"` untuk mencegah baris terpotong antar halaman.
+   - Footer PDF dirender di setiap halaman dengan nomor halaman format "Halaman X dari Y", waktu export WIT, dan identitas user yang mengekspor.
+
+### Hasil UAT Fase 8 (Database Development)
+
+Script verifikasi `scripts/src/verify-fase8-uat.ts` dieksekusi langsung terhadap database development:
+
+- **UAT-01 (Perbandingan Excel vs PDF untuk 3 Batch Berbeda)**:
+  - Batch 1 (`KM Dobonsolo`, ID 1): Baris data Excel = 3, PDF = 3. Total nominal Excel = Rp236.000, PDF = Rp236.000, SQL = Rp236.000 (**LULUS / MATCH 100%**).
+  - Batch 2 (`KM Ciremai`, ID 2): Baris data Excel = 2, PDF = 2. Total nominal Excel = Rp407.400, PDF = Rp407.400, SQL = Rp407.400 (**LULUS / MATCH 100%**).
+  - Batch 3 (`KM Sinabung`, ID 3): Baris data Excel = 2, PDF = 2. Total nominal Excel = Rp94.500, PDF = Rp94.500, SQL = Rp94.500 (**LULUS / MATCH 100%**).
+- **UAT-02 (PDF Cargo Jenis Barang Panjang ≥ 60 Karakter)**:
+  - Teks sampel (85 karakter): `"Spare Part Mesin Industri Hidrolik High Pressure Valve Type TX-5000 & Filter Cadangan"`
+  - Kolom selebar 68mm dengan `overflow: "linebreak"` membungkus teks dengan rapi tanpa pemotongan / truncation (**LULUS**).
+- **UAT-16 (Konsistensi Filter UI vs Data yang Di-export)**:
+  - Filter Semua: 7 paket UI -> 7 baris export.
+  - Filter Jastip Kargo: 4 paket UI -> 4 baris export.
+  - Filter Diserahkan: 3 paket UI -> 3 baris export.
+  - Filter Pending: 4 paket UI -> 4 baris export (**LULUS 100% sinkron**).
+- **UAT-17 (SQL Sumber Berdampingan dengan Hasil Export)**:
+  - Data SQL baris demi baris (resi, nama konsumen, berat, dan total ongkir) terbukti identik 1-ke-1 dengan baris data yang diekspor (**LULUS**).
+
+## Laporan Fitur Tambahan: Metode Pembayaran QRIS dengan Upload Gambar oleh Owner
+
+### Ringkasan Pekerjaan
+
+1. **Skema & Konfigurasi (Additive)**:
+   - Setting `qris_image_url` ditambahkan ke `ALLOWED_KEYS` pengaturan sistem.
+   - Endpoint `POST /api/settings/qris-image` menerima upload base64 image (PNG/JPG/WEBP, max 2MB), menyimpan file di direktori statis `/uploads/qris/`, dan mencatat riwayat perubahan ke `tarif_historyTable`.
+   - Endpoint `GET /api/settings/qris` menyediakan akses publik/terautentikasi ke URL gambar QRIS aktif.
+   - Static asset server dikonfigurasi di `api-server/src/app.ts` untuk menyajikan file dari folder `/uploads`.
+
+2. **Backend Transaksi & Finansial**:
+   - `paymentMethods` diperbarui mencakup enum `'qris'`.
+   - `POST /api/transactions` dan `POST /api/payments` mendukung metode `qris` dengan validasi nominal pas dan pencatatan nomor referensi / RRN opsional.
+   - Perhitungan kas shift (`shift-cash.ts`) menghitung transaksi QRIS sebagai non-tunai (masuk `qrisPaymentCount` dan `nonCashRevenue`, tidak menambah saldo fisik kasir).
+   - Generator struk (`receipts.ts`) mencetak label metode pembayaran `"QRIS"`.
+
+3. **Frontend Owner & Kasir**:
+   - `/owner/settings`: Menyediakan komponen upload gambar QRIS baru, pratinjau sebelum upload, kartu tampilan QRIS aktif saat ini, dan tabel histori pergantian gambar QRIS beserta catatan alasan.
+### Hasil Verifikasi Runtime Konkret (Bukti 1–6)
+
+Eksekusi script verifikasi `scripts/src/verify-qris-runtime.ts` menghasilkan bukti runtime berikut:
+
+1. **Bukti 1: Response Nyata POST & GET Endpoint QRIS**:
+   - `POST /api/settings/qris-image` (Owner): HTTP 200, `qrisImageUrl: "/uploads/qris/qris-1789038493817-42e87166.png"`, `message: "Gambar QRIS berhasil diunggah"`.
+   - `GET /api/settings/qris` (Kasir/Admin): HTTP 200, `qrisImageUrl: "/uploads/qris/qris-1789038493817-42e87166.png"`.
+   - **Kesesuaian URL**: **MATCH IDENTIK 100%**.
+   - **Jejak Audit SQL (`tarif_history`)**: Record tersimpan dengan `jenis_perubahan: "QRIS — Upload Gambar"`, `alasan: "Update QRIS resmi Bank Mandiri Merchant - Cabang Manokwari"`, `user_id: 1` (Owner).
+
+2. **Bukti 2: Isolasi Kas Fisik Shift (Wajib SQL)**:
+   - Shift baru dibuka dengan `openingBalance` = Rp 100.000.
+   - **Kondisi Shift SEBELUM Transaksi QRIS**:
+     * `openingBalance` : Rp 100.000
+     * `cashReceived`   : Rp 0
+     * `cashExpenses`   : Rp 0
+     * `qrisPaymentCount`: 0
+     * `systemCash`     : **Rp 100.000**
+   - **Eksekusi Transaksi QRIS (`POST /api/transactions`)**:
+     * `HTTP Status`    : 201
+     * `Transaction No` : TRX-20260910-00001
+     * `Payment ID`     : 1789038493878 (`payment_method: 'qris'`)
+     * `Total Tagihan`  : Rp 70.000
+     * `Status`         : LUNAS
+   - **Kondisi Shift SESUDAH Transaksi QRIS**:
+     * `openingBalance` : Rp 100.000
+     * `cashReceived`   : Rp 0
+     * `cashExpenses`   : Rp 0
+     * `qrisPaymentCount`: 1
+     * `systemCash`     : **Rp 100.000**
+   - **Komparasi Nilai Kas Fisik**:
+     * `system_cash` SEBELUM: Rp 100.000
+     * `system_cash` SESUDAH: Rp 100.000
+     * **Selisih Kas Fisik: Rp 0 (Tepat Rp 0 — QRIS 100% terisolasi dari kas fisik laci kasir)**.
+
+3. **Bukti 3: State / Response Kasir Sebelum Owner Pernah Upload Gambar**:
+   - `GET /api/settings/qris` mengembalikan `{"qrisImageUrl": null}`.
+   - Layar kasir `/admin/scan` menampilkan banner: *"Gambar QRIS belum diunggah oleh Owner. Pembayaran tetap dapat dicatat, atau silakan minta Owner untuk mengunggah gambar QRIS di Pengaturan."*
+   - Kasir tetap dapat menyelesaikan transaksi non-tunai QRIS tanpa hambatan (non-blocking).
+
+4. **Bukti 4: Validasi Server-Side (Direct API POST)**:
+   - Upload file non-image (`application/pdf`) -> HTTP 400: `{"error":"Hanya file gambar (PNG, JPEG, WEBP) yang diizinkan"}`.
+   - Upload file > 2MB (2.5MB payload) -> HTTP 400: `{"error":"Ukuran gambar melebihi batas maksimal 2MB"}`.
+   - Upload oleh user non-Owner (Admin role) -> HTTP 403: `{"error":"Forbidden"}`.
+
+5. **Bukti 5: Definisi Enum Schema (Additive)**:
+   - `paymentType`: `enum: ["tunai", "transfer", "qris", "piutang", "TRANSAKSI_BARU", "PELUNASAN_PIUTANG", "CICILAN", "VOID_REVERSAL"]`
+   - `paymentMethod`: `enum: ["tunai", "transfer", "qris"]`
+   - Sifat: Murni additive, tidak ada modifikasi kolom lama.
+
+6. **Bukti 6: Integritas Data Legacy Transfer**:
+   - Query SQL langsung pada `paymentsTable` mengonfirmasi seluruh record dengan `payment_method='transfer'` tetap utuh dengan tipe/metode `transfer` tanpa ada reklasifikasi otomatis.
+
+## Log Keputusan, Asumsi & Konsolidasi TODO_KONFIRMASI_OWNER
+
+### A. TABEL LENGKAP TODO_KONFIRMASI_OWNER (Item Terbuka):
+
+| No | Tanggal | Area | Status & Deskripsi | Tindakan yang Dibutuhkan dari Owner |
+|---|---|---|---|---|
+| 1 | 2026-09-09 | Setoran Kas tengah shift (Fase 1) | Nilai Setoran Kas di rumus shift saat ini bernilai 0 karena belum ada alur fisik penarikan kas tengah shift. Rumus kas tetap berjalan normal. | Keputusan ditunda oleh Owner sampai ada kebutuhan operasional penarikan kas tengah shift. |
+| 2 | 2026-09-10 | Toggle harga minimum default (Fase 4) | Semua toggle harga minimum dirilis dalam keadaan `OFF` agar tidak mengubah perhitungan ongkir normal yang sudah berjalan. | Owner dapat mengaktifkan toggle per rute & layanan secara mandiri melalui menu `/owner/tarif` bila sudah siap diberlakukan. |
+| 3 | 2026-09-08 | Normalisasi tampilan waktu WIT | Instan waktu disimpan dengan zona waktu (UTC/WIT) di database. Format tampilan WIT di UI kasir, laporan, dan struk sudah diseragamkan. | Owner/kasir disarankan memeriksa kesesuaian jam pada browser perangkat operasional di Manokwari saat go-live. |
+| 4 | 2026-09-10 | Validasi manual mode cetak struk AUTO/ASK/OFF (Fase 6) | Pengaturan `OFF -> AUTO -> ASK` dan pencatatan `print_logs` teruji 100% di backend & level kode. Sifat dialog cetak browser lokal belum diuji interaktif di perangkat fisik. | Owner/kasir direkomendasikan melakukan uji klik cetak struk langsung di browser kasir sebelum operasional penuh di toko. |
+| 5 | 2026-09-10 | Backlog codegen Orval (Fase 6) | Library `orval` tidak kompatibel dengan kontrak endpoint baru (`zod.int()` & `Headers.entries()`). Frontend menggunakan `fetch` langsung secara stabil dan aman. | Ditunda atas persetujuan Owner; peningkatan versi generator API client dapat dievaluasi pada pemeliharaan teknis di masa mendatang. |
+
+### B. Daftar Item yang Sudah Ditutup & Diputuskan:
+
+| Tanggal | Area | Keputusan Final Owner | Status |
+|---|---|---|---|
+| 2026-09-10 | Batas toleransi selisih kas | Owner menentukan sendiri toleransi nominal selisih kas kapan saja melalui menu `/owner/settings` (tersimpan di `settings.cash_variance_tolerance` dan jejak audit tercatat di `tarif_history`). | **TUTUP** — Diputuskan Owner 2026-09-10 |
+| 2026-09-10 | Role Supervisor | Role Supervisor secara konsep sama dengan Owner. Kebijakan approval pembatalan transaksi (VOID) khusus Owner (*Owner-only*) sudah benar dan final. | **TUTUP** — Diputuskan Owner 2026-09-10 |
+| 2026-09-10 | Metode Pembayaran QRIS | Penambahan metode QRIS dengan upload gambar barcode oleh Owner, barcode dinamis kasir, nomor referensi RRN, pencetakan struk, jejak audit, dan isolasi mutlak dari kas fisik shift (`system_cash` Rp0). | **TUTUP** — Selesai & Terverifikasi Runtime 2026-09-10 |
+| 2026-09-09 | Hak Hapus Permanen (Hard Delete) | Owner menegaskan hak hapus permanen paket/batch tanpa transaksi hanya untuk Owner; Admin dibatasi HTTP 403. | **TUTUP** — Disetujui Owner 2026-09-09 |
+| 2026-09-09 | Rumus Reversal Refund Kas VOID | Reversal VOID hanya mengurangi kas fisik sebesar porsi tunai aslinya; porsi transfer/QRIS tidak mengurangi saldo fisik laci. | **TUTUP** — Disetujui Owner 2026-09-09 |

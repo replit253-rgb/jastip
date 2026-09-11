@@ -20,12 +20,18 @@ import {
   Plus, Wallet, Pencil, Trash2, Download, FileDown, TrendingDown, Filter,
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import { Pagination } from "@/components/pagination";
+import { useMemo } from "react";
 import {
   addExportInfoSheet,
   createExportSheet,
   formatRp as formatExportRp,
   saveTabularPdf,
 } from "@/lib/export-utils";
+import {
+  buildPengeluaranExportRows,
+  PENGELUARAN_EXPORT_COLUMNS,
+} from "@/lib/package-export";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Pengeluaran {
@@ -80,25 +86,6 @@ function formatDate(d: string | null | undefined) {
 function authHeaders() {
   const token = localStorage.getItem("jaj_token");
   return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
-}
-
-const PENGELUARAN_EXPORT_COLUMNS = [
-  "Tanggal", "Kategori", "Nominal", "Metode Pembayaran", "Dicatat Oleh", "Catatan",
-];
-
-function buildPengeluaranExportRows(data: Pengeluaran[], totalNominal: number) {
-  const rows = data.map((d) => [
-    formatDate(d.tanggal),
-    d.kategori,
-    formatExportRp(d.nominal),
-    d.metodePembayaran,
-    d.namaPencatat || "-",
-    d.catatan || "",
-  ]);
-  return [
-    ...rows,
-    ["TOTAL", "", formatExportRp(totalNominal), "", "", ""],
-  ];
 }
 
 // ── Form Dialog ───────────────────────────────────────────────────────────────
@@ -312,6 +299,18 @@ export default function OwnerPengeluaran() {
   const [sampai, setSampai] = useState(todayStr());
   const [filterKategori, setFilterKategori] = useState("");
   const [filterMetode, setFilterMetode] = useState("");
+
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
+  const total = data.length;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const pagedData = useMemo(() => {
+    return data.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  }, [data, page]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [dari, sampai, filterKategori, filterMetode]);
 
   // Dialog state
   const [showForm, setShowForm] = useState(false);
@@ -545,7 +544,7 @@ export default function OwnerPengeluaran() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.map((d) => (
+                  {pagedData.map((d) => (
                     <tr key={d.id} className="border-b last:border-b-0 hover:bg-muted/20">
                       <td className="px-4 py-3 whitespace-nowrap">{formatDate(d.tanggal)}</td>
                       <td className="px-4 py-3">
@@ -590,6 +589,7 @@ export default function OwnerPengeluaran() {
                   </tr>
                 </tfoot>
               </table>
+              <Pagination page={page} totalPages={totalPages} total={total} pageSize={PAGE_SIZE} onPageChange={setPage} />
             </div>
           )}
         </CardContent>

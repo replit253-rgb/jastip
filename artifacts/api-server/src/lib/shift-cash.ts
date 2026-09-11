@@ -55,6 +55,10 @@ export async function calculateShiftCash(shift: ShiftSession) {
     (payment) =>
       payment.paymentMethod === "transfer" || payment.paymentType === "transfer",
   );
+  const qrisPayments = payments.filter(
+    (payment) =>
+      payment.paymentMethod === "qris" || payment.paymentType === "qris",
+  );
   const receivablePayments = payments.filter(
     (payment) => payment.paymentType === "piutang",
   );
@@ -113,6 +117,7 @@ export async function calculateShiftCash(shift: ShiftSession) {
     paymentCount: payments.length,
     cashPaymentCount: cashPayments.length,
     transferPaymentCount: transferPayments.length,
+    qrisPaymentCount: qrisPayments.length,
     receivablePaymentCount: receivablePayments.length,
     cashReceived,
     changeGiven,

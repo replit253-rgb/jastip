@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, packagesTable, paymentsTable, transactionsTable } from "@workspace/db";
 import { requireAuth, requireRole } from "../middlewares/auth";
+import { dateStartsWith } from "../lib/dates";
 
 const router = Router();
 
@@ -20,16 +21,16 @@ router.get("/", requireAuth, requireRole("owner"), async (req, res) => {
     if (type === "daily") {
       const targetDate = date || now.toISOString().split("T")[0];
       periodLabel = targetDate;
-      filteredPkgs = packages.filter(p => p.createdAt.toISOString().startsWith(targetDate));
+      filteredPkgs = packages.filter(p => dateStartsWith(p.createdAt, targetDate));
 
       // Hourly breakdown 00-23
       for (let h = 0; h < 24; h++) {
         const label = `${String(h).padStart(2, "0")}:00`;
         const incoming = packages.filter(p =>
-          p.createdAt.toISOString().startsWith(targetDate) && new Date(p.createdAt).getHours() === h
+          dateStartsWith(p.createdAt, targetDate) && new Date(p.createdAt).getHours() === h
         ).length;
         const outgoing = packages.filter(p =>
-          p.pickedUpAt && p.pickedUpAt.toISOString().startsWith(targetDate) && new Date(p.pickedUpAt).getHours() === h
+          p.pickedUpAt && dateStartsWith(p.pickedUpAt, targetDate) && new Date(p.pickedUpAt).getHours() === h
         ).length;
         entries.push({ label, incoming, outgoing });
       }
@@ -55,8 +56,8 @@ router.get("/", requireAuth, requireRole("owner"), async (req, res) => {
 
       for (let d = 1; d <= daysInMonth; d++) {
         const dateStr = `${targetYear}-${String(targetMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-        const incoming = packages.filter(p => p.createdAt.toISOString().startsWith(dateStr)).length;
-        const outgoing = packages.filter(p => p.pickedUpAt?.toISOString().startsWith(dateStr)).length;
+        const incoming = packages.filter(p => dateStartsWith(p.createdAt, dateStr)).length;
+        const outgoing = packages.filter(p => dateStartsWith(p.pickedUpAt, dateStr)).length;
         entries.push({ label: `${d}`, incoming, outgoing });
       }
 

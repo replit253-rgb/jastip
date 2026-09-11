@@ -1,0 +1,319 @@
+================================================================================
+             REGRESSION TEST END-TO-END (15 LANGKAH BERURUTAN)                  
+================================================================================
+
+>>> [RAW LOG LANGKAH 3 - TRANSAKSI TUNAI]
+POST /api/transactions Status: 201
+Request Body: {
+  "paymentType": "tunai",
+  "paymentMethod": "tunai",
+  "subtotal": 150000,
+  "totalAmount": 150000,
+  "paidAmount": 200000,
+  "changeAmount": 50000,
+  "packageIds": [
+    1789056886873
+  ]
+}
+Response Data: {
+  "transaction": {
+    "id": 1789056886901,
+    "createdAt": "2026-09-10T16:14:46.901Z",
+    "updatedAt": "2026-09-10T16:14:46.901Z",
+    "transactionNo": "TRX-20260910-00011",
+    "idempotencyKey": "reg-step3-1789056886896",
+    "customerId": null,
+    "customerName": "Pelanggan umum",
+    "packageIds": [
+      1789056886873
+    ],
+    "subtotal": "150000",
+    "discount": "0",
+    "discountReason": null,
+    "total": "150000",
+    "paymentStatus": "LUNAS",
+    "transactionStatus": "AKTIF",
+    "sisaPiutang": "0",
+    "jenisJastip": null,
+    "jatuhTempo": null,
+    "penanggungJawab": null,
+    "shiftSessionId": 1789056886830,
+    "cashierId": 1
+  },
+  "payment": {
+    "id": 1789056886901,
+    "createdAt": "2026-09-10T16:14:46.901Z",
+    "updatedAt": "2026-09-10T16:14:46.901Z",
+    "paymentType": "TRANSAKSI_BARU",
+    "paymentMethod": "tunai",
+    "totalAmount": "150000",
+    "paidAmount": "200000",
+    "changeAmount": "50000",
+    "paymentReference": null,
+    "packageIds": [
+      1789056886873
+    ],
+    "packageSummary": null,
+    "adminId": 1,
+    "adminName": "Owner JAJ",
+    "shiftSessionId": 1789056886830,
+    "transactionId": 1789056886901,
+    "notes": null
+  }
+}
+Current System Cash (SQL calculated): 350000
+--------------------------------------------------
+
+
+>>> [RAW LOG LANGKAH 7 - PELUNASAN PIUTANG 2 TAHAP]
+Tahap 1 (Tunai Rp100k) HTTP Status: 201
+Tahap 1 Response Data: {
+  "transaction": {
+    "id": 1789056886932,
+    "createdAt": "2026-09-10T16:14:46.932Z",
+    "updatedAt": "2026-09-10T16:14:46.941Z",
+    "transactionNo": "TRX-20260910-00014",
+    "idempotencyKey": "reg-step6-1789056886927",
+    "customerId": null,
+    "customerName": "Ibu Siska",
+    "packageIds": [
+      1789056886895
+    ],
+    "subtotal": "300000",
+    "discount": "0",
+    "discountReason": null,
+    "total": "300000",
+    "paymentStatus": "BAYAR_SEBAGIAN",
+    "transactionStatus": "AKTIF",
+    "sisaPiutang": "200000",
+    "jenisJastip": null,
+    "jatuhTempo": "2026-10-01",
+    "penanggungJawab": "Ibu Siska",
+    "shiftSessionId": 1789056886830,
+    "cashierId": 1
+  },
+  "payment": {
+    "id": 1789056886941,
+    "createdAt": "2026-09-10T16:14:46.941Z",
+    "updatedAt": "2026-09-10T16:14:46.941Z",
+    "paymentType": "PELUNASAN_PIUTANG",
+    "paymentMethod": "tunai",
+    "totalAmount": "100000",
+    "paidAmount": "100000",
+    "changeAmount": "0",
+    "packageIds": [
+      1789056886895
+    ],
+    "adminId": 1,
+    "adminName": "Owner JAJ",
+    "shiftSessionId": 1789056886830,
+    "transactionId": 1789056886932,
+    "notes": null
+  }
+}
+System Cash setelah Tahap 1: 450000
+Tahap 2 (QRIS Rp200k) HTTP Status: 201
+Tahap 2 Response Data: {
+  "transaction": {
+    "id": 1789056886932,
+    "createdAt": "2026-09-10T16:14:46.932Z",
+    "updatedAt": "2026-09-10T16:14:46.950Z",
+    "transactionNo": "TRX-20260910-00014",
+    "idempotencyKey": "reg-step6-1789056886927",
+    "customerId": null,
+    "customerName": "Ibu Siska",
+    "packageIds": [
+      1789056886895
+    ],
+    "subtotal": "300000",
+    "discount": "0",
+    "discountReason": null,
+    "total": "300000",
+    "paymentStatus": "LUNAS",
+    "transactionStatus": "AKTIF",
+    "sisaPiutang": "0",
+    "jenisJastip": null,
+    "jatuhTempo": "2026-10-01",
+    "penanggungJawab": "Ibu Siska",
+    "shiftSessionId": 1789056886830,
+    "cashierId": 1
+  },
+  "payment": {
+    "id": 1789056886950,
+    "createdAt": "2026-09-10T16:14:46.950Z",
+    "updatedAt": "2026-09-10T16:14:46.950Z",
+    "paymentType": "PELUNASAN_PIUTANG",
+    "paymentMethod": "qris",
+    "totalAmount": "200000",
+    "paidAmount": "200000",
+    "changeAmount": "0",
+    "packageIds": [
+      1789056886895
+    ],
+    "adminId": 1,
+    "adminName": "Owner JAJ",
+    "shiftSessionId": 1789056886830,
+    "transactionId": 1789056886932,
+    "notes": null
+  }
+}
+System Cash setelah Tahap 2: 450000
+--------------------------------------------------
+
+
+>>> [RAW LOG LANGKAH 8 - VOID TRANSAKSI TUNAI & REVERSAL KAS]
+POST /transactions/:id/void Response: {
+  "id": 1789056886959,
+  "createdAt": "2026-09-10T16:14:46.959Z",
+  "updatedAt": "2026-09-10T16:14:46.959Z",
+  "transactionId": 1789056886901,
+  "reasonCode": "Salah input paket oleh kasir",
+  "notes": null,
+  "requestedBy": 1,
+  "reversalAmount": "0",
+  "packageIdsReturned": [],
+  "statusBefore": "AKTIF",
+  "statusAfter": "MENUNGGU_APPROVAL"
+}
+POST /voids/:id/approve HTTP Status: 200
+POST /voids/:id/approve Response Data: {
+  "void": {
+    "id": 1789056886959,
+    "createdAt": "2026-09-10T16:14:46.959Z",
+    "updatedAt": "2026-09-10T16:14:46.964Z",
+    "transactionId": 1789056886901,
+    "reasonCode": "Salah input paket oleh kasir",
+    "notes": null,
+    "requestedBy": 1,
+    "reversalAmount": "150000",
+    "packageIdsReturned": [
+      1789056886873
+    ],
+    "statusBefore": "AKTIF",
+    "statusAfter": "VOID",
+    "approvedBy": 1,
+    "approvedAt": "2026-09-10T16:14:46.964Z",
+    "isPostClosing": false
+  },
+  "transaction": {
+    "id": 1789056886901,
+    "createdAt": "2026-09-10T16:14:46.901Z",
+    "updatedAt": "2026-09-10T16:14:46.964Z",
+    "transactionNo": "TRX-20260910-00011",
+    "idempotencyKey": "reg-step3-1789056886896",
+    "customerId": null,
+    "customerName": "Pelanggan umum",
+    "packageIds": [
+      1789056886873
+    ],
+    "subtotal": "150000",
+    "discount": "0",
+    "discountReason": null,
+    "total": "150000",
+    "paymentStatus": "BELUM_BAYAR",
+    "transactionStatus": "VOID",
+    "sisaPiutang": "0",
+    "jenisJastip": null,
+    "jatuhTempo": null,
+    "penanggungJawab": null,
+    "shiftSessionId": 1789056886830,
+    "cashierId": 1
+  }
+}
+System Cash setelah Reversal VOID: 300000
+Package status after VOID: {
+  "id": 1789056886873,
+  "createdAt": "2026-09-10T16:14:46.873Z",
+  "updatedAt": "2026-09-10T16:14:46.964Z",
+  "barcode": "JAJ-MTVQA0RD-F548FD",
+  "resiNumber": "RESI-1789056886868-512",
+  "itemName": "Paket Test jastip kargo",
+  "status": "pending",
+  "adminId": 1,
+  "packageDate": "2026-09-10T16:14:46.873Z",
+  "realWeight": 5,
+  "serviceType": "jastip kargo",
+  "deliveryRoute": "Surabaya → Manokwari",
+  "usedWeight": 5,
+  "totalShipping": 150000,
+  "customerName": "Ibu Maria",
+  "batchId": 1,
+  "statusPengambilan": "BELUM_DIAMBIL",
+  "pickedUpAt": null,
+  "weight": null,
+  "length": null,
+  "width": null,
+  "height": null,
+  "volumeWeight": null,
+  "shippingRate": null,
+  "totalWeight": null,
+  "price": null,
+  "customerPhone": "",
+  "adminName": null
+}
+--------------------------------------------------
+
+
+>>> [RAW LOG LANGKAH 12 - BLIND CLOSING SHIFT & REKONSILIASI KAS]
+Blind Step HTTP Status: 200
+Blind Step Response Data: {
+  "closingId": 1789056887009,
+  "status": "WAITING_ACTUAL_CASH",
+  "message": "Masukkan kas aktual untuk menyelesaikan closing."
+}
+Final Close Step HTTP Status: 200
+Final Close Response Data: {
+  "shift": {
+    "id": 1789056886830,
+    "createdAt": "2026-09-10T16:14:46.830Z",
+    "updatedAt": "2026-09-10T16:14:47.014Z",
+    "adminId": 1,
+    "shiftType": "PAGI",
+    "terminalId": "TERM-01",
+    "scheduledStart": null,
+    "scheduledEnd": null,
+    "actualStart": "2026-09-10T16:14:46.830Z",
+    "openingBalance": "200000",
+    "status": "CLOSED",
+    "actualEnd": "2026-09-10T16:14:47.014Z"
+  },
+  "closing": {
+    "id": 1789056887009,
+    "createdAt": "2026-09-10T16:14:47.009Z",
+    "updatedAt": "2026-09-10T16:14:47.014Z",
+    "shiftSessionId": 1789056886830,
+    "systemCash": 300000,
+    "actualCash": 300000,
+    "selisih": 0,
+    "alasanSelisih": null,
+    "approvedBy": null,
+    "closedAt": "2026-09-10T16:14:47.014Z"
+  },
+  "result": "SESUAI",
+  "tolerance": 0
+}
+--------------------------------------------------
+
+
+--------------------------------------------------------------------------------
+             TABEL HASIL REGRESSION TEST END-TO-END (15 LANGKAH)                
+--------------------------------------------------------------------------------
+Langkah 01 | [LULUS] | Bootstrap DB (Schema Push & Seed)             -> Health HTTP 200 | Status: ok
+Langkah 02 | [LULUS] | Login Owner & Buka Shift Saldo Rp 200.000     -> Shift ID: 1789056886830 | Opening Balance: Rp 200.000 | systemCash: Rp 200.000
+Langkah 03 | [LULUS] | Transaksi TUNAI Lunas (Rp 150.000)            -> HTTP 201 | Trx No: TRX-20260910-00011 | Change: Rp 50.000 | systemCash: Rp 350.000 (Expected: Rp 350.000)
+Langkah 04 | [LULUS] | Transaksi TRANSFER Lunas (Rp 100.000)         -> HTTP 201 | Trx No: TRX-20260910-00012 | Ref: TRF-BCA-998811 | systemCash: Rp 350.000 (Identik Rp 350.000)
+Langkah 05 | [LULUS] | Transaksi QRIS Lunas (Rp 75.000)              -> HTTP 201 | Trx No: TRX-20260910-00013 | Ref: RRN-QRIS-771122 | systemCash: Rp 350.000 (Identik Rp 350.000)
+Langkah 06 | [LULUS] | Transaksi PIUTANG Belum Bayar (Rp 300.000)    -> HTTP 201 | Status: BELUM_BAYAR | Sisa Piutang: Rp 300.000 | systemCash: Rp 350.000 (Tidak berubah)
+Langkah 07 | [LULUS] | Pelunasan PIUTANG 2 Tahap (Tunai + QRIS)      -> Tahap 1 (Tunai Rp 100k): BAYAR_SEBAGIAN, sisa Rp 200.000, systemCash Rp 450.000 | Tahap 2 (QRIS Rp 200k): LUNAS, sisa Rp 0, systemCash Rp 450.000
+Langkah 08 | [LULUS] | VOID Transaksi TUNAI & Reversal Kas           -> Approve HTTP 200 | Reversal: -Rp 150.000 | systemCash: Rp 300.000 (Expected: Rp 300.000) | Package Status: pending / BELUM_DIAMBIL
+Langkah 09 | [LULUS] | Penolakan VOID Ganda (Repeat VOID)            -> HTTP Status: 400 (Expected: 400) | Server Response: "Transaksi sudah VOID dan tidak dapat diajukan ulang"
+Langkah 10 | [LULUS] | Struk Transaksi Piutang (Bukan LUNAS)         -> HTTP Status: 200 | Receipt Payment Status: BELUM_BAYAR | Sisa Tagihan: Rp 250.000
+Langkah 11 | [LULUS] | Invariansi Snapshot Invoice vs Perubahan Tarif -> Invoice No: INV-20260911-0003 | Total Sebelum Update Tarif: Rp 75.000 | Total Sesudah Update Tarif: Rp 75.000 (MATCH 100%)
+Langkah 12 | [LULUS] | Blind Closing Shift & Penyeimbangan Kas       -> Blind Step: systemCash bocor = false | Final Step: systemCash Rp 300.000, actualCash Rp 300.000, selisih Rp 0, hasil: SESUAI
+Langkah 13 | [LULUS] | Export Excel vs PDF vs SQL Direct Query       -> Total Baris Export: 22 | Total Baris API: 22 | Grand Total Export: Rp 3.392.900 | Grand Total API: Rp 3.392.900 (IDENTIK 100%)
+Langkah 14 | [LULUS] | Proteksi HTTP 403 Role Admin (Hard Delete & VOID Approval) -> Hard Delete oleh Admin: HTTP 403 (Expected: 403) | Approve VOID oleh Admin: HTTP 403 (Expected: 403)
+Langkah 15 | [LULUS] | Upload Gambar QRIS (Admin 403 vs Owner 200)   -> Admin Upload: HTTP 403 (Expected: 403) | Owner Upload: HTTP 200 | Saved URL: /uploads/qris/qris-1789056887036-7500d46a.png
+================================================================================
+STATUS AKHIR REGRESSION TEST: ✔ SEMUA 15 LANGKAH LULUS 100%
+================================================================================
+

@@ -13,6 +13,7 @@ import {
   applyShippingMinimum,
   distributeShippingTotal,
 } from "../lib/shipping-minimum";
+import { safeIsoString, safeIsoStringOrNull } from "../lib/dates";
 import crypto from "crypto";
 
 const router = Router();
@@ -423,10 +424,10 @@ function formatPackage(
       (pkg.customerName || customerMap.get(pkg.customerId)?.name) ?? "",
     customerPhone: customerMap.get(pkg.customerId)?.phone ?? "",
     adminName: pkg.adminId ? (adminMap.get(pkg.adminId)?.name ?? null) : null,
-    packageDate: pkg.packageDate?.toISOString() ?? null,
-    pickedUpAt: pkg.pickedUpAt?.toISOString() ?? null,
-    createdAt: pkg.createdAt.toISOString(),
-    updatedAt: pkg.updatedAt.toISOString(),
+    packageDate: safeIsoStringOrNull(pkg.packageDate),
+    pickedUpAt: safeIsoStringOrNull(pkg.pickedUpAt),
+    createdAt: safeIsoString(pkg.createdAt),
+    updatedAt: safeIsoString(pkg.updatedAt),
   };
 }
 
@@ -434,9 +435,10 @@ function formatPackage(
 router.get(
   "/",
   requireAuth,
-  requireRole("admin", "owner"),
+  requireRole("admin", "owner", "customer"),
   async (req, res) => {
     try {
+      const user = (req as any).user;
       const {
         status,
         customerId,
@@ -453,6 +455,17 @@ router.get(
       // Build WHERE conditions pushed to the database — avoids loading all rows
       // into Node then filtering in JS (the old approach was O(n) in memory).
       const conditions: ReturnType<typeof eq>[] = [];
+
+      if (user.role === "customer") {
+        conditions.push(
+          or(
+            eq(packagesTable.customerId, user.id),
+            ilike(packagesTable.customerName, `%${user.name}%`),
+          ) as any,
+        );
+      } else if (customerId) {
+        conditions.push(eq(packagesTable.customerId, Number(customerId)));
+      }
 
       if (status) conditions.push(eq(packagesTable.status, status));
       if (statusPengambilan)
@@ -1040,9 +1053,10 @@ const GROUP_BARCODE_PREFIX = "JAJ-GRUP-";
 router.get(
   "/scan/:barcode",
   requireAuth,
-  requireRole("admin", "owner"),
+  requireRole("admin", "owner", "customer"),
   async (req, res) => {
     try {
+      const user = (req as any).user;
       const barcode = String(req.params.barcode);
 
       if (barcode.startsWith(GROUP_BARCODE_PREFIX)) {
@@ -1065,6 +1079,21 @@ router.get(
         if (!groupPkgs.length) {
           res.json({ valid: false, message: "Paket grup tidak ditemukan" });
           return;
+        }
+
+        if (user.role === "customer") {
+          const userHasPkg = groupPkgs.some(
+            (p) =>
+              p.customerId === user.id ||
+              (p.customerPhone && p.customerPhone === user.phone) ||
+              (p.customerName &&
+                p.customerName.trim().toLowerCase() ===
+                  user.name.trim().toLowerCase()),
+          );
+          if (!userHasPkg) {
+            res.json({ valid: false, message: "Bukan barcode dari paket kamu" });
+            return;
+          }
         }
 
         const adminIds = [
@@ -1125,13 +1154,27 @@ router.get(
         res.json({ valid: false, message: "Paket tidak ditemukan" });
         return;
       }
+
+      if (user.role === "customer") {
+        const isOwner =
+          pkg.customerId === user.id ||
+          (pkg.customerPhone && pkg.customerPhone === user.phone) ||
+          (pkg.customerName &&
+            pkg.customerName.trim().toLowerCase() ===
+              user.name.trim().toLowerCase());
+        if (!isOwner) {
+          res.json({ valid: false, message: "Bukan barcode dari paket kamu" });
+          return;
+        }
+      }
+
       if (
         pkg.statusPengambilan === "SUDAH_DIAMBIL" ||
         pkg.status === "diserahkan"
       ) {
         res.json({
           valid: false,
-          message: "Paket sudah diserahkan sebelumnya",
+          message: "Paket sudah diambil sebelumnya",
           package: formatPackage(pkg, new Map(), new Map()),
         });
         return;
@@ -1151,6 +1194,70 @@ router.get(
         valid: true,
         message: "Paket ditemukan",
         package: formatPackage(pkg, new Map(), adminMap),
+      });
+    } catch (err) {
+      req.log.error(err);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
+// POST /api/packages/:id/customer-pickup
+router.post(
+  "/:id/customer-pickup",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const user = (req as any).user;
+      const pkgs = await db
+        .select()
+        .from(packagesTable)
+        .where(eq(packagesTable.id, id))
+        .limit(1);
+      const pkg = pkgs[0];
+      if (!pkg) {
+        res.status(404).json({ error: "Paket tidak ditemukan" });
+        return;
+      }
+
+      if (user.role === "customer") {
+        const isOwner =
+          pkg.customerId === user.id ||
+          (pkg.customerPhone && pkg.customerPhone === user.phone) ||
+          (pkg.customerName &&
+            pkg.customerName.trim().toLowerCase() ===
+              user.name.trim().toLowerCase());
+        if (!isOwner) {
+          res.status(403).json({ error: "Paket ini bukan milik Anda" });
+          return;
+        }
+      }
+
+      if (
+        pkg.statusPengambilan === "SUDAH_DIAMBIL" ||
+        pkg.status === "diserahkan"
+      ) {
+        res.status(400).json({ error: "Paket sudah diambil sebelumnya" });
+        return;
+      }
+
+      const updated = await db
+        .update(packagesTable)
+        .set({
+          status: "diserahkan",
+          statusPengambilan: "SUDAH_DIAMBIL",
+          pickedUpAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(packagesTable.id, id))
+        .returning();
+
+      const refreshed = updated[0] || pkg;
+      res.json({
+        success: true,
+        message: "Paket berhasil diambil",
+        package: formatPackage(refreshed, new Map(), new Map()),
       });
     } catch (err) {
       req.log.error(err);

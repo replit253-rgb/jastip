@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth";
 import { buildReceiptDocument, type ReceiptPrintPayload } from "@/lib/print-receipt";
+import { Pagination } from "@/components/pagination";
 
 type FinanceSummary = {
   transactionsToday: number;
@@ -38,6 +39,13 @@ export default function OwnerFinanceTransactions() {
     activeReceivables: 0,
   });
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
+  const total = transactions.length;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const pagedTransactions = useMemo(() => {
+    return transactions.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  }, [transactions, page]);
   const [selectedId, setSelectedId] = useState("");
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<"tunai" | "transfer">("tunai");
@@ -239,45 +247,49 @@ export default function OwnerFinanceTransactions() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Riwayat multi-payment</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2">
-          {transactions.slice(0, 10).map((transaction) => (
-            <div key={transaction.id} className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="font-semibold">{transaction.transactionNo} · {transaction.customerName}</p>
-                <p className="text-xs text-muted-foreground">
-                  Nilai {formatRp(transaction.total)} · dibuat {new Date(transaction.createdAt).toLocaleDateString("id-ID")}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={transaction.paymentStatus === "LUNAS" ? "default" : "outline"}>
-                  {transaction.paymentStatus}
-                </Badge>
-                <span className="text-sm font-semibold">
-                  {transaction.payments?.length ?? 0} pembayaran · sisa {formatRp(transaction.sisaPiutang)}
-                </span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1"
-                  onClick={() => void printReceipt(transaction.id)}
-                >
-                  <Printer className="h-3.5 w-3.5" /> Cetak Struk
-                </Button>
-                {transaction.transactionStatus === "AKTIF" && (
+        <CardContent className="space-y-3">
+          <div className="space-y-2">
+            {pagedTransactions.map((transaction) => (
+              <div key={transaction.id} className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-semibold">{transaction.transactionNo} · {transaction.customerName}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Nilai {formatRp(transaction.total)} · dibuat {new Date(transaction.createdAt).toLocaleDateString("id-ID")}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={transaction.paymentStatus === "LUNAS" ? "default" : "outline"}>
+                    {transaction.paymentStatus}
+                  </Badge>
+                  <span className="text-sm font-semibold">
+                    {transaction.payments?.length ?? 0} pembayaran · sisa {formatRp(transaction.sisaPiutang)}
+                  </span>
                   <Button
                     size="sm"
                     variant="outline"
-                    className="gap-1 text-red-600 border-red-200 hover:bg-red-50"
-                    onClick={() => setVoidTarget(transaction)}
+                    className="gap-1"
+                    onClick={() => void printReceipt(transaction.id)}
                   >
-                    <Ban className="h-3.5 w-3.5" /> Ajukan VOID
+                    <Printer className="h-3.5 w-3.5" /> Cetak Struk
                   </Button>
-                )}
+                  {transaction.transactionStatus === "AKTIF" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1 text-red-600 border-red-200 hover:bg-red-50"
+                      onClick={() => setVoidTarget(transaction)}
+                    >
+                      <Ban className="h-3.5 w-3.5" /> Ajukan VOID
+                    </Button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-          {!transactions.length && (
+            ))}
+          </div>
+          {!transactions.length ? (
             <p className="text-sm text-muted-foreground">Belum ada transaksi baru.</p>
+          ) : (
+            <Pagination page={page} totalPages={totalPages} total={total} pageSize={PAGE_SIZE} onPageChange={setPage} />
           )}
         </CardContent>
       </Card>

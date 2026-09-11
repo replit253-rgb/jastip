@@ -35,6 +35,41 @@ export const CARGO_EXPORT_COLUMNS = [
   "Status",
 ];
 
+export const ARSIP_EXPORT_COLUMNS = [
+  "No",
+  "Tanggal Paket",
+  "Nama Penerima",
+  "No Resi",
+  "No Paket",
+  "Jenis Jastip",
+  "Jenis Barang",
+  "Rute Pengiriman",
+  "Berat Real (Kg)",
+  "Berat Digunakan (Kg)",
+  "Total Ongkir",
+  "Status Pembayaran",
+  "Tanggal Diambil",
+];
+
+export const PENGELUARAN_EXPORT_COLUMNS = [
+  "No",
+  "Tanggal",
+  "Kategori",
+  "Nominal",
+  "Metode Pembayaran",
+  "Dicatat Oleh",
+  "Catatan",
+];
+
+export const FINANCE_TRANSACTION_COLUMNS = [
+  "Jenis Data",
+  "Waktu/Tanggal",
+  "Admin/Kategori",
+  "Metode",
+  "Nominal",
+  "Keterangan",
+];
+
 const SERVICE_LABELS: Record<string, string> = {
   "jastip kargo": "Jastip Kargo",
   "jastip cargo": "Jastip Cargo",
@@ -44,7 +79,7 @@ const SERVICE_LABELS: Record<string, string> = {
   "jasa belanja": "Jasa Belanja",
 };
 
-function packageDate(value: unknown) {
+export function packageDate(value: unknown) {
   if (!value) return "-";
   const date = new Date(String(value));
   return Number.isNaN(date.getTime())
@@ -107,13 +142,15 @@ export function buildPackageExportRows(packages: any[]): ExportCell[][] {
     pkg.customerName || "-",
     serviceTypeLabel(pkg.serviceType),
     pkg.itemName || "-",
-    formatWeight(pkg.realWeight, ""),
-    formatWeight(pkg.usedWeight, ""),
-    formatWeight(pkg.totalWeight, ""),
+    formatNumber(pkg.realWeight, 2, "-"),
+    formatNumber(pkg.usedWeight, 2, "-"),
+    formatNumber(pkg.totalWeight ?? pkg.usedWeight, 2, "-"),
     formatRp(pkg.totalShipping),
     isPackagePickedUp(pkg) ? "Diserahkan" : "Pending",
   ]);
 }
+
+export const buildSharedPackageExportRows = buildPackageExportRows;
 
 export function buildCargoExportRows(packages: any[]): ExportCell[][] {
   return packages.map((pkg, index) => [
@@ -127,9 +164,72 @@ export function buildCargoExportRows(packages: any[]): ExportCell[][] {
     pkg.length && pkg.width && pkg.height
       ? `${pkg.length}×${pkg.width}×${pkg.height}`
       : "-",
-    formatNumber(pkg.usedWeight, 2),
+    formatNumber(pkg.usedWeight, 2, "-"),
     formatRp(pkg.shippingRate),
     formatRp(pkg.totalShipping),
     isPackagePickedUp(pkg) ? "Diserahkan" : "Pending",
   ]);
+}
+
+export function buildArsipExportRows(arsipPackages: any[]): ExportCell[][] {
+  return arsipPackages.map((p: any, i: number) => [
+    i + 1,
+    packageDate(p.packageDate || p.createdAt),
+    p.customerName || "-",
+    p.resiNumber || "-",
+    p.packageNumber || "-",
+    serviceTypeLabel(p.serviceType),
+    p.itemName || "-",
+    p.deliveryRoute || "-",
+    formatNumber(p.realWeight, 2, "-"),
+    formatNumber(p.usedWeight, 2, "-"),
+    formatRp(p.totalShipping),
+    p.statusPembayaran || "Lunas",
+    packageDate(p.pickedUpAt),
+  ]);
+}
+
+export function buildPengeluaranExportRows(items: any[], totalNominal?: number): ExportCell[][] {
+  const rows: ExportCell[][] = items.map((d: any, idx: number) => [
+    idx + 1,
+    packageDate(d.tanggal),
+    d.kategori || "-",
+    formatRp(d.nominal),
+    d.metodePembayaran || "-",
+    d.namaPencatat || "-",
+    d.catatan || d.keterangan || "-",
+  ]);
+  if (totalNominal !== undefined) {
+    rows.push(["TOTAL", "", "", formatRp(totalNominal), "", "", ""]);
+  }
+  return rows;
+}
+
+export function buildFinanceTransactionRows(payments: any[], pengeluaran: any[]): ExportCell[][] {
+  return [
+    ...payments.map((p: any) => [
+      "Pembayaran",
+      p.createdAt
+        ? new Date(p.createdAt).toLocaleDateString("id-ID", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "-",
+      p.adminName || "-",
+      p.paymentType || "-",
+      formatRp(p.totalAmount || 0),
+      p.notes || "-",
+    ]),
+    ...pengeluaran.map((e: any) => [
+      "Pengeluaran",
+      e.tanggal || "-",
+      e.kategori || "-",
+      e.metodePembayaran || "-",
+      formatRp(e.nominal || 0),
+      e.catatan || e.keterangan || "-",
+    ]),
+  ];
 }

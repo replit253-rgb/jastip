@@ -21,6 +21,7 @@ import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import {
   addExportInfoSheet,
+  applyExportFooters,
   createExportSheet,
   drawExportFooter,
   exportTimestamp,
@@ -252,17 +253,17 @@ export default function AdminPackages() {
       fontSize: 6.5,
       columnStyles: {
         0: { cellWidth: 8, halign: "center" },
-        1: { cellWidth: 28 },
+        1: { cellWidth: 26 },
         2: { cellWidth: 16 },
-        3: { cellWidth: 26 },
-        4: { cellWidth: 13, halign: "center" },
-        5: { cellWidth: 13 },
-        6: { cellWidth: 52, overflow: "linebreak" },
-        7: { cellWidth: 21, halign: "center" },
+        3: { cellWidth: 24 },
+        4: { cellWidth: 12, halign: "center" },
+        5: { cellWidth: 12 },
+        6: { cellWidth: 68, overflow: "linebreak" },
+        7: { cellWidth: 18, halign: "center" },
         8: { cellWidth: 16, halign: "right" },
         9: { cellWidth: 24, halign: "right" },
-        10: { cellWidth: 24, halign: "right" },
-        11: { cellWidth: 17, halign: "center" },
+        10: { cellWidth: 25, halign: "right" },
+        11: { cellWidth: 18, halign: "center" },
       },
     });
     setPdfOpen(false);
@@ -420,6 +421,8 @@ export default function AdminPackages() {
       y = (doc as any).lastAutoTable.finalY + 8;
     }
 
+    applyExportFooters(doc, exportedBy, generatedAt);
+
     const safeJenis = pdfJenis.replace(/\+/g, "plus").replace(/\s+/g, "-").toLowerCase();
     const safeKapal = pdfNamaKapal ? `-${pdfNamaKapal.replace(/\s+/g, "-")}` : "";
     const safeBatch = selectedPdfBatch ? `-${selectedPdfBatch.namaKapal.replace(/\s+/g, "-").toLowerCase()}` : "";
@@ -504,10 +507,15 @@ export default function AdminPackages() {
       Kasir: "Semua",
       "Diekspor Oleh": user?.name || "Pengguna aktif",
     };
+    const exportData = isXlsxCargo
+      ? [...data].sort((a: any, b: any) =>
+          (a.customerName || "").localeCompare(b.customerName || "", "id"),
+        )
+      : data;
     const columns = isXlsxCargo ? CARGO_EXPORT_COLUMNS : PACKAGE_EXPORT_COLUMNS;
     const rows = isXlsxCargo
-      ? buildCargoExportRows(data)
-      : buildSharedPackageExportRows(data);
+      ? buildCargoExportRows(exportData)
+      : buildSharedPackageExportRows(exportData);
 
     const wb = XLSX.utils.book_new();
     const sheet = createExportSheet({

@@ -179,6 +179,11 @@
 @layer base {
   * {
     @apply border-border;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE and Edge */
+  }
+  *::-webkit-scrollbar {
+    display: none; /* Chrome, Safari and Opera */
   }
   body {
     @apply font-sans antialiased bg-background text-foreground;

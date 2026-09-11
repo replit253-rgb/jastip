@@ -38,9 +38,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem("jaj_token", response.token);
       setToken(response.token);
       await refetch();
-      if (response.user.role === 'customer') setLocation('/customer/dashboard');
-      else if (response.user.role === 'admin') setLocation('/admin/dashboard');
-      else if (response.user.role === 'owner') setLocation('/owner/dashboard');
+      if (response.user.role === 'owner') setLocation('/owner/dashboard');
+      else setLocation('/admin/dashboard');
     } catch (error) {
       throw error;
     }
@@ -52,7 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem("jaj_token", response.token);
       setToken(response.token);
       await refetch();
-      setLocation('/customer/dashboard');
+      setLocation('/admin/dashboard');
     } catch (error) {
       throw error;
     }

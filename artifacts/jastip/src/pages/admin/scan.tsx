@@ -11,7 +11,7 @@ import {
 import {
   Camera, Upload, ScanLine, X, Hash, Trash2, CheckCircle2,
   ShoppingCart, RotateCcw, Banknote, CreditCard, Clock, ChevronDown, ChevronUp,
-  AlertTriangle, Users, Tag, Printer,
+  AlertTriangle, Users, Tag, Printer, QrCode,
 } from "lucide-react";
 import { buildReceiptDocument, type ReceiptPrintPayload } from "@/lib/print-receipt";
 
@@ -53,11 +53,12 @@ interface ScannedItem {
   height?: number | null;
 }
 
-type PaymentType = "tunai" | "transfer" | "piutang";
+type PaymentType = "tunai" | "transfer" | "qris" | "piutang";
 
 const PAYMENT_TYPES: { value: PaymentType; label: string; icon: any; desc: string; color: string }[] = [
   { value: "tunai", label: "Tunai", icon: Banknote, desc: "Bayar cash langsung", color: "green" },
-  { value: "transfer", label: "Transfer", icon: CreditCard, desc: "Transfer bank / QRIS", color: "blue" },
+  { value: "transfer", label: "Transfer", icon: CreditCard, desc: "Transfer bank", color: "blue" },
+  { value: "qris", label: "QRIS", icon: QrCode, desc: "Scan barcode QRIS", color: "purple" },
   { value: "piutang", label: "Piutang", icon: Clock, desc: "Bayar nanti / hutang", color: "orange" },
 ];
 
@@ -107,6 +108,7 @@ export default function AdminScan() {
   const [isSaving, setIsSaving] = useState(false);
   const [receiptPrintMode, setReceiptPrintMode] = useState<"AUTO" | "ASK" | "OFF">("ASK");
   const [receiptPromptTransactionId, setReceiptPromptTransactionId] = useState<number | null>(null);
+  const [qrisImageUrl, setQrisImageUrl] = useState<string | null>(null);
 
   // ── Diskon State ─────────────────────────────────────────────────────────
   const [diskon, setDiskon] = useState<string>("");
@@ -135,6 +137,9 @@ export default function AdminScan() {
           setReceiptPrintMode(settings.receipt_print_mode);
         } else if (settings?.receipt_print_mode === "ASK") {
           setReceiptPrintMode("ASK");
+        }
+        if (settings?.qris_image_url) {
+          setQrisImageUrl(settings.qris_image_url);
         }
       })
       .catch(() => {
@@ -464,11 +469,11 @@ export default function AdminScan() {
         totalAmount: totalAkhir,
         paidAmount: paymentType === "tunai"
           ? uangNum
-          : paymentType === "transfer"
+          : (paymentType === "transfer" || paymentType === "qris")
             ? totalAkhir
             : Number(nominalPiutang.replace(/\D/g, "")) || 0,
         changeAmount: paymentType === "tunai" ? kembalian : 0,
-        paymentReference: paymentType === "transfer" ? paymentReference.trim() || null : null,
+        paymentReference: (paymentType === "transfer" || paymentType === "qris") ? paymentReference.trim() || null : null,
         penanggungJawab: paymentType === "piutang" ? penanggungJawab.trim() : null,
         jatuhTempo: paymentType === "piutang" ? jatuhTempo : null,
         packageIds: items.map((i) => i.id),
@@ -535,6 +540,7 @@ export default function AdminScan() {
   const canConfirm =
     (diskonNum === 0 || alasanDiskon.trim().length > 0) && (
       paymentType === "transfer" ||
+      paymentType === "qris" ||
       (paymentType === "piutang" &&
         penanggungJawab.trim().length > 0 &&
         nominalPiutang.trim().length > 0 &&
@@ -894,13 +900,14 @@ export default function AdminScan() {
             {/* Payment type */}
             <div>
               <p className="text-sm font-semibold mb-2">Jenis Pembayaran</p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {PAYMENT_TYPES.map((pt) => {
                   const Icon = pt.icon;
                   const isSelected = paymentType === pt.value;
                   const colorMap: Record<string, string> = {
                     green: isSelected ? "border-green-500 bg-green-50 text-green-700" : "hover:border-green-300",
                     blue: isSelected ? "border-blue-500 bg-blue-50 text-blue-700" : "hover:border-blue-300",
+                    purple: isSelected ? "border-purple-500 bg-purple-50 text-purple-700" : "hover:border-purple-300",
                     orange: isSelected ? "border-orange-500 bg-orange-50 text-orange-700" : "hover:border-orange-300",
                   };
                   return (
@@ -981,17 +988,67 @@ export default function AdminScan() {
             {paymentType === "transfer" && (
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-2">
                 <label className="text-sm font-semibold text-blue-900 block">
-                  Referensi Pembayaran <span className="font-normal text-xs text-blue-700">(opsional)</span>
+                  Referensi Pembayaran Transfer <span className="font-normal text-xs text-blue-700">(opsional)</span>
                 </label>
                 <Input
-                  placeholder="No. referensi transfer / QRIS"
+                  placeholder="No. referensi transfer bank"
                   value={paymentReference}
                   onChange={(e) => setPaymentReference(e.target.value)}
                   maxLength={120}
+                  className="bg-white"
                 />
                 <p className="text-xs text-blue-700">
                   Total transfer otomatis ditetapkan sebesar {formatRp(totalAkhir)}.
                 </p>
+              </div>
+            )}
+
+            {paymentType === "qris" && (
+              <div className="rounded-xl border border-purple-200 bg-purple-50/60 p-4 space-y-3">
+                <div className="text-center">
+                  <p className="text-sm font-semibold text-purple-900">Pembayaran QRIS</p>
+                  <p className="text-xs text-purple-700 mt-0.5">
+                    Minta customer scan kode QRIS di bawah menggunakan m-banking atau e-wallet.
+                  </p>
+                </div>
+
+                {qrisImageUrl ? (
+                  <div className="flex flex-col items-center justify-center p-3 bg-white rounded-lg border border-purple-200 shadow-sm">
+                    <img
+                      src={qrisImageUrl}
+                      alt="Kode QRIS Toko"
+                      className="max-h-56 max-w-full object-contain rounded"
+                    />
+                    <div className="mt-2 text-center">
+                      <p className="text-xs text-muted-foreground">Nominal Tagihan Pas:</p>
+                      <p className="text-lg font-black text-purple-700">{formatRp(totalAkhir)}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-center text-amber-800 space-y-1">
+                    <AlertTriangle className="w-5 h-5 mx-auto text-amber-600 mb-1" />
+                    <p className="text-xs font-bold">QRIS Belum Diatur</p>
+                    <p className="text-[11px] text-amber-700">
+                      Gambar QRIS belum diunggah oleh Owner. Pembayaran tetap dapat dicatat, atau silakan minta Owner untuk mengunggah gambar QRIS di Pengaturan.
+                    </p>
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-purple-900 block">
+                    Referensi Pembayaran / RRN <span className="font-normal text-[11px] text-purple-700">(opsional)</span>
+                  </label>
+                  <Input
+                    placeholder="Contoh: No. ref / RRN dari bukti bayar"
+                    value={paymentReference}
+                    onChange={(e) => setPaymentReference(e.target.value)}
+                    maxLength={120}
+                    className="bg-white"
+                  />
+                  <p className="text-[11px] text-purple-700">
+                    Total QRIS otomatis ditetapkan pas sebesar {formatRp(totalAkhir)}.
+                  </p>
+                </div>
               </div>
             )}
 

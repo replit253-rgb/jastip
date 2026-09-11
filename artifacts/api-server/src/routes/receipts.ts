@@ -10,12 +10,14 @@ import {
 } from "@workspace/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../middlewares/auth";
+import { safeIsoString } from "../lib/dates";
 
 const router = Router();
 
 const paymentLabels: Record<string, string> = {
   tunai: "Tunai",
-  transfer: "Transfer / QRIS",
+  transfer: "Transfer",
+  qris: "QRIS",
   TRANSAKSI_BARU: "Pembayaran transaksi",
   PELUNASAN_PIUTANG: "Pelunasan piutang",
   CICILAN: "Cicilan",
@@ -81,7 +83,7 @@ async function getReceipt(transactionId: number) {
       paymentStatus: transaction.paymentStatus,
       transactionStatus: transaction.transactionStatus,
       sisaPiutang: numberValue(transaction.sisaPiutang),
-      createdAt: transaction.createdAt.toISOString(),
+      createdAt: safeIsoString(transaction.createdAt),
       packageIds,
     },
     payments: payments.map((payment) => ({
@@ -96,7 +98,7 @@ async function getReceipt(transactionId: number) {
       changeAmount: numberValue(payment.changeAmount),
       paymentReference: payment.paymentReference,
       notes: payment.notes,
-      createdAt: payment.createdAt.toISOString(),
+      createdAt: safeIsoString(payment.createdAt),
     })),
     packages: packages.map((pkg) => ({
       id: pkg.id,

@@ -19,6 +19,10 @@ import {
   formatRp as formatExportRp,
   saveTabularPdf,
 } from "@/lib/export-utils";
+import {
+  ARSIP_EXPORT_COLUMNS,
+  buildArsipExportRows,
+} from "@/lib/package-export";
 
 const PAGE_SIZE = 5;
 
@@ -49,30 +53,6 @@ function batchStatusLabel(status: string) {
   if (status === "OPEN") return "Aktif";
   if (status === "CLOSED") return "Ditutup";
   return "Arsip";
-}
-
-const ARSIP_EXPORT_COLUMNS = [
-  "No", "Tanggal Paket", "Nama Penerima", "No Resi", "No Paket",
-  "Jenis Jastip", "Jenis Barang", "Rute Pengiriman", "Berat Real (Kg)",
-  "Berat Digunakan (Kg)", "Total Ongkir", "Status Pembayaran", "Tanggal Diambil",
-];
-
-function buildArsipExportRows(arsipPackages: any[]) {
-  return arsipPackages.map((p: any, i: number) => [
-    i + 1,
-    formatTgl(p.packageDate),
-    p.customerName || "",
-    p.resiNumber || "",
-    p.packageNumber || "",
-    p.serviceType || "",
-    p.itemName || "",
-    p.deliveryRoute || "",
-    formatNumber(p.realWeight, 2, ""),
-    formatNumber(p.usedWeight, 2, ""),
-    formatExportRp(p.totalShipping, ""),
-    p.statusPembayaran || "",
-    formatTgl(p.pickedUpAt),
-  ]);
 }
 
 export default function AdminArsip() {

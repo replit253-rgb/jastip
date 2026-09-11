@@ -10,7 +10,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  ArrowLeft, Ship, Banknote, CreditCard, Clock,
+  ArrowLeft, Ship, Banknote, CreditCard, Clock, QrCode,
   ChevronDown, ChevronUp, CheckCircle2, History,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -47,6 +47,12 @@ const PAYMENT_META: Record<string, { label: string; icon: any; badgeClass: strin
     icon: CreditCard,
     badgeClass: "bg-blue-100 text-blue-700 border-blue-200",
     rowClass: "border-l-4 border-l-blue-400",
+  },
+  qris: {
+    label: "QRIS",
+    icon: QrCode,
+    badgeClass: "bg-purple-100 text-purple-700 border-purple-200",
+    rowClass: "border-l-4 border-l-purple-400",
   },
   piutang: {
     label: "Piutang",

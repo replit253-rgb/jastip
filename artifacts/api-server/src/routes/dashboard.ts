@@ -8,6 +8,7 @@ import {
 } from "@workspace/db";
 import { eq, gte, lt, ne } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
+import { dateStartsWith } from "../lib/dates";
 
 const router = Router();
 
@@ -23,13 +24,8 @@ function todayBounds() {
 router.get("/summary", requireAuth, async (req, res) => {
   try {
     const user = (req as any).user;
-    let packages = await db.select().from(packagesTable);
-
-    if (user.role === "customer") {
-      packages = packages.filter(p => p.customerId === user.id);
-    }
-
-    const customers = await db.select().from(usersTable).where(eq(usersTable.role, "customer"));
+    const packages = await db.select().from(packagesTable);
+    const totalCustomers = new Set(packages.map(p => p.customerName).filter(Boolean)).size;
     const admins = await db.select().from(usersTable).where(eq(usersTable.role, "admin"));
     const { start, end } = todayBounds();
     const [transactionsToday, paymentsToday, activeReceivables] = await Promise.all([
@@ -57,7 +53,7 @@ router.get("/summary", requireAuth, async (req, res) => {
       pendingPackages: packages.filter(p => p.status === "pending").length,
       readyPackages: 0,
       pickedUpPackages: packages.filter(p => p.status === "diserahkan").length,
-      totalCustomers: customers.length,
+      totalCustomers,
       totalAdmins: admins.filter(a => a.isActive).length,
       finance: {
         transactionsToday: transactionsCreatedToday.reduce(
@@ -123,8 +119,8 @@ router.get("/chart", requireAuth, async (req, res) => {
         d.setDate(d.getDate() - i);
         const dateStr = d.toISOString().split("T")[0];
         const label = d.toLocaleDateString("id-ID", { day: "numeric", month: "short" });
-        const incoming = packages.filter(p => p.createdAt.toISOString().startsWith(dateStr)).length;
-        const outgoing = packages.filter(p => p.pickedUpAt?.toISOString().startsWith(dateStr)).length;
+        const incoming = packages.filter(p => dateStartsWith(p.createdAt, dateStr)).length;
+        const outgoing = packages.filter(p => dateStartsWith(p.pickedUpAt, dateStr)).length;
         result.push({ date: label, incoming, outgoing });
       }
     }

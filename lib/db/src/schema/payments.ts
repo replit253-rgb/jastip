@@ -20,6 +20,7 @@ export const paymentsTable = pgTable(
       enum: [
         "tunai",
         "transfer",
+        "qris",
         "piutang",
         "TRANSAKSI_BARU",
         "PELUNASAN_PIUTANG",
@@ -28,7 +29,7 @@ export const paymentsTable = pgTable(
       ],
     }).notNull(),
     paymentMethod: text("payment_method", {
-      enum: ["tunai", "transfer"],
+      enum: ["tunai", "transfer", "qris"],
     }),
     totalAmount: numeric("total_amount", { precision: 15, scale: 2 }).notNull(),
     paidAmount: numeric("paid_amount", { precision: 15, scale: 2 }),

@@ -62,7 +62,7 @@ router.post("/register", async (req, res) => {
       name,
       phone,
       password: hashPassword(password),
-      role: "customer",
+      role: "admin",
       isActive: true,
     }).returning();
     const user = inserted[0];

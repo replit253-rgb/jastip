@@ -39,9 +39,11 @@ router.post(
     try {
       const {
         paymentType,
+        paymentMethod: rawMethod,
         totalAmount,
         paidAmount,
         changeAmount,
+        paymentReference,
         packageIds,
         packageSummary,
         notes,
@@ -52,6 +54,7 @@ router.post(
         return;
       }
 
+      const method = rawMethod || (["tunai", "transfer", "qris"].includes(paymentType) ? paymentType : null);
       const user = (req as any).user;
       const activeShift = (req as any).activeShift;
 
@@ -59,9 +62,11 @@ router.post(
         .insert(paymentsTable)
         .values({
           paymentType,
+          paymentMethod: method as "tunai" | "transfer" | "qris" | null,
           totalAmount: String(totalAmount),
           paidAmount: paidAmount != null ? String(paidAmount) : null,
           changeAmount: changeAmount != null ? String(changeAmount) : null,
+          paymentReference: paymentReference ? String(paymentReference).trim() : null,
           packageIds,
           packageSummary: packageSummary ?? null,
           adminId: user?.id ?? null,
@@ -89,7 +94,7 @@ router.patch(
       const id = Number(req.params.id);
       const { paymentType, paidAmount, changeAmount } = req.body;
 
-      if (!paymentType || !["tunai", "transfer"].includes(paymentType)) {
+      if (!paymentType || !["tunai", "transfer", "qris"].includes(paymentType)) {
         return res.status(400).json({ error: "Jenis pembayaran tidak valid" });
       }
 

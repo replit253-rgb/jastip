@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, usersTable, packagesTable } from "@workspace/db";
 import { eq, and, count, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../middlewares/auth";
+import { safeIsoString } from "../lib/dates";
 
 const router = Router();
 
@@ -32,7 +33,7 @@ router.get("/", requireAuth, requireRole("admin", "owner"), async (req, res) => 
         name: c.name,
         phone: c.phone,
         isActive: c.isActive,
-        createdAt: c.createdAt.toISOString(),
+        createdAt: safeIsoString(c.createdAt),
         totalPackages: pkgs.length,
         pendingPackages: pkgs.filter(p => p.status === "pending").length,
         pickedUpPackages: pkgs.filter(p => p.status === "diserahkan").length,
@@ -59,7 +60,7 @@ router.get("/:id", requireAuth, requireRole("admin", "owner"), async (req, res) 
       name: c.name,
       phone: c.phone,
       isActive: c.isActive,
-      createdAt: c.createdAt.toISOString(),
+      createdAt: safeIsoString(c.createdAt),
       totalPackages: pkgs.length,
       pendingPackages: pkgs.filter(p => p.status === "pending").length,
       pickedUpPackages: pkgs.filter(p => p.status === "diserahkan").length,

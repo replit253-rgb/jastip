@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, usersTable, packagesTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireRole } from "../middlewares/auth";
+import { safeIsoString } from "../lib/dates";
 import crypto from "crypto";
 
 const router = Router();
@@ -20,7 +21,7 @@ router.get("/", requireAuth, requireRole("owner"), async (req, res) => {
       name: a.name,
       phone: a.phone,
       isActive: a.isActive,
-      createdAt: a.createdAt.toISOString(),
+      createdAt: safeIsoString(a.createdAt),
       packagesInputted: allPackages.filter(p => p.adminId === a.id).length,
     }));
     res.json(result);
@@ -50,7 +51,7 @@ router.post("/", requireAuth, requireRole("owner"), async (req, res) => {
       isActive: true,
     }).returning();
     const u = inserted[0];
-    res.status(201).json({ id: u.id, name: u.name, phone: u.phone, role: u.role, isActive: u.isActive, createdAt: u.createdAt.toISOString() });
+    res.status(201).json({ id: u.id, name: u.name, phone: u.phone, role: u.role, isActive: u.isActive, createdAt: safeIsoString(u.createdAt) });
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Server error" });
@@ -68,7 +69,7 @@ router.patch("/:id", requireAuth, requireRole("owner"), async (req, res) => {
     const updated = await db.update(usersTable).set(updateData).where(and(eq(usersTable.id, id), eq(usersTable.role, "admin"))).returning();
     const u = updated[0];
     if (!u) { res.status(404).json({ error: "Not found" }); return; }
-    res.json({ id: u.id, name: u.name, phone: u.phone, role: u.role, isActive: u.isActive, createdAt: u.createdAt.toISOString() });
+    res.json({ id: u.id, name: u.name, phone: u.phone, role: u.role, isActive: u.isActive, createdAt: safeIsoString(u.createdAt) });
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Server error" });
@@ -83,7 +84,7 @@ router.post("/:id/toggle-active", requireAuth, requireRole("owner"), async (req,
     if (!admins[0]) { res.status(404).json({ error: "Not found" }); return; }
     const updated = await db.update(usersTable).set({ isActive: !admins[0].isActive, updatedAt: new Date() }).where(eq(usersTable.id, id)).returning();
     const u = updated[0];
-    res.json({ id: u.id, name: u.name, phone: u.phone, role: u.role, isActive: u.isActive, createdAt: u.createdAt.toISOString() });
+    res.json({ id: u.id, name: u.name, phone: u.phone, role: u.role, isActive: u.isActive, createdAt: safeIsoString(u.createdAt) });
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Server error" });
