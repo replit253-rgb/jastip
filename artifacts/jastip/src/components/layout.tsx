@@ -79,6 +79,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         { name: "Invoice A4", href: "/owner/invoices", icon: FileText, exact: true },
         { name: "Laporan VOID", href: "/owner/voids", icon: ShieldCheck, exact: true },
         { name: "Pengeluaran Harian", href: "/owner/pengeluaran", icon: TrendingDown, exact: true },
+        { name: "Shift & Closing", href: "/owner/shift", icon: WalletCards, exact: true },
         { name: "Laporan", href: "/owner/reports", icon: FileText, exact: true },
         { name: "Pengaturan Tarif", href: "/owner/tarif", icon: Tag, exact: true },
         { name: "Pengaturan Kas", href: "/owner/settings", icon: Settings, exact: true },
