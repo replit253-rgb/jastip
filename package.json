@@ -11,8 +11,8 @@
   ],
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build --config artifacts/jastip/vite.config.ts && esbuild server.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outfile=dist/server.mjs",
-    "start": "node dist/server.mjs",
+    "build": "vite build --config artifacts/jastip/vite.config.ts",
+    "start": "tsx server.ts",
     "lint": "tsc --build",
     "typecheck:libs": "tsc --build",
     "typecheck": "tsc --build",
