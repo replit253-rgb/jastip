@@ -57,8 +57,16 @@ export default function AdminShift() {
   );
 
   async function handleOpen() {
-    const balance = Number(openingBalance || 0);
-    if (!Number.isInteger(balance) || balance < 0) {
+    if (!openingBalance.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Saldo awal wajib diisi",
+        description: "Masukkan nominal Rupiah saldo awal (ketik 0 jika tidak ada modal awal).",
+      });
+      return;
+    }
+    const balance = Number(openingBalance);
+    if (isNaN(balance) || !Number.isInteger(balance) || balance < 0) {
       toast({
         variant: "destructive",
         title: "Saldo awal tidak valid",
@@ -283,9 +291,9 @@ export default function AdminShift() {
               <Input value={terminalId} onChange={(event) => setTerminalId(event.target.value)} placeholder="Contoh: KASIR-01" />
             </div>
             <div className="space-y-2 md:col-span-2">
-              <Label>Saldo Awal (Rp)</Label>
-              <Input type="number" min="0" step="1" value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value)} placeholder="0" />
-              <p className="text-xs text-muted-foreground">Jika ada serah-terima, saldo akan disesuaikan otomatis setelah kedua pihak mengonfirmasi.</p>
+              <Label>Saldo Awal (Rp) <span className="text-red-500 font-bold">*</span></Label>
+              <Input type="number" min="0" step="1" value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value)} placeholder="0" required />
+              <p className="text-xs text-muted-foreground">Jika ada serah-terima, saldo akan disesuaikan otomatis setelah kedua pihak mengonfirmasi. Masukkan angka 0 jika tidak ada modal awal.</p>
             </div>
             <Button onClick={handleOpen} disabled={isSaving} className="md:col-span-2">
               {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Banknote className="mr-2 h-4 w-4" />}
