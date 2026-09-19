@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { useShift } from "@/lib/shift";
 import { buildShiftClosingDocument } from "@/lib/print-shift-closing";
+import { Pagination } from "@/components/pagination";
 import {
   ArrowRightLeft,
   Banknote,
@@ -117,6 +118,13 @@ export default function AdminShift() {
 
   const [history, setHistory] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
+  const HISTORY_PAGE_SIZE = 10;
+  const totalHistoryPages = Math.ceil(history.length / HISTORY_PAGE_SIZE);
+  const paginatedHistory = history.slice(
+    (historyPage - 1) * HISTORY_PAGE_SIZE,
+    historyPage * HISTORY_PAGE_SIZE,
+  );
 
   useEffect(() => {
     if (!shift) {
@@ -335,7 +343,7 @@ export default function AdminShift() {
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {history.map((item) => (
+                      {paginatedHistory.map((item) => (
                         <tr key={item.id} className="hover:bg-muted/30 transition-colors">
                           <td className="p-3">
                             <div className="font-semibold text-primary">#{item.id}</div>
@@ -361,6 +369,18 @@ export default function AdminShift() {
                       ))}
                     </tbody>
                   </table>
+
+                  {totalHistoryPages > 1 && (
+                    <div className="p-4 border-t">
+                      <Pagination
+                        page={historyPage}
+                        totalPages={totalHistoryPages}
+                        total={history.length}
+                        pageSize={HISTORY_PAGE_SIZE}
+                        onPageChange={setHistoryPage}
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>

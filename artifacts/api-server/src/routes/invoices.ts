@@ -8,7 +8,7 @@ import {
   printLogsTable,
   transactionsTable,
 } from "@workspace/db";
-import { and, desc, eq, inArray, like } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, like, ne, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../middlewares/auth";
 
 const router = Router();
@@ -62,12 +62,23 @@ async function nextInvoiceNo(tx: any) {
 }
 
 function formatItem(pkg: any) {
-  const unitPrice = numberValue(pkg.totalShipping);
+  const shipping = numberValue(pkg.totalShipping);
+  const additional = numberValue(pkg.additionalFee);
+  const unitPrice = shipping + additional;
+  const descParts = [
+    pkg.itemName || "Paket Jastip",
+    pkg.resiNumber ? `Resi: ${pkg.resiNumber}` : null,
+    pkg.serviceType ? `(${pkg.serviceType})` : null,
+    additional > 0
+      ? `[+Biaya Tambahan Rp${additional.toLocaleString("id-ID")}${pkg.additionalFeeReason ? `: ${pkg.additionalFeeReason}` : ""}]`
+      : null,
+  ].filter(Boolean);
+
   return {
     packageId: pkg.id,
-    description: [pkg.itemName, pkg.resiNumber, pkg.serviceType].filter(Boolean).join(" · ") || `Paket #${pkg.id}`,
+    description: descParts.join(" · ") || `Paket #${pkg.id}`,
     qty: 1,
-    weight: numberValue(pkg.usedWeight),
+    weight: numberValue(pkg.usedWeight) || numberValue(pkg.realWeight),
     volume: pkg.length && pkg.width && pkg.height
       ? (numberValue(pkg.length) * numberValue(pkg.width) * numberValue(pkg.height)) / 1_000_000
       : null,
@@ -105,6 +116,51 @@ router.get(
 );
 
 router.get(
+  "/package-map",
+  requireAuth,
+  requireRole("admin", "owner"),
+  async (_req, res) => {
+    try {
+      const items = await db
+        .select({
+          packageId: invoiceItemsTable.packageId,
+          invoiceId: invoicesTable.id,
+          invoiceNo: invoicesTable.invoiceNo,
+          status: invoicesTable.status,
+          issuedAt: invoicesTable.issuedAt,
+        })
+        .from(invoiceItemsTable)
+        .innerJoin(invoicesTable, eq(invoiceItemsTable.invoiceId, invoicesTable.id))
+        .where(
+          and(
+            sql`${invoiceItemsTable.packageId} IS NOT NULL`,
+            ne(invoicesTable.status, "BATAL")
+          )
+        );
+
+      const map: Record<
+        number,
+        Array<{ invoiceId: number; invoiceNo: string; status: string; issuedAt: string }>
+      > = {};
+      for (const item of items) {
+        if (!item.packageId) continue;
+        if (!map[item.packageId]) map[item.packageId] = [];
+        map[item.packageId].push({
+          invoiceId: item.invoiceId,
+          invoiceNo: item.invoiceNo,
+          status: item.status,
+          issuedAt: item.issuedAt ? new Date(item.issuedAt).toISOString() : "",
+        });
+      }
+      res.json(map);
+    } catch (err) {
+      console.error("GET /invoices/package-map error:", err);
+      res.status(500).json({ error: "Gagal mengambil data penanda invoice paket" });
+    }
+  },
+);
+
+router.get(
   "/:id",
   requireAuth,
   requireRole("admin", "owner"),
@@ -126,16 +182,23 @@ router.get(
 router.post(
   "/",
   requireAuth,
-  requireRole("owner"),
+  requireRole("admin", "owner"),
   async (req, res) => {
     try {
       const packageIds = packageIdsFrom(req.body?.packageIds);
       const customerName = String(req.body?.customerName ?? "").trim();
-      const manualReason = String(req.body?.reason ?? "").trim();
+      const manualReason = String(req.body?.reason ?? "").trim() || "Penerbitan Invoice A4";
       const discount = numberValue(req.body?.discount);
       const downPayment = numberValue(req.body?.downPayment);
-      if (!packageIds.length || !customerName || !manualReason) {
-        res.status(400).json({ error: "Paket, nama customer, dan alasan invoice manual wajib diisi" });
+      const customerPhone = String(req.body?.customerPhone ?? "").trim();
+      const notes = String(req.body?.notes ?? "").trim();
+
+      if (!packageIds.length) {
+        res.status(400).json({ error: "Pilih minimal 1 paket untuk dibuatkan invoice" });
+        return;
+      }
+      if (!customerName) {
+        res.status(400).json({ error: "Nama customer penerima invoice wajib diisi" });
         return;
       }
       const packages = await db.select().from(packagesTable).where(inArray(packagesTable.id, packageIds));
@@ -145,9 +208,9 @@ router.post(
       }
       const items = packages.map(formatItem);
       const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
-      const total = subtotal - discount;
+      const total = Math.max(0, subtotal - discount);
       if (discount < 0 || discount > subtotal || downPayment < 0 || downPayment > total) {
-        res.status(400).json({ error: "Nominal invoice manual tidak valid" });
+        res.status(400).json({ error: "Nominal diskon atau DP tidak valid" });
         return;
       }
       const invoice = await db.transaction(async (tx) => {
@@ -156,6 +219,8 @@ router.post(
           transactionId: null,
           customerSnapshot: {
             customerName,
+            customerPhone: customerPhone || undefined,
+            notes: notes || undefined,
             source: "manual",
             packageIds,
             reason: manualReason,
@@ -165,7 +230,7 @@ router.post(
           discount: String(discount),
           downPayment: String(downPayment),
           total: String(total),
-          balance: String(total - downPayment),
+          balance: String(Math.max(0, total - downPayment)),
           status: invoiceStatus(total, downPayment),
           manualReason,
         }).returning();

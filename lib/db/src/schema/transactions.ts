@@ -27,6 +27,10 @@ export const transactionsTable = pgTable(
     subtotal: numeric("subtotal", { precision: 15, scale: 2 })
       .notNull()
       .default("0"),
+    additionalFee: numeric("additional_fee", { precision: 15, scale: 2 })
+      .notNull()
+      .default("0"),
+    additionalFeeReason: text("additional_fee_reason"),
     discount: numeric("discount", { precision: 15, scale: 2 })
       .notNull()
       .default("0"),

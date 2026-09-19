@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Pagination } from "@/components/pagination";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -132,6 +133,11 @@ function TrxTable({
   payments: any[];
   pkgMap: Map<number, any>;
 }) {
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
+  const totalPages = Math.ceil(payments.length / PAGE_SIZE);
+  const paginatedPayments = payments.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   if (payments.length === 0) {
     return (
       <p className="py-10 text-center text-muted-foreground text-sm">
@@ -141,7 +147,7 @@ function TrxTable({
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto space-y-3 p-1">
       <table className="w-full text-sm min-w-[780px]">
         <thead>
           <tr className="bg-slate-700 text-white">
@@ -166,7 +172,7 @@ function TrxTable({
           </tr>
         </thead>
         <tbody>
-          {payments.map((p, i) => {
+          {paginatedPayments.map((p, i) => {
             const ids: number[] = p.packageIds || [];
             const firstPkg = ids.map((id) => pkgMap.get(id)).find(Boolean);
             const customerName = firstPkg?.customerName || "—";
@@ -243,6 +249,18 @@ function TrxTable({
           </tr>
         </tfoot>
       </table>
+
+      {totalPages > 1 && (
+        <div className="p-3 border-t">
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            total={payments.length}
+            pageSize={PAGE_SIZE}
+            onPageChange={setPage}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -250,6 +268,11 @@ function TrxTable({
 // ── Package Table ─────────────────────────────────────────────────────────────
 
 function PaketTable({ packages }: { packages: any[] }) {
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
+  const totalPages = Math.ceil(packages.length / PAGE_SIZE);
+  const paginatedPackages = packages.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   if (packages.length === 0) {
     return (
       <p className="py-10 text-center text-muted-foreground text-sm">
@@ -258,7 +281,7 @@ function PaketTable({ packages }: { packages: any[] }) {
     );
   }
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto space-y-3 p-1">
       <table className="w-full text-sm min-w-[640px]">
         <thead>
           <tr className="bg-slate-700 text-white">
@@ -273,7 +296,7 @@ function PaketTable({ packages }: { packages: any[] }) {
           </tr>
         </thead>
         <tbody>
-          {packages.map((p: any, i: number) => (
+          {paginatedPackages.map((p: any, i: number) => (
             <tr
               key={p.id}
               className={`border-b ${i % 2 === 0 ? "bg-white" : "bg-slate-50"} hover:bg-blue-50 transition-colors`}
@@ -306,6 +329,18 @@ function PaketTable({ packages }: { packages: any[] }) {
           ))}
         </tbody>
       </table>
+
+      {totalPages > 1 && (
+        <div className="p-3 border-t">
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            total={packages.length}
+            pageSize={PAGE_SIZE}
+            onPageChange={setPage}
+          />
+        </div>
+      )}
     </div>
   );
 }

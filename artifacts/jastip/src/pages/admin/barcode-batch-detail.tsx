@@ -181,6 +181,10 @@ function buildGroupedPage(
     (s, p) => s + (Number(p.usedWeight) || Number(p.realWeight) || 0),
     0,
   );
+  const totalAdditionalFee = pkgs.reduce(
+    (s, p) => s + (Number(p.additionalFee) || 0),
+    0,
+  );
   const totalShipping = calcGroupTotalShipping(pkgs);
   const pelniRate = isPelni
     ? getPelniRateByTotalWeight(totalWeight, first?.deliveryRoute || "")
@@ -204,6 +208,9 @@ function buildGroupedPage(
   const pesawatRoundRow = isPesawat
     ? `<div class="field"><div class="fl">Berat Dibulatkan</div><div class="fv">${pesawatRoundedWeight.toFixed(3)} Kg</div></div>`
     : "";
+  const feeRow = totalAdditionalFee > 0
+    ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${totalAdditionalFee.toLocaleString("id-ID")}</div></div>`
+    : "";
 
   const inner = `${qrSectionHtml(qrDataUrl, qrValue)}
     <div class="info">
@@ -215,6 +222,7 @@ function buildGroupedPage(
         ${pesawatRoundRow}
         ${pelniRateRow}
         <div class="field"><div class="fl">Total Ongkir</div><div class="fv red">Rp ${totalShipping.toLocaleString("id-ID")}</div></div>
+        ${feeRow}
         <div class="field full"><div class="fl">Rute</div><div class="fv">${first?.deliveryRoute || "-"}</div></div>
         ${batchRow}
       </div>
@@ -292,6 +300,7 @@ function SingleBarcodeCard({
             <div class="field full"><div class="fl">Jenis Barang</div><div class="fv">${pkg.itemName || "-"}</div></div>
             <div class="field full"><div class="fl">Rute</div><div class="fv">${pkg.deliveryRoute || "-"}</div></div>
             <div class="field"><div class="fl">Ongkir Paket</div><div class="fv red">${pkg.totalShipping != null ? "Rp " + Number(pkg.totalShipping).toLocaleString("id-ID") : "-"}</div></div>
+            ${(pkg.additionalFee ?? 0) > 0 ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${Number(pkg.additionalFee).toLocaleString("id-ID")}${pkg.additionalFeeReason ? ` (${pkg.additionalFeeReason})` : ""}</div></div>` : ""}
             <div class="field full"><div class="fl">Batch Pengiriman</div><div class="fv" style="color:#1d4ed8;">${batchLabel || "-"}</div></div>
           </div>
         </div>`),

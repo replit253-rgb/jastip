@@ -99,30 +99,34 @@ function todayStr() {
 type TemplateType = "standard" | "kargo";
 
 const TEMPLATE_STANDARD = [
-  { header: "Nama Konsumen",    key: "customerName",  example: "BUDI",      required: true },
-  { header: "No Resi",          key: "resiNumber",    example: "JNE-001",   required: true },
-  { header: "No Paket",         key: "packageNumber", example: "PKT-001",   required: false },
-  { header: "Berat Real (Kg)",  key: "realWeight",    example: "1.5",       required: true },
-  { header: "Panjang (cm)",     key: "length",        example: "30",        required: false },
-  { header: "Lebar (cm)",       key: "width",         example: "20",        required: false },
-  { header: "Tinggi (cm)",      key: "height",        example: "15",        required: false },
-  { header: "Jenis Paking",     key: "packagingType", example: "Karton",    required: false },
+  { header: "Nama Konsumen",      key: "customerName",        example: "BUDI",        required: true },
+  { header: "No Resi",            key: "resiNumber",          example: "JNE-001",     required: true },
+  { header: "No Paket",           key: "packageNumber",       example: "PKT-001",     required: false },
+  { header: "Berat Real (Kg)",    key: "realWeight",          example: "1.5",         required: true },
+  { header: "Panjang (cm)",       key: "length",              example: "30",          required: false },
+  { header: "Lebar (cm)",         key: "width",               example: "20",          required: false },
+  { header: "Tinggi (cm)",        key: "height",              example: "15",          required: false },
+  { header: "Jenis Paking",       key: "packagingType",       example: "Karton",      required: false },
+  { header: "Biaya Tambahan",     key: "additionalFee",       example: "15000",       required: false },
+  { header: "Ket Biaya Tambahan", key: "additionalFeeReason", example: "Paking kayu", required: false },
 ];
 
 const TEMPLATE_KARGO = [
-  { header: "Nama Konsumen",    key: "customerName",  example: "BUDI",      required: true },
-  { header: "Toko/Kurir",       key: "resiNumber",    example: "Tokopedia", required: false },
-  { header: "Total Koli",       key: "packageNumber", example: "3",         required: false },
-  { header: "Koli",             key: "packagingType", example: "Koli 1/3",  required: false },
-  { header: "Jenis Barang",     key: "itemName",      example: "Perabot",   required: false },
-  { header: "Ukuran Barang",    key: "ukuranBarang",  example: "100x80x60", required: false },
-  { header: "Panjang (cm)",     key: "length",        example: "100",       required: false },
-  { header: "Lebar (cm)",       key: "width",         example: "80",        required: false },
-  { header: "Tinggi (cm)",      key: "height",        example: "60",        required: false },
-  { header: "Pakai (m3)",       key: "pakaiM3",       example: "0.48",      required: false },
-  { header: "Harga Kubikasi",   key: "kargoRate",     example: "7000000",   required: false },
-  { header: "Berat Real (Ton)", key: "realWeight",    example: "0.5",       required: false },
-  { header: "Ongkir Paket",     key: "ongkirPaket",   example: "3360000",   required: true },
+  { header: "Nama Konsumen",      key: "customerName",        example: "BUDI",        required: true },
+  { header: "Toko/Kurir",         key: "resiNumber",          example: "Tokopedia",   required: false },
+  { header: "Total Koli",         key: "packageNumber",       example: "3",           required: false },
+  { header: "Koli",               key: "packagingType",       example: "Koli 1/3",    required: false },
+  { header: "Jenis Barang",       key: "itemName",            example: "Perabot",     required: false },
+  { header: "Ukuran Barang",      key: "ukuranBarang",        example: "100x80x60",   required: false },
+  { header: "Panjang (cm)",       key: "length",              example: "100",         required: false },
+  { header: "Lebar (cm)",         key: "width",               example: "80",          required: false },
+  { header: "Tinggi (cm)",        key: "height",              example: "60",          required: false },
+  { header: "Pakai (m3)",         key: "pakaiM3",             example: "0.48",        required: false },
+  { header: "Harga Kubikasi",     key: "kargoRate",           example: "7000000",     required: false },
+  { header: "Berat Real (Ton)",   key: "realWeight",          example: "0.5",         required: false },
+  { header: "Ongkir Paket",       key: "ongkirPaket",         example: "3360000",     required: true },
+  { header: "Biaya Tambahan",     key: "additionalFee",       example: "50000",       required: false },
+  { header: "Ket Biaya Tambahan", key: "additionalFeeReason", example: "Pallet kayu", required: false },
 ];
 
 const ROUTE_OPTIONS: Record<string, { value: string; label: string }[]> = {
@@ -179,6 +183,8 @@ interface ParsedRow {
   kargoRate?:    number | null;
   ongkirPaket?:  number | null;
   pakaiM3?:      number | null;
+  additionalFee?:       number | null;
+  additionalFeeReason?: string | null;
   // computed
   volumeWeight?:  number | null;
   usedWeight?:    number | null;
@@ -364,6 +370,8 @@ export default function AdminPackagesImport() {
         const resiNumber   = get("resiNumber");
         const realWeightVal = numWeight("realWeight");
         const ongkirPaketVal = tplType === "kargo" ? num("ongkirPaket") : null;
+        const additionalFeeVal = num("additionalFee");
+        const additionalFeeReasonVal = get("additionalFeeReason");
         let error: string | undefined;
         if (!customerName && tplType === "standard") error = "Nama Konsumen kosong";
         else if (tplType === "standard" && !resiNumber) error = "No Resi kosong";
@@ -384,6 +392,8 @@ export default function AdminPackagesImport() {
           kargoRate:     tplType === "kargo" ? num("kargoRate") : undefined,
           ongkirPaket:   tplType === "kargo" ? ongkirPaketVal : undefined,
           pakaiM3:       tplType === "kargo" ? numWeight("pakaiM3") : undefined,
+          additionalFee: additionalFeeVal,
+          additionalFeeReason: additionalFeeReasonVal || null,
           error,
         };
       });
@@ -488,7 +498,15 @@ export default function AdminPackagesImport() {
         // Ongkir diambil langsung dari kolom Ongkir Paket; Harga Kubikasi → shippingRate
         const rate  = row.kargoRate ?? null;
         const total = row.ongkirPaket ?? null;
-        return { ...row, volumeWeight: vw, usedWeight, shippingRate: rate, totalShipping: total };
+        return {
+          ...row,
+          volumeWeight: vw,
+          usedWeight,
+          shippingRate: rate,
+          totalShipping: total,
+          additionalFee: row.additionalFee,
+          additionalFeeReason: row.additionalFeeReason,
+        };
       }
 
       // Standard (Hemat+, Pesawat, Pelni)
@@ -500,7 +518,15 @@ export default function AdminPackagesImport() {
       const uw    = rw > 0 && vw !== null ? Math.max(rw, vw) : (rw > 0 ? rw : (vw ?? null));
       const rate  = uw ? getShippingRate(serviceType, deliveryRoute, uw) : null;
       const total = uw ? getTotalShipping(serviceType, deliveryRoute, uw) : null;
-      return { ...row, volumeWeight: vw, usedWeight: uw, shippingRate: rate, totalShipping: total };
+      return {
+        ...row,
+        volumeWeight: vw,
+        usedWeight: uw,
+        shippingRate: rate,
+        totalShipping: total,
+        additionalFee: row.additionalFee,
+        additionalFeeReason: row.additionalFeeReason,
+      };
     });
   }
 
@@ -534,6 +560,8 @@ export default function AdminPackagesImport() {
         usedWeight:    r.usedWeight,
         shippingRate:  r.shippingRate,
         totalShipping: r.totalShipping,
+        additionalFee: r.additionalFee || 0,
+        additionalFeeReason: r.additionalFeeReason || undefined,
         serviceType,
         deliveryRoute,
         packageDate,
@@ -973,6 +1001,7 @@ export default function AdminPackagesImport() {
                           <th className="px-2 py-2 text-left font-medium whitespace-nowrap text-blue-700">Pakai (M³)</th>
                           <th className="px-2 py-2 text-left font-medium whitespace-nowrap text-amber-700">Harga Kubikasi</th>
                           <th className="px-2 py-2 text-left font-medium whitespace-nowrap text-green-700">Ongkir Paket</th>
+                          <th className="px-2 py-2 text-left font-medium whitespace-nowrap text-amber-600">Biaya Tambahan</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -980,7 +1009,7 @@ export default function AdminPackagesImport() {
                           <tr key={i} className={`border-t ${row.error ? "bg-red-50" : i % 2 === 0 ? "bg-background" : "bg-muted/20"}`}>
                             <td className="px-2 py-1.5 text-muted-foreground">{i + 1}</td>
                             {row.error ? (
-                              <td colSpan={8} className="px-2 py-1.5 text-red-600">
+                              <td colSpan={9} className="px-2 py-1.5 text-red-600">
                                 <span className="flex items-center gap-1"><AlertCircle className="w-3 h-3 shrink-0" />{row.error}</span>
                               </td>
                             ) : (
@@ -1003,6 +1032,9 @@ export default function AdminPackagesImport() {
                                   {row.kargoRate != null ? formatRp(row.kargoRate) : "-"}
                                 </td>
                                 <td className="px-2 py-1.5 whitespace-nowrap font-semibold text-green-700">{formatRp((row as any).totalShipping)}</td>
+                                <td className="px-2 py-1.5 whitespace-nowrap font-medium text-amber-700">
+                                  {row.additionalFee ? `${formatRp(row.additionalFee)}${row.additionalFeeReason ? ` (${row.additionalFeeReason})` : ""}` : "-"}
+                                </td>
                               </>
                             )}
                           </tr>
@@ -1024,6 +1056,7 @@ export default function AdminPackagesImport() {
                           <th className="px-2 py-2 text-left font-medium whitespace-nowrap">Vol (Kg)</th>
                           <th className="px-2 py-2 text-left font-medium whitespace-nowrap text-blue-700">Pakai (Kg)</th>
                           <th className="px-2 py-2 text-left font-medium whitespace-nowrap text-green-700">Total Ongkir</th>
+                          <th className="px-2 py-2 text-left font-medium whitespace-nowrap text-amber-600">Biaya Tambahan</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1031,7 +1064,7 @@ export default function AdminPackagesImport() {
                           <tr key={i} className={`border-t ${row.error ? "bg-red-50" : i % 2 === 0 ? "bg-background" : "bg-muted/20"}`}>
                             <td className="px-2 py-1.5 text-muted-foreground">{i + 1}</td>
                             {row.error ? (
-                              <td colSpan={9} className="px-2 py-1.5 text-red-600">
+                              <td colSpan={10} className="px-2 py-1.5 text-red-600">
                                 <span className="flex items-center gap-1"><AlertCircle className="w-3 h-3 shrink-0" />{row.error}</span>
                               </td>
                             ) : (
@@ -1047,6 +1080,9 @@ export default function AdminPackagesImport() {
                                 <td className="px-2 py-1.5 whitespace-nowrap">{(row as any).volumeWeight != null ? Number((row as any).volumeWeight).toFixed(3) : "-"}</td>
                                 <td className="px-2 py-1.5 whitespace-nowrap font-semibold text-blue-700">{(row as any).usedWeight != null ? (row as any).usedWeight : "-"}</td>
                                 <td className="px-2 py-1.5 whitespace-nowrap font-semibold text-green-700">{formatRp((row as any).totalShipping)}</td>
+                                <td className="px-2 py-1.5 whitespace-nowrap font-medium text-amber-700">
+                                  {row.additionalFee ? `${formatRp(row.additionalFee)}${row.additionalFeeReason ? ` (${row.additionalFeeReason})` : ""}` : "-"}
+                                </td>
                               </>
                             )}
                           </tr>

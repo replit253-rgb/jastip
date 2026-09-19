@@ -206,11 +206,13 @@ router.post(
       const packageIds = getPackageIds(body.packageIds);
       const subtotal = amount(body.subtotal ?? body.totalAmount, "Subtotal");
       const discount = amount(body.discount ?? 0, "Diskon");
+      const additionalFee = amount(body.additionalFee ?? 0, "Biaya Tambahan");
+      const expectedTotal = Math.max(0, subtotal + additionalFee - discount);
       const total = amount(
-        body.total ?? subtotal - discount,
+        body.total ?? (body.totalAmount !== undefined ? body.totalAmount : expectedTotal),
         "Total",
       );
-      if (discount > subtotal || total !== subtotal - discount) {
+      if (discount > (subtotal + additionalFee) || total !== expectedTotal) {
         res.status(400).json({ error: "Total transaksi tidak valid" });
         return;
       }
@@ -321,6 +323,8 @@ router.post(
             customerName: getCustomerName(body),
             packageIds,
             subtotal: String(subtotal),
+            additionalFee: String(additionalFee),
+            additionalFeeReason: body.additionalFeeReason ?? null,
             discount: String(discount),
             discountReason: body.discountReason ?? null,
             total: String(total),

@@ -11,7 +11,7 @@ import {
 import {
   Camera, Upload, ScanLine, X, Hash, Trash2, CheckCircle2,
   ShoppingCart, RotateCcw, Banknote, CreditCard, Clock, ChevronDown, ChevronUp,
-  AlertTriangle, Users, Tag, Printer, QrCode,
+  AlertTriangle, Users, Tag, Printer, QrCode, PlusCircle,
 } from "lucide-react";
 import { buildReceiptDocument, type ReceiptPrintPayload } from "@/lib/print-receipt";
 
@@ -48,6 +48,8 @@ interface ScannedItem {
   usedWeight?: number | null;
   shippingRate?: number | null;
   totalShipping: number;
+  additionalFee?: number | null;
+  additionalFeeReason?: string | null;
   length?: number | null;
   width?: number | null;
   height?: number | null;
@@ -80,6 +82,8 @@ function toItem(pkg: any): ScannedItem {
     usedWeight: pkg.usedWeight != null ? Number(pkg.usedWeight) : null,
     shippingRate: pkg.shippingRate != null ? Number(pkg.shippingRate) : null,
     totalShipping: Number(pkg.totalShipping ?? 0),
+    additionalFee: pkg.additionalFee != null ? Number(pkg.additionalFee) : 0,
+    additionalFeeReason: pkg.additionalFeeReason || "",
     length: pkg.length != null ? Number(pkg.length) : null,
     width: pkg.width != null ? Number(pkg.width) : null,
     height: pkg.height != null ? Number(pkg.height) : null,
@@ -110,6 +114,9 @@ export default function AdminScan() {
   const [receiptPromptTransactionId, setReceiptPromptTransactionId] = useState<number | null>(null);
   const [qrisImageUrl, setQrisImageUrl] = useState<string | null>(null);
 
+  // ── Biaya Tambahan State ──────────────────────────────────────────────────
+  const [biayaTambahan, setBiayaTambahan] = useState<string>("");
+  const [alasanBiayaTambahan, setAlasanBiayaTambahan] = useState("");
   // ── Diskon State ─────────────────────────────────────────────────────────
   const [diskon, setDiskon] = useState<string>("");
   const [alasanDiskon, setAlasanDiskon] = useState("");
@@ -147,8 +154,12 @@ export default function AdminScan() {
       });
   }, []);
 
-  const totalTagihan = items.reduce((s, i) => s + i.totalShipping, 0);
+  const subtotalOngkir = items.reduce((s, i) => s + i.totalShipping, 0);
+  const packageAdditionalFee = items.reduce((s, i) => s + (i.additionalFee || 0), 0);
+  const manualAdditionalFee = Number(biayaTambahan.replace(/\D/g, "")) || 0;
+  const totalBiayaTambahan = packageAdditionalFee + manualAdditionalFee;
   const diskonNum = Number(diskon.replace(/\D/g, "")) || 0;
+  const totalTagihan = subtotalOngkir + totalBiayaTambahan;
   const totalAkhir = Math.max(0, totalTagihan - diskonNum);
   const uangNum = Number(uangDibayar.replace(/\D/g, "")) || 0;
   const kembalian = uangNum - totalAkhir;
@@ -355,6 +366,8 @@ export default function AdminScan() {
     setJatuhTempo("");
     setCatatanPiutang("");
     setAlreadyDelivered(null);
+    setBiayaTambahan("");
+    setAlasanBiayaTambahan("");
     setDiskon("");
     setAlasanDiskon("");
     addedIdsRef.current.clear();
@@ -370,9 +383,16 @@ export default function AdminScan() {
     setNominalPiutang("0");
     setJatuhTempo("");
     setCatatanPiutang("");
+    setBiayaTambahan("");
+    setAlasanBiayaTambahan("");
     setDiskon("");
     setAlasanDiskon("");
     setShowPayModal(true);
+  }
+
+  function handleBiayaTambahanInput(val: string) {
+    const digits = val.replace(/\D/g, "");
+    setBiayaTambahan(digits ? Number(digits).toLocaleString("id-ID") : "");
   }
 
   function handleUangInput(val: string) {
@@ -456,16 +476,31 @@ export default function AdminScan() {
       const token = localStorage.getItem("jaj_token");
       const idempotencyKey = idempotencyKeyRef.current ?? crypto.randomUUID();
       idempotencyKeyRef.current = idempotencyKey;
+
+      const combinedFeeReasons = [
+        ...items.filter((i) => (i.additionalFee ?? 0) > 0 && i.additionalFeeReason).map((i) => i.additionalFeeReason),
+        alasanBiayaTambahan.trim(),
+      ].filter(Boolean).join(", ") || (totalBiayaTambahan > 0 ? "Biaya tambahan" : null);
+
+      const feeNote = totalBiayaTambahan > 0
+        ? `Biaya Tambahan: ${formatRp(totalBiayaTambahan)}${combinedFeeReasons ? ` (${combinedFeeReasons})` : ""}`
+        : null;
+
       const discountNote = diskonNum > 0
-        ? `Diskon: ${formatRp(diskonNum)} | Total ongkir: ${formatRp(totalTagihan)} | Total setelah diskon: ${formatRp(totalAkhir)} | Alasan: ${alasanDiskon}`
+        ? `Diskon: ${formatRp(diskonNum)} | Total tagihan: ${formatRp(totalTagihan)} | Total setelah diskon: ${formatRp(totalAkhir)} | Alasan: ${alasanDiskon}`
         : null;
       const notes = paymentType === "piutang"
-        ? [catatanPiutang.trim(), discountNote].filter(Boolean).join(" | ")
-        : discountNote;
+        ? [catatanPiutang.trim(), feeNote, discountNote].filter(Boolean).join(" | ")
+        : [feeNote, discountNote].filter(Boolean).join(" | ") || null;
       const body = {
         paymentType,
         paymentMethod: paymentType,
-        subtotal: totalTagihan,
+        subtotal: subtotalOngkir,
+        additionalFee: totalBiayaTambahan,
+        additionalFeeReason: combinedFeeReasons,
+        discount: diskonNum,
+        discountReason: alasanDiskon.trim() || null,
+        total: totalAkhir,
         totalAmount: totalAkhir,
         paidAmount: paymentType === "tunai"
           ? uangNum
@@ -488,6 +523,8 @@ export default function AdminScan() {
           realWeight: i.realWeight,
           usedWeight: i.usedWeight,
           totalShipping: i.totalShipping,
+          additionalFee: i.additionalFee,
+          additionalFeeReason: i.additionalFeeReason,
           packageDate: i.packageDate,
         })),
         notes,
@@ -730,6 +767,12 @@ export default function AdminScan() {
                         </div>
                         <div className="text-right shrink-0">
                           <p className="font-bold text-primary text-sm">{formatRp(item.totalShipping)}</p>
+                          {(item.additionalFee ?? 0) > 0 && (
+                            <p className="text-[11px] font-medium text-amber-700">
+                              + {formatRp(item.additionalFee!)}
+                              {item.additionalFeeReason ? ` (${item.additionalFeeReason})` : ""}
+                            </p>
+                          )}
                         </div>
                         <Button
                           variant="ghost"
@@ -793,17 +836,35 @@ export default function AdminScan() {
                             <p className="text-muted-foreground font-medium uppercase tracking-wide text-[10px]">Tarif Ongkir/kg</p>
                             <p>{formatRp(item.shippingRate)}</p>
                           </div>
+                          {(item.additionalFee ?? 0) > 0 && (
+                            <div className="col-span-2">
+                              <p className="text-muted-foreground font-medium uppercase tracking-wide text-[10px]">Biaya Tambahan</p>
+                              <p className="font-semibold text-amber-700">
+                                {formatRp(item.additionalFee)}
+                                {item.additionalFeeReason ? ` (${item.additionalFeeReason})` : ""}
+                              </p>
+                            </div>
+                          )}
                         </div>
                       )}
                     </CardContent>
                   </Card>
                 );
               })}
-              <div className="flex items-center justify-between px-4 py-2 bg-muted/50 rounded-lg border">
-                <span className="text-sm font-semibold text-muted-foreground flex items-center gap-1.5">
-                  <Users className="h-3.5 w-3.5" /> {items.length} paket
-                </span>
-                <span className="font-black text-primary">{formatRp(totalTagihan)}</span>
+              <div className="flex items-center justify-between px-4 py-2.5 bg-muted/50 rounded-lg border">
+                <div className="space-y-0.5">
+                  <span className="text-sm font-semibold text-muted-foreground flex items-center gap-1.5">
+                    <Users className="h-3.5 w-3.5" /> {items.length} paket
+                  </span>
+                  {packageAdditionalFee > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Ongkir: <span className="font-medium text-foreground">{formatRp(subtotalOngkir)}</span> | Tambahan: <span className="font-medium text-amber-700">+{formatRp(packageAdditionalFee)}</span>
+                    </p>
+                  )}
+                </div>
+                <div className="text-right">
+                  <span className="font-black text-primary text-base">{formatRp(subtotalOngkir + packageAdditionalFee)}</span>
+                </div>
               </div>
             </div>
           )}
@@ -833,14 +894,49 @@ export default function AdminScan() {
                 {items.map((item) => (
                   <div key={item.id} className="flex justify-between text-xs text-muted-foreground">
                     <span className="truncate max-w-[180px]">{item.customerName} ({item.resiNumber || item.barcode})</span>
-                    <span className="shrink-0 ml-2">{formatRp(item.totalShipping)}</span>
+                    <span className="shrink-0 ml-2">
+                      {formatRp(item.totalShipping)}
+                      {(item.additionalFee ?? 0) > 0 ? ` (+${formatRp(item.additionalFee!)})` : ""}
+                    </span>
                   </div>
                 ))}
               </div>
-              <div className="border-t pt-2 flex justify-between items-center">
-                <span className="font-semibold text-sm text-muted-foreground">Total Ongkir</span>
-                <span className="font-bold text-foreground">{formatRp(totalTagihan)}</span>
+              <div className="border-t pt-2 space-y-1">
+                <div className="flex justify-between items-center text-xs text-muted-foreground">
+                  <span>Subtotal Ongkir Jastip</span>
+                  <span className="font-semibold text-foreground">{formatRp(subtotalOngkir)}</span>
+                </div>
+                {packageAdditionalFee > 0 && (
+                  <div className="flex justify-between items-center text-xs text-amber-700">
+                    <span>Biaya Tambahan (dari Paket)</span>
+                    <span className="font-semibold">+{formatRp(packageAdditionalFee)}</span>
+                  </div>
+                )}
               </div>
+            </div>
+
+            {/* Biaya Tambahan Kasir (opsional) */}
+            <div className="space-y-2">
+              <label className="text-sm font-semibold flex items-center gap-1.5">
+                <PlusCircle className="w-4 h-4 text-amber-600" /> Biaya Tambahan Kasir
+                <span className="font-normal text-xs text-muted-foreground">(opsional)</span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">Rp</span>
+                <Input
+                  className="pl-9 font-bold"
+                  placeholder="0"
+                  value={biayaTambahan}
+                  onChange={(e) => handleBiayaTambahanInput(e.target.value)}
+                />
+              </div>
+              {manualAdditionalFee > 0 && (
+                <Input
+                  placeholder="Keterangan biaya tambahan kasir (opsional)"
+                  value={alasanBiayaTambahan}
+                  onChange={(e) => setAlasanBiayaTambahan(e.target.value)}
+                />
+              )}
             </div>
 
             {/* Diskon / Potongan Harga */}
@@ -871,31 +967,32 @@ export default function AdminScan() {
               )}
             </div>
 
-            {/* Total setelah diskon */}
-            {diskonNum > 0 && (
-              <div className="rounded-xl p-3 border-2 border-orange-200 bg-orange-50 space-y-1">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Total Ongkir</span>
-                  <span className="font-semibold">{formatRp(totalTagihan)}</span>
+            {/* Ringkasan Perhitungan Total */}
+            <div className="rounded-xl p-3 border-2 border-primary/20 bg-primary/5 space-y-1.5">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Subtotal Ongkir</span>
+                <span className="font-medium text-foreground">{formatRp(subtotalOngkir)}</span>
+              </div>
+              {totalBiayaTambahan > 0 && (
+                <div className="flex justify-between text-xs text-amber-700">
+                  <span>
+                    Total Biaya Tambahan
+                    {packageAdditionalFee > 0 && manualAdditionalFee > 0 ? " (Paket + Kasir)" : packageAdditionalFee > 0 ? " (Paket)" : ""}
+                  </span>
+                  <span className="font-semibold">+{formatRp(totalBiayaTambahan)}</span>
                 </div>
-                <div className="flex justify-between text-sm text-orange-700">
+              )}
+              {diskonNum > 0 && (
+                <div className="flex justify-between text-xs text-orange-700">
                   <span>Diskon / Potongan</span>
-                  <span className="font-semibold">- {formatRp(diskonNum)}</span>
+                  <span className="font-semibold">-{formatRp(diskonNum)}</span>
                 </div>
-                <div className="flex justify-between text-base font-black border-t pt-1 mt-1">
-                  <span>Total Setelah Diskon</span>
-                  <span className="text-green-700">{formatRp(totalAkhir)}</span>
-                </div>
+              )}
+              <div className="flex justify-between text-base font-black border-t border-primary/20 pt-1.5 mt-1">
+                <span>Total Pembayaran</span>
+                <span className="text-primary text-lg">{formatRp(totalAkhir)}</span>
               </div>
-            )}
-
-            {/* Total akhir kalau tidak ada diskon */}
-            {diskonNum === 0 && (
-              <div className="flex justify-between items-center px-1">
-                <span className="font-bold text-base">Total Tagihan</span>
-                <span className="font-black text-xl text-primary">{formatRp(totalAkhir)}</span>
-              </div>
-            )}
+            </div>
 
             {/* Payment type */}
             <div>

@@ -77,6 +77,8 @@ async function getReceipt(transactionId: number) {
       transactionNo: transaction.transactionNo,
       customerName: transaction.customerName,
       subtotal: numberValue(transaction.subtotal),
+      additionalFee: numberValue(transaction.additionalFee),
+      additionalFeeReason: transaction.additionalFeeReason,
       discount: numberValue(transaction.discount),
       discountReason: transaction.discountReason,
       total: numberValue(transaction.total),

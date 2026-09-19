@@ -4,6 +4,8 @@ export type ReceiptPrintPayload = {
     transactionNo: string;
     customerName: string;
     subtotal: number;
+    additionalFee?: number;
+    additionalFeeReason?: string | null;
     discount: number;
     discountReason?: string | null;
     total: number;
@@ -143,7 +145,8 @@ export function buildReceiptDocument(
     <div class="section-title">Rincian paket (${receipt.packages.length})</div>
     ${packageRows || `<div class="note">Rincian paket tidak tersedia.</div>`}
     <div class="rule"></div>
-    ${row("Subtotal", formatRp(transaction.subtotal))}
+    ${row("Subtotal Ongkir", formatRp(transaction.subtotal))}
+    ${(transaction.additionalFee ?? 0) > 0 ? row(`Biaya Tambahan${transaction.additionalFeeReason ? ` (${transaction.additionalFeeReason})` : ""}`, formatRp(transaction.additionalFee)) : ""}
     ${transaction.discount > 0 ? row(`Diskon${transaction.discountReason ? ` (${transaction.discountReason})` : ""}`, `- ${formatRp(transaction.discount)}`) : ""}
     ${row("TOTAL", formatRp(transaction.total), true)}
     <div class="section-title">Pembayaran</div>

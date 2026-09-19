@@ -43,6 +43,8 @@ export const packagesTable = pgTable("packages", {
   price: numeric("price", { precision: 15, scale: 2 }),
   // Total Ongkir
   totalShipping: numeric("total_shipping", { precision: 15, scale: 2 }),
+  // Biaya Tambahan (opsional)
+  additionalFee: numeric("additional_fee", { precision: 15, scale: 2 }).default("0"),
   // Legacy weight (kept for backward compat)
   weight: numeric("weight", { precision: 10, scale: 2 }),
   notes: text("notes"),

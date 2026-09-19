@@ -182,8 +182,11 @@ export default function VerifyBatchDetail({ params }: { params: { id: string } }
   const paginated = filteredGroups.slice((safePage - 1) * GROUP_PAGE_SIZE, safePage * GROUP_PAGE_SIZE);
 
   // ── Verify logic ─────────────────────────────────────────────────────────────
-  async function lookupAndVerify(code: string) {
+  async function lookupAndVerify(rawCode: string) {
     if (!selectedGroup) return;
+    const code = rawCode.trim();
+    if (!code) return;
+
     setIsSearching(true);
     setVerifyResult(null);
     setResultPkg(null);
@@ -194,46 +197,88 @@ export default function VerifyBatchDetail({ params }: { params: { id: string } }
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await r.json();
-      let pkg = data.package || null;
 
-      if (!pkg) {
-        const r2 = await fetch(`/api/packages?search=${encodeURIComponent(code)}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const list = await r2.json();
-        if (Array.isArray(list) && list.length > 0) {
-          // Prefer the package that belongs to the current batch
-          const inBatch = !isNoBatch && batchId
-            ? list.find((p: any) => p.batchId === batchId)
-            : null;
-          pkg = inBatch ?? list[0];
+      let targetPkgs: any[] = [];
+
+      if (data.valid && data.group && Array.isArray(data.packages) && data.packages.length > 0) {
+        targetPkgs = data.packages;
+      } else if (data.valid && data.package) {
+        targetPkgs = [data.package];
+      } else if (data.package) {
+        targetPkgs = [data.package];
+      } else if (Array.isArray(data.packages) && data.packages.length > 0) {
+        targetPkgs = data.packages;
+      } else {
+        // Fallback: search in local allPackages strictly matching code/IDs
+        if (code.startsWith("JAJ-GRUP-")) {
+          const ids = code
+            .replace("JAJ-GRUP-", "")
+            .split("-")
+            .map(Number)
+            .filter((n) => Number.isInteger(n) && n > 0);
+          if (ids.length && allPackages) {
+            targetPkgs = (allPackages || []).filter((p: any) => ids.includes(p.id));
+          }
+        }
+
+        if (!targetPkgs.length && allPackages) {
+          const lower = code.toLowerCase();
+          const found = (allPackages || []).filter(
+            (p: any) =>
+              p.barcode?.toLowerCase() === lower ||
+              p.resiNumber?.toLowerCase() === lower ||
+              p.packageNumber?.toLowerCase() === lower ||
+              String(p.id) === code
+          );
+          if (found.length > 0) {
+            const inBatch = !isNoBatch && batchId
+              ? found.find((p: any) => p.batchId === batchId)
+              : null;
+            targetPkgs = inBatch ? [inBatch] : [found[0]];
+          }
         }
       }
 
-      if (!pkg) {
+      if (!targetPkgs.length) {
         setVerifyResult("mismatch");
         setResultPkg(null);
         setScanHistory((h) => [{ barcode: code, result: "mismatch", pkg: null }, ...h]);
+        toast({ variant: "destructive", title: "Paket tidak ditemukan", description: `Kode: ${code}` });
         return;
       }
 
+      const firstTarget = targetPkgs[0];
       const isMatch =
-        pkg.customerName?.toLowerCase().trim() === selectedGroup.customerName.toLowerCase().trim() &&
-        (isNoBatch ? (pkg.batchId == null) : (pkg.batchId === batchId));
+        firstTarget.customerName?.toLowerCase().trim() === selectedGroup.customerName.toLowerCase().trim() &&
+        (isNoBatch ? firstTarget.batchId == null : firstTarget.batchId === batchId);
 
-      if (isMatch && pkg.statusVerifikasi !== "SUDAH_DIVERIFIKASI") {
-        try {
-          const verified = await verifyMutation.mutateAsync({ id: pkg.id });
-          pkg = verified;
-        } catch {
-          toast({ variant: "destructive", title: "Gagal menyimpan status verifikasi" });
+      if (isMatch) {
+        let newlyVerifiedCount = 0;
+        for (const p of targetPkgs) {
+          if (
+            p.customerName?.toLowerCase().trim() === selectedGroup.customerName.toLowerCase().trim() &&
+            (isNoBatch ? p.batchId == null : p.batchId === batchId) &&
+            p.statusVerifikasi !== "SUDAH_DIVERIFIKASI"
+          ) {
+            try {
+              await verifyMutation.mutateAsync({ id: p.id });
+              newlyVerifiedCount++;
+            } catch {}
+          }
         }
         refetchPackages();
+        setVerifyResult("match");
+        setResultPkg(firstTarget);
+        setScanHistory((h) => [{ barcode: code, result: "match", pkg: firstTarget }, ...h]);
+        toast({
+          title: "✓ Verifikasi Berhasil",
+          description: `${firstTarget.customerName} (${targetPkgs.length > 1 ? `${targetPkgs.length} paket` : (firstTarget.resiNumber || firstTarget.barcode || "1 paket")})`,
+        });
+      } else {
+        setVerifyResult("mismatch");
+        setResultPkg(firstTarget);
+        setScanHistory((h) => [{ barcode: code, result: "mismatch", pkg: firstTarget }, ...h]);
       }
-
-      setVerifyResult(isMatch ? "match" : "mismatch");
-      setResultPkg(pkg);
-      setScanHistory((h) => [{ barcode: code, result: isMatch ? "match" : "mismatch", pkg }, ...h]);
     } catch {
       toast({ variant: "destructive", title: "Gagal mencari paket" });
     } finally {

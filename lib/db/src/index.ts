@@ -756,8 +756,9 @@ if (pgConnectionString) {
     pool = testPool;
     db = drizzle(pool, { schema });
     console.log("[JAJ Database] Connected to PostgreSQL instance via Drizzle ORM");
-  } catch (err) {
-    console.warn("[JAJ Database] PostgreSQL connection error, falling back to mock database:", err);
+  } catch (err: any) {
+    const errorMsg = err?.message || String(err);
+    console.info(`[JAJ Database] PostgreSQL not reachable (${errorMsg}), using active in-memory database store.`);
     db = createMockDb();
     pool = {
       query: async () => ({ rows: [] }),

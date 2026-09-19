@@ -51,6 +51,8 @@ const packageSchema = z.object({
   shippingRate: z.coerce.number().optional().nullable(),
   totalWeight: z.coerce.number().optional().nullable(),
   totalShipping: z.coerce.number().optional().nullable(),
+  additionalFee: z.coerce.number().optional().nullable(),
+  additionalFeeReason: z.string().optional().nullable(),
 }).superRefine((data, ctx) => {
   // Berat real wajib untuk layanan non-Cargo
   if (data.serviceType !== "jastip kargo") {
@@ -370,6 +372,7 @@ export default function AdminPackagesNew() {
   const watchedVolumeWeight = form.watch("volumeWeight");
   const watchedShippingRate = form.watch("shippingRate");
   const watchedTotalShipping = form.watch("totalShipping");
+  const watchedAdditionalFee = form.watch("additionalFee");
 
   useEffect(() => {
     if (!serviceType) {
@@ -1173,6 +1176,55 @@ export default function AdminPackagesNew() {
                         )}
                       />
                     </div>
+
+                    {/* Biaya Tambahan (Opsional) */}
+                    <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50/40 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-semibold text-amber-900 uppercase tracking-wide">
+                          Biaya Tambahan <span className="font-normal text-muted-foreground text-[11px]">(Opsional)</span>
+                        </p>
+                        <span className="text-[11px] text-amber-700">Contoh: Paking kayu, bubble wrap, karung, dll</span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <FormField
+                          control={form.control}
+                          name="additionalFee"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Nominal Biaya Tambahan (Rp)</FormLabel>
+                              <FormControl>
+                                <div className="relative">
+                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">Rp</span>
+                                  <Input
+                                    type="number" step="1000" placeholder="0"
+                                    className="pl-9 font-semibold"
+                                    {...field} value={field.value ?? ""}
+                                    onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
+                                  />
+                                </div>
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="additionalFeeReason"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Keterangan Biaya Tambahan</FormLabel>
+                              <FormControl>
+                                <Input
+                                  placeholder="Contoh: Paking kayu, bubble wrap ekstra..."
+                                  {...field} value={field.value || ""}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               </>
@@ -1410,6 +1462,55 @@ export default function AdminPackagesNew() {
                       )}
                     />
 
+                    {/* Biaya Tambahan (Opsional) */}
+                    <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50/40 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-semibold text-amber-900 uppercase tracking-wide">
+                          Biaya Tambahan <span className="font-normal text-muted-foreground text-[11px]">(Opsional)</span>
+                        </p>
+                        <span className="text-[11px] text-amber-700">Contoh: Paking kayu, bubble wrap, karung, dll</span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <FormField
+                          control={form.control}
+                          name="additionalFee"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Nominal Biaya Tambahan (Rp)</FormLabel>
+                              <FormControl>
+                                <div className="relative">
+                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">Rp</span>
+                                  <Input
+                                    type="number" step="1000" placeholder="0"
+                                    className="pl-9 font-semibold"
+                                    {...field} value={field.value ?? ""}
+                                    onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
+                                  />
+                                </div>
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="additionalFeeReason"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Keterangan Biaya Tambahan</FormLabel>
+                              <FormControl>
+                                <Input
+                                  placeholder="Contoh: Paking kayu, bubble wrap ekstra..."
+                                  {...field} value={field.value || ""}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </div>
+
                     {/* Notif khusus Pesawat: hitung dari total berat gabungan konsumen */}
                     {isPesawat && (
                       <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex gap-3">
@@ -1470,6 +1571,20 @@ export default function AdminPackagesNew() {
                           </p>
                           <p className="font-semibold text-primary">{formatRp(watchedTotalShipping)}</p>
                         </div>
+                        {watchedAdditionalFee != null && Number(watchedAdditionalFee) > 0 && (
+                          <div>
+                            <p className="text-xs text-amber-700 font-medium">Biaya Tambahan</p>
+                            <p className="font-bold text-amber-700">{formatRp(watchedAdditionalFee)}</p>
+                          </div>
+                        )}
+                        {watchedAdditionalFee != null && Number(watchedAdditionalFee) > 0 && (
+                          <div>
+                            <p className="text-xs text-green-800 font-bold">Total Tagihan</p>
+                            <p className="font-black text-green-700 text-base">
+                              {formatRp((Number(watchedTotalShipping) || 0) + Number(watchedAdditionalFee))}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </CardContent>

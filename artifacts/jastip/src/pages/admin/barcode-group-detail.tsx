@@ -9,6 +9,7 @@ import QRCode from "qrcode";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Pagination } from "@/components/pagination";
 import {
   Dialog,
   DialogContent,
@@ -167,6 +168,15 @@ export default function BarcodeGroupDetail() {
     0,
   );
 
+  const PAGE_SIZE = 10;
+  const [page, setPage] = useState(1);
+  const total = groupPackages.length;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const paginatedPackages = groupPackages.slice(
+    (page - 1) * PAGE_SIZE,
+    page * PAGE_SIZE,
+  );
+
   const [editPkg, setEditPkg] = useState<any | null>(null);
   const [editForm, setEditForm] = useState<EditForm>({
     resiNumber: "",
@@ -318,6 +328,7 @@ export default function BarcodeGroupDetail() {
             <div class="field"><div class="fl">Berat Real</div><div class="fv">${p.realWeight != null ? p.realWeight + " Kg" : "-"}</div></div>
             <div class="field"><div class="fl">Berat Digunakan</div><div class="fv">${p.usedWeight != null ? p.usedWeight + " Kg" : "-"}</div></div>
             <div class="field"><div class="fl">Total Ongkir</div><div class="fv red">${ongkir}</div></div>
+            ${(p.additionalFee ?? 0) > 0 ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${Number(p.additionalFee).toLocaleString("id-ID")}${p.additionalFeeReason ? ` (${p.additionalFeeReason})` : ""}</div></div>` : ""}
           </div>
         </div>`);
       })
@@ -377,7 +388,7 @@ export default function BarcodeGroupDetail() {
         </div>
       ) : (
         <div className="space-y-3">
-          {groupPackages.map((pkg: any, idx: number) => (
+          {paginatedPackages.map((pkg: any, idx: number) => (
             <Card key={pkg.id} className="hover:shadow-md transition-shadow">
               <CardContent className="pt-4 pb-3">
                 {/* Header row */}
@@ -387,7 +398,7 @@ export default function BarcodeGroupDetail() {
                       value={pkg.barcode || pkg.resiNumber || String(pkg.id)}
                     />
                     <p className="text-xs text-muted-foreground mt-1 font-mono">
-                      #{idx + 1}
+                      #{(page - 1) * PAGE_SIZE + idx + 1}
                     </p>
                   </div>
                   <div className="flex-1 min-w-0">
@@ -544,6 +555,18 @@ export default function BarcodeGroupDetail() {
           >
             <Plus className="h-4 w-4" /> Tambah Paket ke Grup Ini
           </Button>
+
+          {totalPages > 1 && (
+            <div className="pt-2">
+              <Pagination
+                page={page}
+                totalPages={totalPages}
+                total={total}
+                pageSize={PAGE_SIZE}
+                onPageChange={setPage}
+              />
+            </div>
+          )}
         </div>
       )}
 

@@ -78,6 +78,7 @@ function BarcodeDisplay({ value, pkg }: { value: string; pkg?: any }) {
               <div class="field"><div class="fl">Berat Digunakan</div><div class="fv">${usedWeight}</div></div>
               <div class="field"><div class="fl">Jenis Paking</div><div class="fv">${packaging}</div></div>
               <div class="field"><div class="fl">Total Ongkir</div><div class="fv red">${ongkir}</div></div>
+              ${(pkg?.additionalFee ?? 0) > 0 ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${Number(pkg.additionalFee).toLocaleString("id-ID")}${pkg.additionalFeeReason ? ` (${pkg.additionalFeeReason})` : ""}</div></div>` : ""}
             </div>
           </div>`;
         win.document.write(labelDocumentHtml(`Label - ${resiNumber}`, labelPageHtml(inner)));
@@ -147,6 +148,7 @@ const READ_FIELDS: { label: string; key: string; format?: (v: any, pkg: any) => 
   { label: "Total Berat (Kg)", key: "totalWeight", format: v => v ?? "-" },
   { label: "Harga Barang", key: "price", format: v => formatRp(v) },
   { label: "Total Ongkir", key: "totalShipping", format: v => formatRp(v) },
+  { label: "Biaya Tambahan", key: "additionalFee", format: (v, p) => v ? `${formatRp(v)}${p.additionalFeeReason ? ` (${p.additionalFeeReason})` : ""}` : "-" },
 ];
 
 // Fields editable for Cargo packages (and generally)

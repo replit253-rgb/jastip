@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useListBatches, useListPackages } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Pagination } from "@/components/pagination";
 import {
   ArrowLeft,
   History,
@@ -187,6 +188,15 @@ export default function RiwayatPembayaranBatch({
     .filter((p) => p.paymentType === "piutang")
     .reduce((s, p) => s + Number(p.totalAmount || 0), 0);
 
+  const PAGE_SIZE = 8;
+  const [page, setPage] = useState(1);
+  const total = svcGroups.length;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const paginatedSvcGroups = svcGroups.slice(
+    (page - 1) * PAGE_SIZE,
+    page * PAGE_SIZE,
+  );
+
   function goDetail(serviceTypeKey: string) {
     setLocation(
       `${base}/riwayat-pembayaran/batch/${batchId}/detail?serviceType=${encodeURIComponent(serviceTypeKey)}`,
@@ -298,80 +308,94 @@ export default function RiwayatPembayaranBatch({
           <p className="font-semibold">Belum ada pembayaran di batch ini</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {svcGroups.map(({ def, payments: pmts }) => {
-            const total = pmts.reduce(
-              (s: number, p: any) => s + Number(p.totalAmount || 0),
-              0,
-            );
-            const tunai = pmts
-              .filter((p: any) => p.paymentType === "tunai")
-              .reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
-            const transfer = pmts
-              .filter((p: any) => p.paymentType === "transfer")
-              .reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
-            const piutang = pmts
-              .filter((p: any) => p.paymentType === "piutang")
-              .reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
-            const piutangCount = pmts.filter(
-              (p: any) => p.paymentType === "piutang",
-            ).length;
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {paginatedSvcGroups.map(({ def, payments: pmts }) => {
+              const total = pmts.reduce(
+                (s: number, p: any) => s + Number(p.totalAmount || 0),
+                0,
+              );
+              const tunai = pmts
+                .filter((p: any) => p.paymentType === "tunai")
+                .reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
+              const transfer = pmts
+                .filter((p: any) => p.paymentType === "transfer")
+                .reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
+              const piutang = pmts
+                .filter((p: any) => p.paymentType === "piutang")
+                .reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
+              const piutangCount = pmts.filter(
+                (p: any) => p.paymentType === "piutang",
+              ).length;
 
-            return (
-              <Card
-                key={def.key}
-                className={`cursor-pointer hover:shadow-lg hover:scale-[1.02] transition-all border-2 ${def.border} ${def.bg}`}
-                onClick={() => goDetail(def.key)}
-              >
-                <CardContent className="pt-5 pb-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className={`text-sm font-bold ${def.num}`}>
-                      {def.label}
-                    </p>
-                    <ChevronRight className={`w-4 h-4 ${def.num}`} />
-                  </div>
-
-                  <div>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">
-                      Total
-                    </p>
-                    <p className={`text-2xl font-black ${def.num}`}>
-                      {formatRp(total)}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {pmts.length} transaksi
-                    </p>
-                  </div>
-
-                  <div className="space-y-1 pt-1 border-t border-border/40">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-green-700 font-medium">Tunai</span>
-                      <span className="font-semibold">{formatRp(tunai)}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-blue-700 font-medium">
-                        Transfer
-                      </span>
-                      <span className="font-semibold">
-                        {formatRp(transfer)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-orange-700 font-medium">
-                        Piutang
-                      </span>
-                      <span className="font-semibold">{formatRp(piutang)}</span>
-                    </div>
-                    {piutangCount > 0 && (
-                      <p className="text-[10px] text-orange-600 pt-0.5">
-                        {piutangCount} belum lunas
+              return (
+                <Card
+                  key={def.key}
+                  className={`cursor-pointer hover:shadow-lg hover:scale-[1.02] transition-all border-2 ${def.border} ${def.bg}`}
+                  onClick={() => goDetail(def.key)}
+                >
+                  <CardContent className="pt-5 pb-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className={`text-sm font-bold ${def.num}`}>
+                        {def.label}
                       </p>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                      <ChevronRight className={`w-4 h-4 ${def.num}`} />
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">
+                        Total
+                      </p>
+                      <p className={`text-2xl font-black ${def.num}`}>
+                        {formatRp(total)}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {pmts.length} transaksi
+                      </p>
+                    </div>
+
+                    <div className="space-y-1 pt-1 border-t border-border/40">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-green-700 font-medium">Tunai</span>
+                        <span className="font-semibold">{formatRp(tunai)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-blue-700 font-medium">
+                          Transfer
+                        </span>
+                        <span className="font-semibold">
+                          {formatRp(transfer)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-orange-700 font-medium">
+                          Piutang
+                        </span>
+                        <span className="font-semibold">{formatRp(piutang)}</span>
+                      </div>
+                      {piutangCount > 0 && (
+                        <p className="text-[10px] text-orange-600 pt-0.5">
+                          {piutangCount} belum lunas
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="pt-2">
+              <Pagination
+                page={page}
+                totalPages={totalPages}
+                total={total}
+                pageSize={PAGE_SIZE}
+                onPageChange={setPage}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

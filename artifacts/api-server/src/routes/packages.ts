@@ -554,6 +554,8 @@ router.post(
         customerName,
         packageDate,
         batchId,
+        additionalFee,
+        additionalFeeReason,
       } = req.body;
 
       if (!resiNumber || (!customerId && !customerName)) {
@@ -689,6 +691,10 @@ router.post(
         ...(customerId ? { customerId: Number(customerId) } : {}),
         batchId: Number(batchId),
         ...(serviceTypeId !== null ? { serviceTypeId } : {}),
+        ...(additionalFee !== undefined && additionalFee !== null && additionalFee !== ""
+          ? { additionalFee: String(additionalFee) }
+          : {}),
+        ...(additionalFeeReason ? { additionalFeeReason } : {}),
       };
       const inserted = await db
         .insert(packagesTable)
@@ -844,6 +850,8 @@ router.post(
             deliveryRoute,
             packageMode,
             totalShipping: totalShippingRow,
+            additionalFee: additionalFeeRow,
+            additionalFeeReason: additionalFeeReasonRow,
           } = row;
 
           if (!resiNumber || !customerName) {
@@ -937,6 +945,10 @@ router.post(
               serviceTypeId: serviceType
                 ? (serviceTypeByName.get(String(serviceType)) ?? null)
                 : null,
+              additionalFee: additionalFeeRow !== undefined && additionalFeeRow !== null && additionalFeeRow !== ""
+                ? String(additionalFeeRow)
+                : "0",
+              additionalFeeReason: additionalFeeReasonRow ? String(additionalFeeReasonRow) : null,
             })
             .returning({ id: packagesTable.id });
           if (inserted[0]?.id) createdIds.push(inserted[0].id);
@@ -1142,7 +1154,9 @@ router.get(
       }
       if (!pkgs[0] && barcode) {
         const all = await db.select().from(packagesTable);
-        const candidates = all.filter((p) => p.packageNumber === barcode);
+        const candidates = all.filter(
+          (p) => p.packageNumber === barcode || String(p.id) === barcode
+        );
         if (candidates.length > 0) {
           const inBatch = hintBatchId != null ? candidates.find((p) => p.batchId === hintBatchId) : null;
           pkgs = [inBatch ?? candidates[0]];
@@ -1354,9 +1368,18 @@ router.patch(
         height,
         shippingRate,
         totalShipping: totalShippingInput,
+        additionalFee,
+        additionalFeeReason,
       } = req.body;
 
       const updateData: any = { updatedAt: new Date() };
+
+      if (additionalFee !== undefined) {
+        updateData.additionalFee = additionalFee !== null && additionalFee !== "" ? String(additionalFee) : "0";
+      }
+      if (additionalFeeReason !== undefined) {
+        updateData.additionalFeeReason = additionalFeeReason || null;
+      }
 
       if (status) {
         updateData.status = status;
