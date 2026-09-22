@@ -289,11 +289,15 @@ router.post(
         const items = packages.map(formatItem);
         const total = numberValue(transaction.total);
         const downPayment = Math.max(0, total - numberValue(transaction.sisaPiutang));
+        const resolvedCustomerName =
+          transaction.customerName && transaction.customerName.trim() && transaction.customerName !== "-"
+            ? transaction.customerName.trim()
+            : (packages.find((p) => p.customerName && p.customerName.trim() && p.customerName !== "-")?.customerName?.trim() || transaction.customerName || "Customer Jastip");
         const [invoice] = await tx.insert(invoicesTable).values({
           invoiceNo: await nextInvoiceNo(tx),
           transactionId,
           customerSnapshot: {
-            customerName: transaction.customerName,
+            customerName: resolvedCustomerName,
             transactionNo: transaction.transactionNo,
             packageIds,
             jenisJastip: transaction.jenisJastip,

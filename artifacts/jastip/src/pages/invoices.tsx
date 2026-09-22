@@ -24,6 +24,8 @@ import {
   Phone,
   Layers,
   ArrowRight,
+  Receipt,
+  ShoppingBag,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -101,8 +103,14 @@ export default function InvoicesPage() {
   // Success Created Modal
   const [createdInvoice, setCreatedInvoice] = useState<any | null>(null);
 
-  // Legacy Transaction form state
+  // Tab 3: Dari Transaksi states
   const [transactionId, setTransactionId] = useState("");
+  const [searchTx, setSearchTx] = useState("");
+  const [filterTxInvoiceStatus, setFilterTxInvoiceStatus] = useState<"all" | "no_invoice" | "has_invoice">("all");
+  const [filterTxPayment, setFilterTxPayment] = useState<string>("all");
+  const [txPage, setTxPage] = useState(1);
+  const [creatingTxId, setCreatingTxId] = useState<number | null>(null);
+  const TX_PAGE_SIZE = 6;
 
   // Search in Invoice List
   const [invoiceSearchQuery, setInvoiceSearchQuery] = useState("");
@@ -315,21 +323,78 @@ export default function InvoicesPage() {
     }
   }
 
+  // Helper to resolve real customer name from transaction or its packages
+  function getTxCustomerName(tx: any): string {
+    if (tx.customerName && tx.customerName.trim() && tx.customerName.trim() !== "-") {
+      return tx.customerName.trim();
+    }
+    const pkgIds = Array.isArray(tx.packageIds) ? tx.packageIds : [];
+    if (pkgIds.length > 0 && packages.length > 0) {
+      for (const pid of pkgIds) {
+        const p = packages.find((pkg) => pkg.id === pid);
+        if (p && p.customerName && p.customerName.trim() && p.customerName.trim() !== "-") {
+          return p.customerName.trim();
+        }
+      }
+    }
+    return tx.customerName && tx.customerName.trim() !== "-" ? tx.customerName : "Customer Kasir";
+  }
+
+  // Map transactionId -> Invoice object (active/valid)
+  const txInvoiceMap = useMemo(() => {
+    const map = new Map<number, any>();
+    for (const inv of invoices) {
+      if (inv.transactionId && inv.status !== "BATAL") {
+        map.set(inv.transactionId, inv);
+      }
+    }
+    return map;
+  }, [invoices]);
+
   // Create invoice from transaction
   const eligibleTransactions = useMemo(
     () => transactions.filter((transaction) => transaction.transactionStatus === "AKTIF"),
     [transactions],
   );
 
-  async function createFromTransaction() {
-    if (!transactionId) {
+  const filteredTransactions = useMemo(() => {
+    return eligibleTransactions.filter((tx) => {
+      const cName = getTxCustomerName(tx).toLowerCase();
+      const txNo = (tx.transactionNo || "").toLowerCase();
+      const hasInvoice = txInvoiceMap.has(tx.id);
+
+      if (searchTx.trim()) {
+        const query = searchTx.toLowerCase().trim();
+        const matchNo = txNo.includes(query);
+        const matchCust = cName.includes(query);
+        if (!matchNo && !matchCust) return false;
+      }
+
+      if (filterTxInvoiceStatus === "no_invoice" && hasInvoice) return false;
+      if (filterTxInvoiceStatus === "has_invoice" && !hasInvoice) return false;
+
+      if (filterTxPayment !== "all" && tx.paymentStatus !== filterTxPayment) return false;
+
+      return true;
+    });
+  }, [eligibleTransactions, searchTx, filterTxInvoiceStatus, filterTxPayment, txInvoiceMap, packages]);
+
+  const totalTxPages = Math.ceil(filteredTransactions.length / TX_PAGE_SIZE);
+  const paginatedTransactions = useMemo(() => {
+    return filteredTransactions.slice((txPage - 1) * TX_PAGE_SIZE, txPage * TX_PAGE_SIZE);
+  }, [filteredTransactions, txPage]);
+
+  async function createFromTransaction(targetTxId?: number) {
+    const chosenId = targetTxId ?? (transactionId ? Number(transactionId) : null);
+    if (!chosenId) {
       setFeedbackMessage({ type: "error", text: "Pilih transaksi terlebih dahulu." });
       return;
     }
     setSaving(true);
+    setCreatingTxId(chosenId);
     setFeedbackMessage(null);
     try {
-      const response = await fetch(`/api/invoices/from-transaction/${transactionId}`, {
+      const response = await fetch(`/api/invoices/from-transaction/${chosenId}`, {
         method: "POST",
         headers: authHeaders(),
       });
@@ -347,6 +412,7 @@ export default function InvoicesPage() {
       setFeedbackMessage({ type: "error", text: error.message || "Gagal membuat invoice." });
     } finally {
       setSaving(false);
+      setCreatingTxId(null);
     }
   }
 
@@ -567,12 +633,12 @@ export default function InvoicesPage() {
                     <SelectTrigger className="h-11 w-full lg:w-52 text-xs">
                       <SelectValue placeholder="Semua Batch" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent position="popper" side="bottom" align="start" className="max-h-72">
                       <SelectItem value="all">Semua Batch / Kapal</SelectItem>
                       <SelectItem value="no_batch">Tanpa Batch</SelectItem>
                       {batches.map((b) => (
                         <SelectItem key={b.id} value={String(b.id)}>
-                          {b.shipName} {b.batchCode ? `(${b.batchCode})` : ""}
+                          {b.namaKapal || b.shipName || `Batch #${b.id}`} {b.kotaAsal ? `(${b.kotaAsal} → ${b.tujuan || "Manokwari"})` : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1174,42 +1240,340 @@ export default function InvoicesPage() {
         </TabsContent>
 
         {/* ── TAB 3: DARI TRANSAKSI SISTEM ────────────────────────────────────────── */}
-        <TabsContent value="from-tx" className="space-y-4">
-          <Card>
-            <CardHeader className="p-4 border-b">
-              <CardTitle className="text-base font-bold text-slate-900">
-                Terbitkan Invoice dari Transaksi yang Sudah Ada
-              </CardTitle>
-              <CardDescription className="text-xs text-slate-500">
-                Gunakan opsi ini jika transaksi sudah dicatat sebelumnya di menu kasir/transaksi.
-              </CardDescription>
+        <TabsContent value="from-tx" className="space-y-5">
+          {/* Card Filter & Pencarian Transaksi */}
+          <Card className="border shadow-xs">
+            <CardHeader className="p-4 border-b bg-slate-50/50">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <CardTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <Receipt className="h-5 w-5 text-teal-600" />
+                    Terbitkan Invoice dari Transaksi Kasir
+                  </CardTitle>
+                  <CardDescription className="text-xs text-slate-500">
+                    Pilih transaksi kasir yang sudah tercatat untuk secara instan menerbitkan Invoice resmi A4.
+                  </CardDescription>
+                </div>
+                <Badge variant="outline" className="self-start sm:self-auto bg-white text-slate-700 font-semibold px-2.5 py-1">
+                  Total {eligibleTransactions.length} Transaksi Aktif
+                </Badge>
+              </div>
             </CardHeader>
-            <CardContent className="p-4 space-y-4 max-w-xl">
-              <div>
-                <Label className="text-xs font-semibold text-slate-700">Pilih Transaksi Aktif</Label>
-                <Select value={transactionId} onValueChange={setTransactionId}>
-                  <SelectTrigger className="mt-1 h-10">
-                    <SelectValue placeholder="Pilih nomor transaksi..." />
+            <CardContent className="p-4 space-y-4">
+              {/* Filter Controls Row */}
+              <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
+                {/* Search Input */}
+                <div className="relative flex-1">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <Input
+                    value={searchTx}
+                    onChange={(e) => {
+                      setSearchTx(e.target.value);
+                      setTxPage(1);
+                    }}
+                    placeholder="🔍 Cari nomor transaksi (misal: TRX-2026...), nama customer..."
+                    className="pl-10 h-10 text-sm bg-slate-50/50 focus-visible:bg-white border-slate-200"
+                  />
+                  {searchTx && (
+                    <button
+                      onClick={() => {
+                        setSearchTx("");
+                        setTxPage(1);
+                      }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-700 font-bold px-1.5 py-0.5 rounded-full"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Filter Penanda Status Invoice */}
+                <Select
+                  value={filterTxInvoiceStatus}
+                  onValueChange={(v: any) => {
+                    setFilterTxInvoiceStatus(v);
+                    setTxPage(1);
+                  }}
+                >
+                  <SelectTrigger className="h-10 w-full lg:w-56 text-xs">
+                    <SelectValue placeholder="Status Invoice" />
                   </SelectTrigger>
-                  <SelectContent>
-                    {eligibleTransactions.map((tx) => (
-                      <SelectItem key={tx.id} value={String(tx.id)}>
-                        {tx.transactionNo} · {tx.customerName} · {formatRp(tx.total)}
-                      </SelectItem>
-                    ))}
+                  <SelectContent position="popper" side="bottom" align="start" className="max-h-72">
+                    <SelectItem value="all">Semua Transaksi</SelectItem>
+                    <SelectItem value="no_invoice">⏳ Belum Ada Invoice (Disarankan)</SelectItem>
+                    <SelectItem value="has_invoice">✓ Sudah Ada Invoice</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {/* Filter Status Pembayaran */}
+                <Select
+                  value={filterTxPayment}
+                  onValueChange={(v: any) => {
+                    setFilterTxPayment(v);
+                    setTxPage(1);
+                  }}
+                >
+                  <SelectTrigger className="h-10 w-full lg:w-48 text-xs">
+                    <SelectValue placeholder="Status Bayar" />
+                  </SelectTrigger>
+                  <SelectContent position="popper" side="bottom" align="start" className="max-h-72">
+                    <SelectItem value="all">Semua Status Bayar</SelectItem>
+                    <SelectItem value="LUNAS">Lunas</SelectItem>
+                    <SelectItem value="BAYAR_SEBAGIAN">Bayar Sebagian (DP)</SelectItem>
+                    <SelectItem value="BELUM_BAYAR">Belum Bayar (Piutang)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              <Button
-                onClick={createFromTransaction}
-                disabled={saving || !transactionId}
-                className="bg-teal-700 hover:bg-teal-800 text-white"
-              >
-                <Plus className="mr-2 h-4 w-4" /> Terbitkan Invoice dari Transaksi
-              </Button>
+              {/* Quick Select Accordion / Compact Picker */}
+              <div className="p-3 bg-teal-50/60 rounded-xl border border-teal-100 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2 text-teal-900 font-medium">
+                  <Layers className="h-4 w-4 text-teal-600 flex-shrink-0" />
+                  <span>Pilih Cepat via Dropdown:</span>
+                </div>
+                <div className="flex-1 max-w-md flex items-center gap-2">
+                  <Select value={transactionId} onValueChange={setTransactionId}>
+                    <SelectTrigger className="h-9 text-xs bg-white border-teal-200">
+                      <SelectValue placeholder="Pilih nomor transaksi aktif..." />
+                    </SelectTrigger>
+                    <SelectContent position="popper" side="bottom" align="start" className="max-h-64 w-[360px] sm:w-[480px] overflow-y-auto">
+                      {eligibleTransactions.map((tx) => {
+                        const cust = getTxCustomerName(tx);
+                        const hasInv = txInvoiceMap.has(tx.id);
+                        return (
+                          <SelectItem key={tx.id} value={String(tx.id)} className="text-xs">
+                            <span className="font-mono font-semibold">{tx.transactionNo}</span>
+                            <span className="mx-1 text-slate-400">·</span>
+                            <span className="font-medium text-slate-800">{cust}</span>
+                            <span className="mx-1 text-slate-400">·</span>
+                            <span className="text-teal-700 font-semibold">{formatRp(tx.total)}</span>
+                            {hasInv && <span className="ml-1 text-[10px] text-teal-600 font-bold">(Ada Invoice)</span>}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={() => createFromTransaction()}
+                    disabled={saving || !transactionId}
+                    size="sm"
+                    className="h-9 bg-teal-700 hover:bg-teal-800 text-white font-medium px-3 whitespace-nowrap"
+                  >
+                    {saving && creatingTxId === Number(transactionId) ? (
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <>
+                        <Plus className="mr-1.5 h-3.5 w-3.5" /> Terbitkan
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
+
+          {/* List of Filtered Transactions Cards */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs text-slate-600 px-1">
+              <span>
+                Menampilkan <strong>{filteredTransactions.length}</strong> transaksi yang sesuai
+              </span>
+              {searchTx && (
+                <Badge variant="outline" className="bg-teal-50 text-teal-700 border-teal-200">
+                  Filter pencarian: "{searchTx}"
+                </Badge>
+              )}
+            </div>
+
+            {filteredTransactions.length === 0 ? (
+              <Card className="border-dashed p-8 text-center bg-slate-50/50">
+                <Layers className="h-10 w-10 text-slate-300 mx-auto mb-2" />
+                <p className="text-sm font-semibold text-slate-700">Tidak ada transaksi yang cocok</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Coba ubah kata kunci pencarian atau sesuaikan filter status pembayaran dan invoice.
+                </p>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {paginatedTransactions.map((tx) => {
+                  const custName = getTxCustomerName(tx);
+                  const pkgIds = Array.isArray(tx.packageIds) ? tx.packageIds : [];
+                  const txPackages = packages.filter((p) => pkgIds.includes(p.id));
+                  const existingInv = txInvoiceMap.get(tx.id);
+                  const isProcessing = saving && creatingTxId === tx.id;
+
+                  const paymentBadgeColor =
+                    tx.paymentStatus === "LUNAS"
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                      : tx.paymentStatus === "BAYAR_SEBAGIAN"
+                      ? "bg-amber-50 text-amber-700 border-amber-200"
+                      : "bg-rose-50 text-rose-700 border-rose-200";
+
+                  return (
+                    <Card
+                      key={tx.id}
+                      className={`border transition-all hover:shadow-xs ${
+                        existingInv ? "bg-slate-50/60 border-slate-200" : "bg-white border-slate-200"
+                      }`}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                          {/* Left: Transaction info & Customer */}
+                          <div className="space-y-2 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-mono font-bold text-sm text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                                {tx.transactionNo}
+                              </span>
+                              <Badge variant="outline" className={`text-[11px] font-semibold ${paymentBadgeColor}`}>
+                                {tx.paymentStatus?.replace(/_/g, " ")}
+                              </Badge>
+                              {existingInv ? (
+                                <Badge className="bg-teal-100 text-teal-800 border-teal-300 font-semibold text-[11px]">
+                                  ✓ Sudah Ada Invoice ({existingInv.invoiceNo})
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-200 text-[11px]">
+                                  ⏳ Belum Ada Invoice
+                                </Badge>
+                              )}
+                              <span className="text-xs text-slate-400">
+                                {tx.createdAt
+                                  ? new Date(tx.createdAt).toLocaleDateString("id-ID", {
+                                      day: "numeric",
+                                      month: "short",
+                                      year: "numeric",
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })
+                                  : "-"}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
+                              <div className="flex items-center gap-2">
+                                <User className="h-4 w-4 text-slate-400 flex-shrink-0" />
+                                <div>
+                                  <span className="text-slate-500">Customer: </span>
+                                  <strong className="text-slate-900 font-semibold">{custName}</strong>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <ShoppingBag className="h-4 w-4 text-slate-400 flex-shrink-0" />
+                                <div>
+                                  <span className="text-slate-500">Rincian: </span>
+                                  <span className="text-slate-800 font-medium">
+                                    {txPackages.length || pkgIds.length || 1} paket fisik
+                                    {txPackages.length > 0 && (
+                                      <span className="text-slate-500 text-[11px]">
+                                        {" "}
+                                        (
+                                        {txPackages
+                                          .slice(0, 2)
+                                          .map((p) => p.itemName || p.resiNumber)
+                                          .filter(Boolean)
+                                          .join(", ")}
+                                        {txPackages.length > 2 ? `, +${txPackages.length - 2} lainnya` : ""}
+                                        )
+                                      </span>
+                                    )}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Middle: Financial snapshot */}
+                          <div className="lg:border-l lg:pl-4 min-w-[160px] space-y-1 text-right lg:text-right">
+                            <div className="text-xs text-slate-500">Total Transaksi</div>
+                            <div className="text-base font-bold text-slate-900 font-mono">
+                              {formatRp(tx.total)}
+                            </div>
+                            {Number(tx.sisaPiutang) > 0 && (
+                              <div className="text-[11px] text-rose-600 font-medium">
+                                Sisa Piutang: {formatRp(tx.sisaPiutang)}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Right: Actions */}
+                          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 lg:border-l lg:pl-4">
+                            {existingInv ? (
+                              <div className="flex items-center gap-1.5 w-full sm:w-auto">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => downloadInvoice(existingInv.id)}
+                                  disabled={downloadingInvoiceId === existingInv.id}
+                                  className="h-9 text-xs border-teal-200 text-teal-800 hover:bg-teal-50"
+                                >
+                                  {downloadingInvoiceId === existingInv.id ? (
+                                    <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                                  ) : (
+                                    <Download className="h-3.5 w-3.5 mr-1.5 text-teal-600" />
+                                  )}
+                                  PDF
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => printInvoice(existingInv.id)}
+                                  className="h-9 text-xs"
+                                >
+                                  <Printer className="h-3.5 w-3.5 mr-1.5 text-slate-600" />
+                                  Cetak
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => createFromTransaction(tx.id)}
+                                  disabled={saving}
+                                  title="Terbitkan ulang invoice baru dari transaksi ini"
+                                  className="h-9 text-xs text-slate-500 hover:text-slate-800"
+                                >
+                                  Terbitkan Ulang
+                                </Button>
+                              </div>
+                            ) : (
+                              <Button
+                                onClick={() => createFromTransaction(tx.id)}
+                                disabled={saving}
+                                className="h-9 text-xs bg-teal-700 hover:bg-teal-800 text-white font-medium w-full sm:w-auto px-4"
+                              >
+                                {isProcessing ? (
+                                  <>
+                                    <RefreshCw className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                    Menerbitkan...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Plus className="mr-1.5 h-3.5 w-3.5" />
+                                    Terbitkan Invoice A4
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+
+                {/* Pagination */}
+                {totalTxPages > 1 && (
+                  <div className="pt-2">
+                    <Pagination
+                      page={txPage}
+                      totalPages={totalTxPages}
+                      total={filteredTransactions.length}
+                      pageSize={TX_PAGE_SIZE}
+                      onPageChange={setTxPage}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </TabsContent>
       </Tabs>
 
