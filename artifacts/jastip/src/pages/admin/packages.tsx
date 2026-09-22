@@ -368,9 +368,11 @@ export default function AdminPackages() {
 
     // ── Loop per grup konsumen ──────────────────────────────────────────────
     for (const [customerName, pkgs] of groups) {
+      const isPelni = pkgs.some((p: any) => (p.serviceType || "").toLowerCase() === "jastip pelni") || pdfJenis === "jastip pelni";
       const totalBeratGrup = pkgs.reduce((s: number, p: any) => s + (Number(p.usedWeight) || 0), 0);
-      const totalOngkirGrup = pkgs.reduce((s: number, p: any) => s + (Number(p.totalShipping) || 0), 0);
-      const hargaPerKg = pkgs.find((p: any) => p.shippingRate != null)?.shippingRate ?? null;
+      let rawTotalOngkirGrup = pkgs.reduce((s: number, p: any) => s + (Number(p.totalShipping) || 0), 0);
+      const totalOngkirGrup = (isPelni && rawTotalOngkirGrup > 0 && rawTotalOngkirGrup < 20000) ? 20000 : rawTotalOngkirGrup;
+      const hargaPerKg = pkgs.find((p: any) => p.shippingRate != null)?.shippingRate ?? (isPelni ? 20000 : null);
 
       if (210 - y < 22) { doc.addPage(); y = 10; }
 
@@ -382,25 +384,31 @@ export default function AdminPackages() {
       doc.text(`  Jumlah Paket:     ${pkgs.length}.0`, margin, y + 7.5);
       y += 12;
 
-      const rows = pkgs.map((p: any, i: number) => [
-        formatDate(p.packageDate || p.createdAt),
-        p.resiNumber || "-",
-        p.barcode || p.resiNumber || "-",
-        p.statusVerifikasi === "SUDAH_DIVERIFIKASI" ? "SUDAH\nSCAN" : "BELUM\nSCAN",
-        p.packageNumber || "-",
-        p.customerName || "-",
-        fNum(p.realWeight, 1),
-        fNum(p.length, 0),
-        fNum(p.width, 0),
-        fNum(p.height, 0),
-        p.volumeWeight != null ? fNum(p.volumeWeight, 1) : "0.0",
-        p.packagingType || "-",
-        fNum(p.usedWeight, 1),
-        formatExportRp(p.totalShipping),
-        i === 0 ? formatNumber(totalBeratGrup, 2) : "",
-        i === 0 ? formatExportRp(hargaPerKg) : "",
-        i === 0 ? formatExportRp(totalOngkirGrup) : "",
-      ]);
+      const rows = pkgs.map((p: any, i: number) => {
+        let ongkirPaket = Number(p.totalShipping) || 0;
+        if (isPelni && rawTotalOngkirGrup > 0 && rawTotalOngkirGrup < 20000) {
+          ongkirPaket = pkgs.length === 1 ? 20000 : Math.round((Number(p.usedWeight || 0) / (totalBeratGrup || 1)) * 20000);
+        }
+        return [
+          formatDate(p.packageDate || p.createdAt),
+          p.resiNumber || "-",
+          p.barcode || p.resiNumber || "-",
+          p.statusVerifikasi === "SUDAH_DIVERIFIKASI" ? "SUDAH\nSCAN" : "BELUM\nSCAN",
+          p.packageNumber || "-",
+          p.customerName || "-",
+          fNum(p.realWeight, 1),
+          fNum(p.length, 0),
+          fNum(p.width, 0),
+          fNum(p.height, 0),
+          p.volumeWeight != null ? fNum(p.volumeWeight, 1) : "0.0",
+          p.packagingType || "-",
+          fNum(p.usedWeight, 1),
+          formatExportRp(ongkirPaket),
+          i === 0 ? formatNumber(totalBeratGrup, 2) : "",
+          i === 0 ? formatExportRp(hargaPerKg) : "",
+          i === 0 ? formatExportRp(totalOngkirGrup) : "",
+        ];
+      });
 
       autoTable(doc, {
         startY: y,

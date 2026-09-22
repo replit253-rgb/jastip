@@ -11,10 +11,11 @@ import {
 } from "@/components/ui/dialog";
 import {
   ArrowLeft, Ship, Banknote, CreditCard, Clock, QrCode,
-  ChevronDown, ChevronUp, CheckCircle2, History,
+  ChevronDown, ChevronUp, CheckCircle2, History, Download, Printer, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
+import { downloadReceiptPdf, type ReceiptPrintPayload } from "@/lib/print-receipt";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -122,6 +123,32 @@ export default function RiwayatPembayaranDetail({ params }: { params: { id: stri
   }, [packages]);
 
   const batch = useMemo(() => (batches as any[]).find((b) => b.id === batchId), [batches, batchId]);
+
+  const [downloadingPmtId, setDownloadingPmtId] = useState<number | null>(null);
+
+  async function handleDownloadReceipt(pmt: any) {
+    if (!pmt.transactionId) {
+      toast.error("Data transaksi struk tidak ditemukan.");
+      return;
+    }
+    setDownloadingPmtId(pmt.id);
+    try {
+      const token = localStorage.getItem("jaj_token");
+      const res = await fetch(`/api/transactions/${pmt.transactionId}/receipt/print`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Gagal menyiapkan struk");
+
+      downloadReceiptPdf(body.receipt as ReceiptPrintPayload, body.print);
+      toast.success("File PDF struk transaksi berhasil diunduh.");
+    } catch (err: any) {
+      toast.error(err.message || "Gagal mengunduh file PDF struk.");
+    } finally {
+      setDownloadingPmtId(null);
+    }
+  }
 
   // Filter payments: match batchId + serviceType
   const filtered = useMemo(() => {
@@ -300,6 +327,26 @@ export default function RiwayatPembayaranDetail({ params }: { params: { id: stri
                           <p className="text-xs text-muted-foreground">Kembalian: {formatRp(pmt.changeAmount)}</p>
                         )}
                       </div>
+
+                      {pmt.transactionId && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0 text-teal-700 border-teal-200 hover:bg-teal-50 gap-1 text-xs"
+                          disabled={downloadingPmtId === pmt.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDownloadReceipt(pmt);
+                          }}
+                        >
+                          {downloadingPmtId === pmt.id ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Download className="w-3.5 h-3.5" />
+                          )}
+                          Unduh Struk
+                        </Button>
+                      )}
 
                       {isPiutang && (
                         <Button

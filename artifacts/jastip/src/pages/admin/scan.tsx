@@ -11,9 +11,9 @@ import {
 import {
   Camera, Upload, ScanLine, X, Hash, Trash2, CheckCircle2,
   ShoppingCart, RotateCcw, Banknote, CreditCard, Clock, ChevronDown, ChevronUp,
-  AlertTriangle, Users, Tag, Printer, QrCode, PlusCircle,
+  AlertTriangle, Users, Tag, Printer, Download, QrCode, PlusCircle,
 } from "lucide-react";
-import { buildReceiptDocument, type ReceiptPrintPayload } from "@/lib/print-receipt";
+import { buildReceiptDocument, downloadReceiptPdf, type ReceiptPrintPayload } from "@/lib/print-receipt";
 
 function formatRp(n: number | string | null | undefined) {
   if (n == null || n === "") return "Rp 0";
@@ -416,13 +416,41 @@ export default function AdminScan() {
     setDiskon(digits ? Number(digits).toLocaleString("id-ID") : "");
   }
 
+  const [isDownloadingReceipt, setIsDownloadingReceipt] = useState(false);
+
+  async function downloadReceipt(transactionId: number) {
+    setIsDownloadingReceipt(true);
+    try {
+      const response = await fetch(`/api/transactions/${transactionId}/receipt/print`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${localStorage.getItem("jaj_token")}` },
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Gagal menyiapkan struk");
+
+      downloadReceiptPdf(body.receipt as ReceiptPrintPayload, body.print);
+      toast({
+        title: "Berhasil Unduh PDF",
+        description: "File PDF struk transaksi berhasil diunduh.",
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Gagal mengunduh struk PDF",
+        description: error?.message || "Coba lagi.",
+      });
+    } finally {
+      setIsDownloadingReceipt(false);
+    }
+  }
+
   async function printReceipt(transactionId: number) {
     const printWindow = window.open("", "_blank", "width=420,height=720");
     if (!printWindow) {
       toast({
         variant: "destructive",
         title: "Popup diblokir",
-        description: "Izinkan popup browser untuk mencetak struk.",
+        description: "Izinkan popup browser atau gunakan tombol Unduh PDF Struk.",
       });
       return;
     }
@@ -1218,21 +1246,32 @@ export default function AdminScan() {
         open={receiptPromptTransactionId !== null}
         onOpenChange={(open) => !open && setReceiptPromptTransactionId(null)}
       >
-        <DialogContent className="max-w-sm">
+        <DialogContent className="w-[92vw] max-w-sm mx-auto p-5 rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Printer className="h-5 w-5 text-primary" /> Cetak struk transaksi?
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Printer className="h-5 w-5 text-teal-700" /> Cetak / Unduh Struk Transaksi
             </DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Pembayaran berhasil disimpan. Cetak struk sekarang atau lewati dan
-            gunakan tombol Cetak Struk dari histori transaksi untuk mencetak ulang.
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Pembayaran berhasil disimpan. Anda dapat mengunduh dokumen struk dalam format PDF atau mencetaknya ke printer termal sekarang.
           </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setReceiptPromptTransactionId(null)}>
-              Lewati
+          <div className="flex flex-col gap-2 pt-2">
+            <Button
+              className="w-full bg-teal-700 hover:bg-teal-800 text-white font-medium text-xs sm:text-sm py-2.5 h-auto shadow-xs"
+              disabled={isDownloadingReceipt}
+              onClick={async () => {
+                if (receiptPromptTransactionId === null) return;
+                const id = receiptPromptTransactionId;
+                setReceiptPromptTransactionId(null);
+                await downloadReceipt(id);
+              }}
+            >
+              <Download className="mr-2 h-4 w-4 shrink-0" />
+              <span>Unduh File PDF Struk</span>
             </Button>
             <Button
+              variant="outline"
+              className="w-full border-teal-700 text-teal-800 hover:bg-teal-50 font-medium text-xs sm:text-sm py-2.5 h-auto"
               onClick={async () => {
                 if (receiptPromptTransactionId === null) return;
                 const id = receiptPromptTransactionId;
@@ -1240,9 +1279,17 @@ export default function AdminScan() {
                 await printReceipt(id);
               }}
             >
-              <Printer className="h-4 w-4" /> Cetak Struk
+              <Printer className="mr-2 h-4 w-4 shrink-0" />
+              <span>Cetak ke Printer Struk</span>
             </Button>
-          </DialogFooter>
+            <Button
+              variant="ghost"
+              className="w-full text-slate-500 hover:bg-slate-100 text-xs py-2 h-auto"
+              onClick={() => setReceiptPromptTransactionId(null)}
+            >
+              Lewati &amp; Tutup
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

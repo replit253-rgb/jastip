@@ -157,10 +157,11 @@ function calcGroupTotalShipping(pkgs: any[]): number {
     const rate = getPelniRateByTotalWeight(
       totalWeight,
       first?.deliveryRoute || "",
-    );
-    return rate
+    ) || 20000;
+    const calc = rate
       ? Math.round(totalWeight * rate)
       : pkgs.reduce((s, p) => s + (Number(p.totalShipping) || 0), 0);
+    return Math.max(20000, calc);
   }
 
   return pkgs.reduce((s, p) => s + (Number(p.totalShipping) || 0), 0);

@@ -368,6 +368,18 @@ const mockPengeluaran: any[] = [];
 const mockVoids: any[] = [];
 const mockInvoices: any[] = [];
 const mockTarifHistory: any[] = [];
+const mockServiceTypes: any[] = [
+  { id: 1, name: "jastip pelni", label: "Jastip Pelni", description: "Layanan kapal Pelni", divisor: 4000, isActive: true },
+  { id: 2, name: "jastip hemat+", label: "Jastip Hemat+", description: "Layanan hemat Surabaya-Manokwari", divisor: 4000, isActive: true },
+  { id: 3, name: "jastip kargo", label: "Jastip Kargo", description: "Layanan kargo pelabuhan", divisor: 1000000, isActive: true },
+  { id: 4, name: "jastip pesawat", label: "Jastip Pesawat", description: "Layanan kilat udara", divisor: 5000, isActive: true },
+];
+const mockShippingMinimum: any[] = [
+  { id: 1, serviceId: 1, originCity: "Jakarta", enabled: true, minimumAmount: "20000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
+  { id: 2, serviceId: 1, originCity: "Surabaya", enabled: true, minimumAmount: "20000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
+  { id: 3, serviceId: 2, originCity: "Surabaya", enabled: true, minimumAmount: "10000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
+  { id: 4, serviceId: 3, originCity: "Jakarta/Surabaya", enabled: true, minimumAmount: "25000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
+];
 const mockSettings: any[] = [
   { key: "cash_variance_tolerance", value: "0" },
   { key: "tarif_laut_kg", value: "20000" },
@@ -387,6 +399,8 @@ function getStoreForTable(table: any): any[] {
   if (tableName.includes("void")) return mockVoids;
   if (tableName.includes("invoice")) return mockInvoices;
   if (tableName.includes("tarif")) return mockTarifHistory;
+  if (tableName.includes("shipping_minimum") || tableName.includes("shippingminimum")) return mockShippingMinimum;
+  if (tableName.includes("service_type") || tableName.includes("servicetype")) return mockServiceTypes;
   if (tableName.includes("setting")) return mockSettings;
   return [];
 }

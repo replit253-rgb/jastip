@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Ban, Banknote, CircleDollarSign, Clock3, CreditCard, ReceiptText, Printer } from "lucide-react";
+import { Ban, Banknote, CircleDollarSign, Clock3, CreditCard, ReceiptText, Printer, Download, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +10,7 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth";
-import { buildReceiptDocument, type ReceiptPrintPayload } from "@/lib/print-receipt";
+import { buildReceiptDocument, downloadReceiptPdf, type ReceiptPrintPayload } from "@/lib/print-receipt";
 import { Pagination } from "@/components/pagination";
 
 type FinanceSummary = {
@@ -71,10 +71,31 @@ export default function OwnerFinanceTransactions() {
     }
   }
 
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+
+  async function downloadReceipt(transactionId: number) {
+    setDownloadingId(transactionId);
+    try {
+      const response = await fetch(`/api/transactions/${transactionId}/receipt/print`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Gagal menyiapkan struk.");
+
+      downloadReceiptPdf(body.receipt as ReceiptPrintPayload, body.print);
+      setMessage("File PDF struk transaksi berhasil diunduh.");
+    } catch (error: any) {
+      setMessage(error.message || "Gagal mengunduh file PDF struk.");
+    } finally {
+      setDownloadingId(null);
+    }
+  }
+
   async function printReceipt(transactionId: number) {
     const printWindow = window.open("", "_blank", "width=420,height=720");
     if (!printWindow) {
-      setMessage("Popup diblokir. Izinkan popup browser untuk mencetak struk.");
+      setMessage("Popup diblokir. Izinkan popup browser untuk mencetak struk atau gunakan Unduh PDF.");
       return;
     }
     printWindow.document.write("<p style='font:14px Arial;padding:20px'>Menyiapkan struk...</p>");
@@ -267,10 +288,24 @@ export default function OwnerFinanceTransactions() {
                   <Button
                     size="sm"
                     variant="outline"
-                    className="gap-1"
+                    className="gap-1 bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100"
+                    disabled={downloadingId === transaction.id}
+                    onClick={() => void downloadReceipt(transaction.id)}
+                  >
+                    {downloadingId === transaction.id ? (
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="h-3.5 w-3.5" />
+                    )}
+                    Unduh PDF
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1 text-slate-700 hover:bg-slate-100"
                     onClick={() => void printReceipt(transaction.id)}
                   >
-                    <Printer className="h-3.5 w-3.5" /> Cetak Struk
+                    <Printer className="h-3.5 w-3.5" /> Cetak
                   </Button>
                   {transaction.transactionStatus === "AKTIF" && (
                     <Button

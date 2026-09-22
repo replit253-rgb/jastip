@@ -42,33 +42,49 @@ async function getShippingMinimum(
   serviceType: string | null | undefined,
   deliveryRoute: string | null | undefined,
 ) {
-  if (!serviceType || !deliveryRoute) return null;
-  const originCity = String(deliveryRoute).split("→")[0]?.trim();
-  if (!originCity) return null;
-  const rows = await db
-    .select({
-      enabled: settingsShippingMinimumTable.enabled,
-      minimumAmount: settingsShippingMinimumTable.minimumAmount,
-    })
-    .from(settingsShippingMinimumTable)
-    .innerJoin(
-      serviceTypesTable,
-      eq(settingsShippingMinimumTable.serviceId, serviceTypesTable.id),
-    )
-    .where(
-      and(
-        eq(serviceTypesTable.name, serviceType),
-        eq(settingsShippingMinimumTable.originCity, originCity),
-      ),
-    )
-    .limit(1);
-  const row = rows[0];
-  return row
-    ? {
+  if (!serviceType) return null;
+  const originCity = deliveryRoute ? String(deliveryRoute).split("→")[0]?.trim() : "";
+  try {
+    const rows = await db
+      .select({
+        enabled: settingsShippingMinimumTable.enabled,
+        minimumAmount: settingsShippingMinimumTable.minimumAmount,
+      })
+      .from(settingsShippingMinimumTable)
+      .innerJoin(
+        serviceTypesTable,
+        eq(settingsShippingMinimumTable.serviceId, serviceTypesTable.id),
+      )
+      .where(
+        and(
+          eq(serviceTypesTable.name, serviceType),
+          originCity ? eq(settingsShippingMinimumTable.originCity, originCity) : sql`1=1`,
+        ),
+      )
+      .limit(1);
+    const row = rows[0];
+    if (row && row.enabled) {
+      return {
         enabled: row.enabled,
         minimumAmount: Number(row.minimumAmount) || 0,
-      }
-    : null;
+      };
+    }
+  } catch {
+    // Ignore query fallback
+  }
+
+  // Default minimum rules Jastip Anggun Jaya:
+  // Jastip Pelni: minimal Rp 20.000 (ongkir total di bawah 20 rb langsung jadi 20 rb)
+  if (serviceType === "jastip pelni") {
+    return { enabled: true, minimumAmount: 20000 };
+  }
+  if (serviceType === "jastip hemat+") {
+    return { enabled: true, minimumAmount: 10000 };
+  }
+  if (serviceType === "jastip kargo") {
+    return { enabled: true, minimumAmount: 70000 };
+  }
+  return null;
 }
 
 // ── Pesawat: pembulatan berat gabungan & recalc ongkir ──────────────────────
@@ -234,9 +250,28 @@ function getPelniRateByTotalWeight(
 async function recalcPelniCustomerOngkir(
   batchId: number,
   customerName: string,
-  deliveryRoute: string,
+  deliveryRoute?: string | null,
 ): Promise<void> {
-  if (!batchId || !customerName || !deliveryRoute) return;
+  if (!batchId || !customerName) return;
+
+  // Resolve deliveryRoute jika kosong
+  let effectiveRoute = deliveryRoute;
+  if (!effectiveRoute) {
+    try {
+      const b = await db
+        .select()
+        .from(batchesTable)
+        .where(eq(batchesTable.id, batchId))
+        .limit(1);
+      if (b[0]?.kotaAsal && b[0]?.tujuan) {
+        effectiveRoute = `${b[0].kotaAsal} → ${b[0].tujuan}`;
+      } else {
+        effectiveRoute = "Jakarta → Manokwari";
+      }
+    } catch {
+      effectiveRoute = "Jakarta → Manokwari";
+    }
+  }
 
   // Ambil semua paket Pelni dalam batch ini
   const allBatchPelni = await db
@@ -258,24 +293,25 @@ async function recalcPelniCustomerOngkir(
 
   // Total berat gabungan
   const totalWeight = customerPkgs.reduce(
-    (s, p) => s + (Number(p.usedWeight) || 0),
+    (s, p) => s + (Number(p.usedWeight) || Number(p.realWeight) || 0),
     0,
   );
-  if (!totalWeight) return;
+  if (totalWeight <= 0 && customerPkgs.length === 0) return;
 
   // Tarif dari tabel bertingkat berdasarkan total berat
-  const rate = getPelniRateByTotalWeight(totalWeight, deliveryRoute);
-  if (!rate) return;
+  const rate = getPelniRateByTotalWeight(totalWeight, effectiveRoute) || 20000;
 
   const normalTotals = customerPkgs.map((pkg) =>
-    Math.round((Number(pkg.usedWeight) || 0) * rate),
+    Math.round((Number(pkg.usedWeight) || Number(pkg.realWeight) || 0) * rate),
   );
   const normalTotalOngkir = normalTotals.reduce((sum, amount) => sum + amount, 0);
-  const minimum = await getShippingMinimum("jastip pelni", deliveryRoute);
-  const totalGroupOngkir = applyShippingMinimum(normalTotalOngkir, minimum);
+  const minimum = await getShippingMinimum("jastip pelni", effectiveRoute);
+  // Default minimal untuk Pelni adalah Rp 20.000 (total ongkir di bawah 20 rb otomatis jadi 20 rb)
+  const minAmount = minimum?.enabled ? minimum.minimumAmount : 20000;
+  const totalGroupOngkir = Math.max(normalTotalOngkir, minAmount);
   const distributedTotals = distributeShippingTotal(
     totalGroupOngkir,
-    customerPkgs.map((pkg) => Number(pkg.usedWeight) || 0),
+    customerPkgs.map((pkg) => Number(pkg.usedWeight) || Number(pkg.realWeight) || 0),
   );
 
   // Update setiap paket: shippingRate = rate, totalShipping dibagi dari total customer
@@ -386,11 +422,49 @@ function getTotalShipping(
   }
 
   if (serviceType === "jastip pelni") {
-    const rate = getPelniRateByTotalWeight(weight, deliveryRoute);
-    if (rate) return Math.round(weight * rate);
+    const rate = getPelniRateByTotalWeight(weight, deliveryRoute) || 20000;
+    if (rate) return Math.max(20000, Math.round(weight * rate));
   }
 
   return null;
+}
+
+let hasAutoRecalcedPelni = false;
+async function ensurePelniPackagesMinimum() {
+  if (hasAutoRecalcedPelni) return;
+  try {
+    const allPelni = await db
+      .select({
+        id: packagesTable.id,
+        batchId: packagesTable.batchId,
+        customerName: packagesTable.customerName,
+        deliveryRoute: packagesTable.deliveryRoute,
+        totalShipping: packagesTable.totalShipping,
+      })
+      .from(packagesTable)
+      .where(eq(packagesTable.serviceType, "jastip pelni"));
+
+    const needRecalcGroups = new Map<string, { batchId: number; customerName: string; deliveryRoute: string }>();
+    for (const p of allPelni) {
+      if (Number(p.totalShipping || 0) < 20000 && p.batchId && p.customerName) {
+        const key = `${p.batchId}__${p.customerName.trim().toLowerCase()}`;
+        if (!needRecalcGroups.has(key)) {
+          needRecalcGroups.set(key, {
+            batchId: p.batchId,
+            customerName: p.customerName.trim(),
+            deliveryRoute: p.deliveryRoute || "Jakarta → Manokwari",
+          });
+        }
+      }
+    }
+
+    for (const g of needRecalcGroups.values()) {
+      await recalcPelniCustomerOngkir(g.batchId, g.customerName, g.deliveryRoute);
+    }
+    hasAutoRecalcedPelni = true;
+  } catch {
+    // ignore
+  }
 }
 
 function getVolumeDivisor(serviceType: string | null | undefined) {
@@ -438,6 +512,7 @@ router.get(
   requireRole("admin", "owner", "customer"),
   async (req, res) => {
     try {
+      await ensurePelniPackagesMinimum();
       const user = (req as any).user;
       const {
         status,

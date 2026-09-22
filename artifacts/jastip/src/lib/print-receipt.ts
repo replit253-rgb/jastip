@@ -1,3 +1,5 @@
+import jsPDF from "jspdf";
+
 export type ReceiptPrintPayload = {
   business: { name: string; subtitle: string };
   transaction: {
@@ -163,4 +165,209 @@ export function buildReceiptDocument(
     <script>window.addEventListener("load", () => setTimeout(() => window.print(), 150));</script>
   </body>
 </html>`;
+}
+
+export function downloadReceiptPdf(
+  receipt: ReceiptPrintPayload,
+  print?: { isReprint?: boolean; copyNumber?: number },
+) {
+  const transaction = receipt.transaction;
+  const pkgCount = receipt.packages.length;
+  const payCount = receipt.payments.length;
+  
+  // Calculate dynamic height for 80mm thermal receipt
+  const estimatedHeight = Math.max(150, 120 + pkgCount * 12 + payCount * 10);
+
+  const doc = new jsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: [80, estimatedHeight],
+  });
+
+  const pageWidth = 80;
+  const margin = 5;
+  const printWidth = pageWidth - margin * 2;
+  let y = 8;
+
+  function drawDashedLine(currentY: number) {
+    doc.setDrawColor(180, 180, 180);
+    doc.setLineWidth(0.3);
+    doc.setLineDashPattern([1.2, 1.2], 0);
+    doc.line(margin, currentY, pageWidth - margin, currentY);
+    doc.setLineDashPattern([], 0); // reset
+  }
+
+  function drawRow(label: string, value: string, bold = false, fontSize = 7.5) {
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(fontSize);
+    doc.setTextColor(30, 41, 59);
+    doc.text(label, margin, y);
+    doc.setFont("helvetica", "bold");
+    doc.text(value, pageWidth - margin, y, { align: "right" });
+    y += 4.5;
+  }
+
+  // Header Brand
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(15, 23, 42);
+  doc.text(receipt.business?.name || "JASTIP ANGGUN JAYA", 40, y, { align: "center" });
+  y += 4;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(6.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text(receipt.business?.subtitle || "Ekspedisi Jawa — Manokwari, Papua Barat", 40, y, { align: "center" });
+  y += 4;
+
+  if (print?.isReprint) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(185, 28, 28);
+    doc.text(`[ SALINAN / REPRINT #${print.copyNumber || 1} ]`, 40, y, { align: "center" });
+    y += 4.5;
+  }
+
+  y += 1;
+  drawDashedLine(y);
+  y += 4.5;
+
+  // Transaction Meta
+  drawRow("No. Transaksi:", transaction.transactionNo, false, 7);
+  drawRow("Waktu:", `${formatDate(transaction.createdAt)} WIT`, false, 7);
+  drawRow("Customer:", transaction.customerName, true, 7.5);
+  drawRow("Kasir:", receipt.cashier?.name || "-", false, 7);
+  drawRow("Shift:", receipt.shift ? `${receipt.shift.shiftType} #${receipt.shift.id}` : "-", false, 7);
+
+  y += 1;
+  drawDashedLine(y);
+  y += 4.5;
+
+  // Package Details Title
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`RINCIAN PAKET (${pkgCount})`, margin, y);
+  y += 4.5;
+
+  if (receipt.packages.length === 0) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Tidak ada rincian paket.", margin, y);
+    y += 4;
+  } else {
+    receipt.packages.forEach((pkg) => {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.5);
+      doc.setTextColor(15, 23, 42);
+      const itemName = pkg.itemName || "Paket";
+      doc.text(itemName.length > 25 ? itemName.substring(0, 23) + "..." : itemName, margin, y);
+      doc.text(formatRp(pkg.totalShipping), pageWidth - margin, y, { align: "right" });
+      y += 3.5;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(6.5);
+      doc.setTextColor(100, 116, 139);
+      const resiText = `${pkg.resiNumber || "-"}${pkg.packageNumber ? ` · #${pkg.packageNumber}` : ""}`;
+      doc.text(resiText, margin, y);
+      y += 3.2;
+
+      const svcText = `${pkg.serviceType || "Layanan"} · ${Number(pkg.usedWeight || 0).toFixed(2)} kg`;
+      doc.text(svcText, margin, y);
+      y += 4.2;
+    });
+  }
+
+  drawDashedLine(y);
+  y += 4.5;
+
+  // Financial Breakdown
+  drawRow("Subtotal Ongkir:", formatRp(transaction.subtotal), false, 7.5);
+
+  if ((transaction.additionalFee ?? 0) > 0) {
+    const feeLabel = `Biaya Tambahan${transaction.additionalFeeReason ? ` (${transaction.additionalFeeReason})` : ""}:`;
+    drawRow(feeLabel.length > 22 ? feeLabel.substring(0, 20) + "..:" : feeLabel, formatRp(transaction.additionalFee), false, 7);
+  }
+
+  if (transaction.discount > 0) {
+    const discLabel = `Diskon${transaction.discountReason ? ` (${transaction.discountReason})` : ""}:`;
+    drawRow(discLabel.length > 22 ? discLabel.substring(0, 20) + "..:" : discLabel, `-${formatRp(transaction.discount)}`, false, 7);
+  }
+
+  // Total
+  y += 1;
+  doc.setFillColor(248, 250, 252);
+  doc.rect(margin, y - 3, printWidth, 8, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
+  doc.setTextColor(15, 118, 110);
+  doc.text("TOTAL:", margin + 2, y + 2.5);
+  doc.text(formatRp(transaction.total), pageWidth - margin - 2, y + 2.5, { align: "right" });
+  y += 9;
+
+  // Payments
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text("PEMBAYARAN", margin, y);
+  y += 4.5;
+
+  const validPayments = receipt.payments.filter((p) => p.totalAmount !== 0 || p.paidAmount !== 0);
+  if (validPayments.length === 0) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Belum ada pembayaran.", margin, y);
+    y += 4;
+  } else {
+    validPayments.forEach((p) => {
+      drawRow(p.paymentMethodLabel || p.paymentTypeLabel || "Bayar", formatRp(p.totalAmount), true, 7.5);
+      if (p.paymentMethod === "tunai" && p.changeAmount > 0) {
+        drawRow("Kembalian:", formatRp(p.changeAmount), false, 7);
+      }
+      if (p.paymentReference) {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(6.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Ref: ${p.paymentReference}`, margin, y);
+        y += 3.5;
+      }
+    });
+  }
+
+  if (transaction.sisaPiutang > 0) {
+    y += 1;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(180, 83, 9);
+    doc.text("Sisa Piutang:", margin, y);
+    doc.text(formatRp(transaction.sisaPiutang), pageWidth - margin, y, { align: "right" });
+    y += 4.5;
+  }
+
+  y += 1;
+  drawDashedLine(y);
+  y += 4.5;
+
+  // Status Info
+  doc.setFillColor(241, 245, 249);
+  doc.roundedRect(margin, y - 2.5, printWidth, 9, 1, 1, "F");
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(6.5);
+  doc.setTextColor(71, 85, 105);
+  doc.text(`Status Bayar: ${transaction.paymentStatus}`, margin + 2, y + 1);
+  doc.text(`Status Transaksi: ${transaction.transactionStatus}`, margin + 2, y + 4.5);
+  y += 11;
+
+  // Footer
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(6.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text("Terima kasih telah menggunakan layanan kami.", 40, y, { align: "center" });
+  y += 3.5;
+  doc.text("Struk ini adalah bukti pembayaran yang sah.", 40, y, { align: "center" });
+
+  const cleanTrxNo = (transaction.transactionNo || "TRX").replace(/[^a-zA-Z0-9-_]/g, "_");
+  doc.save(`Struk-${cleanTrxNo}.pdf`);
 }

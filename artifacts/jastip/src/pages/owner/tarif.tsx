@@ -477,7 +477,7 @@ export default function OwnerTarif() {
             <Ship className="w-4 h-4 text-indigo-500" /> Jastip Pelni
           </CardTitle>
           <CardDescription>
-            Harga bertingkat berdasarkan total berat gabungan konsumen dalam 1 batch.
+            Harga bertingkat berdasarkan total berat gabungan konsumen dalam 1 batch. Minimal ongkir Rp 20.000 (total ongkir di bawah Rp 20.000 otomatis dibulatkan jadi Rp 20.000).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

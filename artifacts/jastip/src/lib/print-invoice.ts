@@ -1,3 +1,6 @@
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+
 type InvoiceItem = {
   description: string;
   qty: number;
@@ -96,4 +99,240 @@ export function buildInvoiceDocument(invoice: InvoicePrintPayload, print?: { lab
     <div class="footer"><div class="muted">Invoice ini dibuat dari snapshot data saat diterbitkan.<br>Perubahan tarif atau data paket setelah penerbitan tidak mengubah invoice ini.</div><div class="signature">Owner / Penanggung Jawab</div></div>
   </div>
 </body></html>`;
+}
+
+export function downloadInvoicePdf(invoice: InvoicePrintPayload, print?: { label?: string | null }) {
+  const doc = new jsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: "a4",
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 14;
+  const snapshot = invoice.customerSnapshot || {};
+
+  // Header Brand & Title
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.setTextColor(15, 118, 110); // Teal 700
+  doc.text("JASTIP ANGGUN JAYA", margin, 18);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text("Ekspedisi Spesialis Jawa — Manokwari, Papua Barat", margin, 23);
+
+  // Right Side - Invoice Details
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.setTextColor(15, 118, 110);
+  doc.text("INVOICE", pageWidth - margin, 18, { align: "right" });
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(30, 41, 59);
+  doc.text(invoice.invoiceNo, pageWidth - margin, 24, { align: "right" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(100, 116, 139);
+  const issuedText = `Terbit: ${new Date(invoice.issuedAt).toLocaleDateString("id-ID")}`;
+  const dueText = invoice.dueAt ? `Jatuh tempo: ${new Date(invoice.dueAt).toLocaleDateString("id-ID")}` : "Jatuh tempo: —";
+  doc.text(issuedText, pageWidth - margin, 29, { align: "right" });
+  doc.text(dueText, pageWidth - margin, 33, { align: "right" });
+
+  if (print?.label) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(185, 28, 28);
+    doc.text(`[ ${print.label.toUpperCase()} ]`, pageWidth - margin, 38, { align: "right" });
+  }
+
+  // Divider line
+  doc.setDrawColor(15, 118, 110);
+  doc.setLineWidth(0.8);
+  doc.line(margin, 41, pageWidth - margin, 41);
+
+  // Customer & Status Box
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(margin, 44, pageWidth - margin * 2, 20, 2, 2, "FD");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text("DITAGIHKAN KEPADA:", margin + 4, 49);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(15, 23, 42);
+  doc.text(snapshot.customerName || "Pelanggan umum", margin + 4, 55);
+
+  if (snapshot.transactionNo) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`No. Transaksi: ${snapshot.transactionNo}`, margin + 4, 60);
+  }
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text("STATUS PEMBAYARAN:", pageWidth - margin - 4, 49, { align: "right" });
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  if (invoice.status === "LUNAS") {
+    doc.setTextColor(22, 101, 52); // green 800
+  } else if (invoice.status === "DIBAYAR_SEBAGIAN") {
+    doc.setTextColor(180, 83, 9); // amber 700
+  } else {
+    doc.setTextColor(185, 28, 28); // red 700
+  }
+  doc.text(String(invoice.status).replace(/_/g, " "), pageWidth - margin - 4, 55, { align: "right" });
+
+  // Items Table
+  const tableData = invoice.items.map((item, index) => [
+    index + 1,
+    item.description || "Paket",
+    item.qty || 1,
+    item.weight ? `${item.weight} kg` : "-",
+    formatRp(item.unitPrice),
+    formatRp(item.lineTotal),
+  ]);
+
+  autoTable(doc, {
+    startY: 68,
+    head: [["#", "Rincian Kiriman", "Qty", "Berat", "Harga Satuan", "Subtotal"]],
+    body: tableData,
+    margin: { left: margin, right: margin, bottom: 20 },
+    theme: "striped",
+    headStyles: {
+      fillColor: [15, 118, 110],
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+      fontSize: 8.5,
+      halign: "left",
+      cellPadding: 2.5,
+    },
+    styles: {
+      fontSize: 8,
+      cellPadding: 2,
+      textColor: [30, 41, 59],
+      overflow: "linebreak",
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252],
+    },
+    columnStyles: {
+      0: { halign: "center", cellWidth: 10 },
+      1: { cellWidth: "auto" },
+      2: { halign: "center", cellWidth: 14 },
+      3: { halign: "right", cellWidth: 22 },
+      4: { halign: "right", cellWidth: 32 },
+      5: { halign: "right", cellWidth: 34 },
+    },
+  });
+
+  const finalY = (doc as any).lastAutoTable?.finalY || 100;
+
+  // Summary Box (Right aligned)
+  const summaryWidth = 85;
+  const summaryX = pageWidth - margin - summaryWidth;
+  let currentY = finalY + 5;
+
+  // Check if summary would overflow page
+  if (currentY + 50 > pageHeight - 30) {
+    doc.addPage();
+    currentY = 20;
+  }
+
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(summaryX, currentY, summaryWidth, 42, 2, 2, "FD");
+
+  const sPad = 4;
+  let sY = currentY + 6;
+
+  doc.setFontSize(8.5);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(71, 85, 105);
+  doc.text("Subtotal:", summaryX + sPad, sY);
+  doc.setFont("helvetica", "bold");
+  doc.text(formatRp(invoice.subtotal), summaryX + summaryWidth - sPad, sY, { align: "right" });
+
+  sY += 6;
+  doc.setFont("helvetica", "normal");
+  doc.text("Diskon:", summaryX + sPad, sY);
+  doc.setFont("helvetica", "bold");
+  doc.text(`-${formatRp(invoice.discount)}`, summaryX + summaryWidth - sPad, sY, { align: "right" });
+
+  sY += 6;
+  doc.setDrawColor(15, 118, 110);
+  doc.setLineWidth(0.4);
+  doc.line(summaryX + sPad, sY - 1, summaryX + summaryWidth - sPad, sY - 1);
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(15, 118, 110);
+  doc.text("TOTAL:", summaryX + sPad, sY + 3);
+  doc.text(formatRp(invoice.total), summaryX + summaryWidth - sPad, sY + 3, { align: "right" });
+
+  sY += 9;
+  doc.setFontSize(8.5);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(71, 85, 105);
+  doc.text("DP / Terbayar:", summaryX + sPad, sY);
+  doc.setFont("helvetica", "bold");
+  doc.text(formatRp(invoice.downPayment), summaryX + summaryWidth - sPad, sY, { align: "right" });
+
+  sY += 6;
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(180, 83, 9);
+  doc.text("Sisa Piutang:", summaryX + sPad, sY);
+  doc.text(formatRp(invoice.balance), summaryX + summaryWidth - sPad, sY, { align: "right" });
+
+  // Notes & Signatures
+  let noteY = currentY + 48;
+  if (noteY + 35 > pageHeight - 15) {
+    doc.addPage();
+    noteY = 20;
+  }
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text("Catatan:", margin, noteY);
+  doc.text("• Invoice ini dibuat dari snapshot data resmi saat diterbitkan.", margin, noteY + 4);
+  doc.text("• Perubahan tarif atau master data paket setelah penerbitan tidak mengubah invoice ini.", margin, noteY + 8);
+  doc.text("• Pembayaran via transfer/QRIS harap mencantumkan nomor invoice pada berita transfer.", margin, noteY + 12);
+
+  // Signatures
+  const sigY = noteY + 30;
+  doc.setDrawColor(148, 163, 184);
+  doc.setLineWidth(0.4);
+
+  doc.line(margin + 5, sigY, margin + 45, sigY);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(71, 85, 105);
+  doc.text("Penerima / Customer", margin + 25, sigY + 4, { align: "center" });
+
+  doc.line(pageWidth - margin - 50, sigY, pageWidth - margin - 5, sigY);
+  doc.text("Owner / Penanggung Jawab", pageWidth - margin - 27.5, sigY + 4, { align: "center" });
+
+  // Footer page numbering
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7);
+    doc.setTextColor(148, 163, 184);
+    doc.text(`Jastip Anggun Jaya — Dokumen Resmi Invoice A4`, margin, pageHeight - 6);
+    doc.text(`Halaman ${i} dari ${totalPages}`, pageWidth - margin, pageHeight - 6, { align: "right" });
+  }
+
+  const cleanInvoiceNo = (invoice.invoiceNo || "INV").replace(/[^a-zA-Z0-9-_]/g, "_");
+  doc.save(`Invoice-${cleanInvoiceNo}.pdf`);
 }

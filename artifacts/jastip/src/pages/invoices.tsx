@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   FileText,
   Printer,
+  Download,
   Plus,
   RefreshCw,
   Search,
@@ -41,8 +42,9 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { buildInvoiceDocument, type InvoicePrintPayload } from "@/lib/print-invoice";
+import { buildInvoiceDocument, downloadInvoicePdf, type InvoicePrintPayload } from "@/lib/print-invoice";
 import { useAuth } from "@/lib/auth";
+import { toast } from "sonner";
 
 function authHeaders() {
   return { Authorization: `Bearer ${localStorage.getItem("jaj_token")}` };
@@ -348,13 +350,37 @@ export default function InvoicesPage() {
     }
   }
 
+  // State for tracking PDF download
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<number | null>(null);
+
+  // Direct download PDF
+  async function downloadInvoice(id: number) {
+    setDownloadingInvoiceId(id);
+    try {
+      const response = await fetch(`/api/invoices/${id}/print`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Gagal menyiapkan invoice.");
+
+      downloadInvoicePdf(body.invoice as InvoicePrintPayload, body.print);
+      toast.success("File PDF invoice berhasil diunduh.");
+    } catch (error: any) {
+      setFeedbackMessage({ type: "error", text: error.message || "Gagal mengunduh file PDF invoice." });
+      toast.error(error.message || "Gagal mengunduh PDF.");
+    } finally {
+      setDownloadingInvoiceId(null);
+    }
+  }
+
   // Print invoice popup
   async function printInvoice(id: number) {
     const printWindow = window.open("", "_blank", "width=900,height=1000");
     if (!printWindow) {
       setFeedbackMessage({
         type: "error",
-        text: "Popup diblokir browser. Izinkan pop-up untuk mencetak atau mengunduh PDF.",
+        text: "Popup diblokir browser. Izinkan pop-up untuk mencetak atau unduh PDF langsung.",
       });
       return;
     }
@@ -1101,13 +1127,29 @@ export default function InvoicesPage() {
                                 </p>
                               )}
                             </div>
-                            <Button
-                              size="sm"
-                              onClick={() => printInvoice(inv.id)}
-                              className="bg-teal-700 hover:bg-teal-800 text-white h-9"
-                            >
-                              <Printer className="mr-2 h-4 w-4" /> Cetak / PDF A4
-                            </Button>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                size="sm"
+                                onClick={() => downloadInvoice(inv.id)}
+                                disabled={downloadingInvoiceId === inv.id}
+                                className="bg-teal-700 hover:bg-teal-800 text-white h-9 shadow-xs"
+                              >
+                                {downloadingInvoiceId === inv.id ? (
+                                  <RefreshCw className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Download className="mr-1.5 h-3.5 w-3.5" />
+                                )}
+                                Unduh PDF
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => printInvoice(inv.id)}
+                                className="border-slate-300 hover:bg-slate-100 text-slate-700 h-9"
+                              >
+                                <Printer className="mr-1.5 h-3.5 w-3.5" /> Cetak
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       );
@@ -1325,19 +1367,34 @@ export default function InvoicesPage() {
             </div>
           )}
 
-          <div className="flex flex-col gap-2.5 pt-2 w-full">
+          <div className="flex flex-col gap-2 pt-2 w-full">
             <Button
               className="w-full bg-teal-700 hover:bg-teal-800 text-white font-medium py-2.5 h-auto text-xs sm:text-sm shadow-sm"
+              disabled={!createdInvoice?.id || downloadingInvoiceId === createdInvoice.id}
+              onClick={() => {
+                if (createdInvoice?.id) downloadInvoice(createdInvoice.id);
+              }}
+            >
+              {downloadingInvoiceId === createdInvoice?.id ? (
+                <RefreshCw className="mr-2 h-4 w-4 shrink-0 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4 shrink-0" />
+              )}
+              <span>Unduh File PDF Invoice</span>
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full border-teal-700 text-teal-800 hover:bg-teal-50 font-medium py-2.5 h-auto text-xs sm:text-sm"
               onClick={() => {
                 if (createdInvoice?.id) printInvoice(createdInvoice.id);
               }}
             >
               <Printer className="mr-2 h-4 w-4 shrink-0" />
-              <span>Cetak / PDF Dokumen A4 Sekarang</span>
+              <span>Cetak / Print Dokumen A4</span>
             </Button>
             <Button
-              variant="outline"
-              className="w-full text-slate-700 hover:bg-slate-100 py-2.5 h-auto text-xs sm:text-sm"
+              variant="ghost"
+              className="w-full text-slate-500 hover:bg-slate-100 py-2 h-auto text-xs"
               onClick={() => setCreatedInvoice(null)}
             >
               Selesai & Tutup

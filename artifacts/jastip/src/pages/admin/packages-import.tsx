@@ -72,8 +72,8 @@ function getTotalShipping(serviceType: string, deliveryRoute: string, weight: nu
     return Math.max(10000, Math.round(weight * 10000));
   }
   if (serviceType === "jastip pelni") {
-    const rate = getPelniRateByTotalWeight(weight, deliveryRoute);
-    if (rate) return Math.round(weight * rate);
+    const rate = getPelniRateByTotalWeight(weight, deliveryRoute) || 20000;
+    if (rate) return Math.max(20000, Math.round(weight * rate));
   }
   return null;
 }

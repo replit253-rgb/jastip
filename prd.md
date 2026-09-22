@@ -1,8 +1,8 @@
 # PRD — Jastip Anggun Jaya
 
 > **Status dokumen:** As-is / reverse-engineered dan sinkronisasi penuh dari source code proyek aktif  
-> **Tanggal pembaruan:** 2026-09-19  
-> **Tujuan dokumen:** Mendeskripsikan arsitektur, halaman, navigasi, role, fitur operasional, sistem Invoice A4, verifikasi scan, manajemen shift kasir, keuangan & VOID, database schema Drizzle ORM, rumus tarif, dan panduan testing yang benar-benar ada dan berjalan di sistem saat ini.
+> **Tanggal pembaruan:** 2026-09-22  
+> **Tujuan dokumen:** Mendeskripsikan arsitektur, halaman, navigasi, role, fitur operasional, sistem Invoice A4, verifikasi scan, manajemen shift kasir, keuangan & VOID, database schema Drizzle ORM, rumus tarif & ongkir minimum, dan panduan testing yang benar-benar ada dan berjalan di sistem saat ini.
 
 ---
 
@@ -256,10 +256,33 @@ $$\text{Berat Pakai} = \max(\text{Berat Aktual (kg)}, \text{Berat Volume (kg)})$
 
 | Layanan | Rumus / Ketentuan Perhitungan Ongkir |
 |---|---|
-| **Jastip Pesawat** | Tarif acuan default: Rp77.000/kg.<br>Pembulatan berat kumulatif per customer per batch: $\le 0.2\text{ kg} \rightarrow 0.2\text{ kg}$; $\le 0.4\text{ kg} \rightarrow 0.4\text{ kg}$; $\le 0.5\text{ kg} \rightarrow 0.5\text{ kg}$; $> 0.5\text{ kg} \rightarrow \text{Berat Aktual}$. Ongkir didistribusikan proporsional ke paket-paketnya. |
-| **Jastip Hemat+** | Tarif acuan default: Rp10.000/kg.<br>Satu paket tunggal berat $< 1\text{ kg}$ dikenakan minimum $1\text{ kg}$. Lebih dari satu paket milik customer yang sama dalam batch dihitung berdasarkan total berat gabungan tanpa pembulatan ke atas per paket. |
-| **Jastip Pelni** | Tarif tiering berdasarkan total berat gabungan customer dalam batch yang sama:<br>Contoh Jakarta $\rightarrow$ Manokwari: $\le 10.1\text{ kg}: \text{Rp}20.000/\text{kg}$; $\le 20.1\text{ kg}: \text{Rp}19.000/\text{kg}$; $\le 40.1\text{ kg}: \text{Rp}18.000/\text{kg}$; $\le 80.1\text{ kg}: \text{Rp}17.000/\text{kg}$; $> 80.1\text{ kg}: \text{Rp}16.000/\text{kg}$. |
-| **Jastip Kargo** | Dihitung berdasarkan kubikasi $\text{M}^3$ ($\frac{P \times L \times T}{1.000.000}$) dikalikan tarif kargo khusus per rute atau tarif kesepakatan manual per paket. |
+| **Jastip Pesawat** | Tarif acuan default: Rp77.000/kg.<br>Pembulatan berat kumulatif per customer per batch: $\le 0.2\text{ kg} \rightarrow 0.2\text{ kg}$; $\le 0.4\text{ kg} \rightarrow 0.4\text{ kg}$; $\le 0.5\text{ kg} \rightarrow 0.5\text{ kg}$; $> 0.5\text{ kg} \rightarrow \text{Berat Aktual}$. Ongkir didistribusikan proporsional ke paket-paketnya. Memiliki floor batas bawah pembulatan berat minimum 0.2 kg (setara ongkir minimum Rp15.400). |
+| **Jastip Hemat+** | Tarif acuan default: Rp10.000/kg.<br>Satu paket tunggal berat $< 1\text{ kg}$ dikenakan minimum $1\text{ kg}$ (minimum ongkir Rp10.000). Lebih dari satu paket milik customer yang sama dalam batch dihitung berdasarkan total berat gabungan tanpa pembulatan ke atas per paket, dengan floor batas minimum total ongkir grup Rp10.000. |
+| **Jastip Pelni** | Tarif tiering bertingkat berdasarkan total berat gabungan customer dalam batch yang sama:<br>Contoh Jakarta $\rightarrow$ Manokwari: $\le 10.1\text{ kg}: \text{Rp}20.000/\text{kg}$; $\le 20.1\text{ kg}: \text{Rp}19.000/\text{kg}$; $\le 40.1\text{ kg}: \text{Rp}18.000/\text{kg}$; $\le 80.1\text{ kg}: \text{Rp}17.000/\text{kg}$; $> 80.1\text{ kg}: \text{Rp}16.000/\text{kg}$.<br>Surabaya $\rightarrow$ Manokwari: $\le 10\text{ kg}: \text{Rp}18.000/\text{kg}$; $\le 20\text{ kg}: \text{Rp}17.000/\text{kg}$; $\le 40\text{ kg}: \text{Rp}16.000/\text{kg}$; $> 40\text{ kg}: \text{Rp}15.500/\text{kg}$.<br>**Ongkir Minimum Pelni**: Dikenakan minimum Rp20.000 per customer (ongkir total di bawah Rp20.000 otomatis dibulatkan menjadi Rp20.000). |
+| **Jastip Kargo** | Dihitung berdasarkan kubikasi $\text{M}^3$ ($\frac{P \times L \times T}{1.000.000}$) atau berat aktual dikalikan tarif kargo (default Rp7.000/kg). Memiliki nilai minimum input sistem Rp70.000 pada form input paket baru dan konfigurasi dasar minimum Rp25.000 pada pengaturan Owner. |
+
+### 5.3 Sistem & Spesifikasi Ongkir Minimum (Shipping Minimums)
+
+Sistem menerapkan arsitektur ongkir minimum berbasis grup konsumen dan layanan dalam satu batch pengiriman:
+
+1. **Matriks Ongkir Minimum Default Sistem**:
+   | Jenis Jastip | Rute Pengiriman | Default Ongkir Minimum | Mekanisme & Keterangan |
+   |---|---|---|---|
+   | **Jastip Pelni** | Jakarta $\rightarrow$ Manokwari | **Rp 20.000** | Floor otomatis sistem & form input. Paket dengan total ongkir $< \text{Rp } 20.000$ (misal 0.5 kg $\times$ Rp 20.000 = Rp 10.000) otomatis dibulatkan menjadi Rp 20.000. |
+   | **Jastip Pelni** | Surabaya $\rightarrow$ Manokwari | **Rp 18.000 / Rp 20.000** | Terdaftar pada konfigurasi minimum dengan batas dasar Rp 18.000 (Surabaya) dan floor rekalkulasi aktif Rp 20.000. |
+   | **Jastip Hemat+** | Surabaya $\rightarrow$ Manokwari | **Rp 10.000** | Berlaku aturan minimum 1 kg (1 kg $\times$ Rp 10.000 = Rp 10.000) untuk paket tunggal, serta batas bawah total ongkir customer Rp 10.000. |
+   | **Jastip Kargo** | Jakarta/Surabaya $\rightarrow$ Manokwari | **Rp 70.000 / Rp 25.000** | Form input paket baru menerapkan `Math.max(70000, ...)`; pengaturan Owner mengonfigurasi batas default Rp 25.000. |
+   | **Jastip Pesawat** | Jakarta $\rightarrow$ Manokwari | **Rp 15.400** *(Weight Floor)* | Menggunakan floor pembulatan berat efektif terkecil $0.20\text{ kg} \times \text{Rp } 77.000 = \text{Rp } 15.400$. |
+
+2. **Aturan Berlaku Per Grup Konsumen (Customer-Level Minimum)**:
+   - Ongkir minimum diperlakukan sebagai batas **total ongkir per customer** dalam batch yang sama, bukan membebani setiap paket secara terpisah jika customer mengirim banyak paket kecil.
+   - **1 Paket Tunggal**: Jika total ongkir paket di bawah batas minimum, ongkir paket tersebut langsung dinaikkan ke nilai minimum.
+   - **Multi-Paket (Lebih dari 1 Paket)**: Jika penjumlahan ongkir seluruh paket customer dalam batch tersebut masih di bawah batas minimum, selisih menuju nilai minimum didistribusikan secara proporsional ke masing-masing paket berdasarkan bobot berat pakai (`usedWeight` / `pkgEffectiveWeights`), sehingga penjumlahan seluruh `totalShipping` paket tepat setara dengan nominal minimum.
+
+3. **Manajemen Dinamis oleh Owner (`/owner/tarif`)**:
+   - Menu *Pengaturan Tarif* Owner menyediakan kartu kontrol khusus **"Harga Ongkir Minimum"**.
+   - Owner dapat mengaktifkan/menonaktifkan (toggle switch `ON` / `OFF`) serta mengubah besaran rupiah minimum untuk masing-masing jenis layanan dan kota asal.
+   - Setiap perubahan nilai minimum mewajibkan input alasan perubahan (opsional tapi tercatat) dan disimpan ke tabel audit `tarif_history` yang mencatat siapa yang mengubah, waktu perubahan, nilai lama, dan nilai baru.
 
 ---
 
@@ -282,7 +305,8 @@ $$\text{Berat Pakai} = \max(\text{Berat Aktual (kg)}, \text{Berat Volume (kg)})$
 | **`pengeluaran`** | Pengeluaran kas operasional (`id`, `nominal`, `kategori`, `keterangan`, `metodePembayaran` [cash/transfer/lainnya], `adminId`, `createdAt`). |
 | **`service_types`** | Master jenis layanan jastip (`id`, `name`, `code`, `divisor`, `defaultRate`). |
 | **`settings`** | Konfigurasi tarif umum & tiering Pelni dalam format JSON key-value. |
-| **`tarif_history`** | Riwayat audit perubahan tarif oleh Owner (`id`, `serviceType`, `oldRate`, `newRate`, `changedBy`, `createdAt`). |
+| **`settings_shipping_minimum`** | Pengaturan harga ongkir minimum per layanan dan rute (`id`, `serviceId`, `originCity`, `enabled` (boolean), `minimumAmount` (numeric), `updatedBy`, `createdAt`, `updatedAt`). |
+| **`tarif_history`** | Riwayat audit perubahan tarif dan ongkir minimum oleh Owner (`id`, `serviceType`, `oldRate`, `newRate`, `changedBy`, `createdAt`). |
 
 ---
 

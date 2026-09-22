@@ -209,27 +209,35 @@ export default function OwnerPackages() {
     const tableHead = [["TANGGAL","NO RESI","SCAN PAKET","STATUS NO\nSCAN PAKET","NO\nPAKET","NAMA\nKONSUMEN","BERAT\nREAL","P","L","T","BERAT\nVOLUME","JENIS\nPAKING","BERAT YANG\nDI GUNAKAN","ONGKIR PER\nPAKET","TOTAL\nBERAT","HARGA","TOTAL ONGKIR\nJASTIP"]];
     const colStyles: Record<number, object> = { 0:{cellWidth:15},1:{cellWidth:25},2:{cellWidth:25},3:{cellWidth:13,halign:"center"},4:{cellWidth:12,halign:"center"},5:{cellWidth:18},6:{cellWidth:9,halign:"right"},7:{cellWidth:7,halign:"right"},8:{cellWidth:7,halign:"right"},9:{cellWidth:7,halign:"right"},10:{cellWidth:10,halign:"right"},11:{cellWidth:13,halign:"center"},12:{cellWidth:14,halign:"right"},13:{cellWidth:18,halign:"right"},14:{cellWidth:13,halign:"right"},15:{cellWidth:16,halign:"right"},16:{cellWidth:20,halign:"right"} };
     for (const [customerName, pkgs] of groups) {
+      const isPelni = pkgs.some((p: any) => (p.serviceType || "").toLowerCase() === "jastip pelni") || pdfJenis === "jastip pelni";
       const totalBeratGrup = pkgs.reduce((s: number, p: any) => s + (Number(p.usedWeight) || 0), 0);
-      const totalOngkirGrup = pkgs.reduce((s: number, p: any) => s + (Number(p.totalShipping) || 0), 0);
-      const hargaPerKg = pkgs.find((p: any) => p.shippingRate != null)?.shippingRate ?? null;
+      let rawTotalOngkirGrup = pkgs.reduce((s: number, p: any) => s + (Number(p.totalShipping) || 0), 0);
+      const totalOngkirGrup = (isPelni && rawTotalOngkirGrup > 0 && rawTotalOngkirGrup < 20000) ? 20000 : rawTotalOngkirGrup;
+      const hargaPerKg = pkgs.find((p: any) => p.shippingRate != null)?.shippingRate ?? (isPelni ? 20000 : null);
       if (210 - y < 22) { doc.addPage(); y = 10; }
       doc.setFontSize(8.5); doc.setFont("helvetica", "bold");
       doc.text(`NAMA KONSUMEN       ${customerName}`, margin, y + 3);
       doc.setFontSize(7.5); doc.setFont("helvetica", "normal");
       doc.text(`  Jumlah Paket:     ${pkgs.length}.0`, margin, y + 7.5);
       y += 12;
-      const rows = pkgs.map((p: any, i: number) => [
-        formatDate(p.packageDate || p.createdAt), p.resiNumber || "-", p.barcode || p.resiNumber || "-",
-        p.statusVerifikasi === "SUDAH_DIVERIFIKASI" ? "SUDAH\nSCAN" : "BELUM\nSCAN",
-        p.packageNumber || "-", p.customerName || "-",
-        fNum(p.realWeight,1), fNum(p.length,0), fNum(p.width,0), fNum(p.height,0),
-        p.volumeWeight != null ? fNum(p.volumeWeight,1) : "0.0", p.packagingType || "-",
-        fNum(p.usedWeight,1),
-        p.totalShipping != null ? `Rp ${Number(p.totalShipping).toLocaleString("id-ID")}` : "-",
-        i === 0 ? totalBeratGrup.toFixed(1) : "",
-        i === 0 && hargaPerKg != null ? `Rp ${Number(hargaPerKg).toLocaleString("id-ID")}` : (i === 0 ? "-" : ""),
-        i === 0 ? `Rp ${totalOngkirGrup.toLocaleString("id-ID")}` : "",
-      ]);
+      const rows = pkgs.map((p: any, i: number) => {
+        let ongkirPaket = Number(p.totalShipping) || 0;
+        if (isPelni && rawTotalOngkirGrup > 0 && rawTotalOngkirGrup < 20000) {
+          ongkirPaket = pkgs.length === 1 ? 20000 : Math.round((Number(p.usedWeight || 0) / (totalBeratGrup || 1)) * 20000);
+        }
+        return [
+          formatDate(p.packageDate || p.createdAt), p.resiNumber || "-", p.barcode || p.resiNumber || "-",
+          p.statusVerifikasi === "SUDAH_DIVERIFIKASI" ? "SUDAH\nSCAN" : "BELUM\nSCAN",
+          p.packageNumber || "-", p.customerName || "-",
+          fNum(p.realWeight,1), fNum(p.length,0), fNum(p.width,0), fNum(p.height,0),
+          p.volumeWeight != null ? fNum(p.volumeWeight,1) : "0.0", p.packagingType || "-",
+          fNum(p.usedWeight,1),
+          ongkirPaket > 0 ? `Rp ${Number(ongkirPaket).toLocaleString("id-ID")}` : "-",
+          i === 0 ? totalBeratGrup.toFixed(1) : "",
+          i === 0 && hargaPerKg != null ? `Rp ${Number(hargaPerKg).toLocaleString("id-ID")}` : (i === 0 ? "-" : ""),
+          i === 0 ? `Rp ${totalOngkirGrup.toLocaleString("id-ID")}` : "",
+        ];
+      });
       autoTable(doc, {
         startY: y, head: tableHead, body: rows,
         didDrawPage: () => drawExportFooter(doc, user?.name || "Pengguna aktif"),
