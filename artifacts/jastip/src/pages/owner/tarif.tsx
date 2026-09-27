@@ -12,7 +12,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Settings, Save, Loader2, Plane, Ship, Package, Truck, History, Plus, Trash2,
+  Settings, Save, Loader2, Plane, Ship, Package, Truck, History, Plus, Trash2, RefreshCw,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
