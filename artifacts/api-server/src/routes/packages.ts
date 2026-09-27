@@ -43,6 +43,10 @@ async function getShippingMinimum(
   deliveryRoute: string | null | undefined,
 ) {
   if (!serviceType) return null;
+  // Jastip Kargo: TIDAK ADA MINIMAL (sesuai instruksi client)
+  if (serviceType === "jastip kargo") {
+    return null;
+  }
   const originCity = deliveryRoute ? String(deliveryRoute).split("→")[0]?.trim() : "";
   try {
     const rows = await db
@@ -80,9 +84,6 @@ async function getShippingMinimum(
   }
   if (serviceType === "jastip hemat+") {
     return { enabled: true, minimumAmount: 10000 };
-  }
-  if (serviceType === "jastip kargo") {
-    return { enabled: true, minimumAmount: 70000 };
   }
   return null;
 }
@@ -330,49 +331,12 @@ async function recalcPelniCustomerOngkir(
 }
 
 async function recalcKargoCustomerOngkir(
-  batchId: number,
-  customerName: string,
-  deliveryRoute: string | null | undefined,
+  _batchId: number,
+  _customerName: string,
+  _deliveryRoute: string | null | undefined,
 ): Promise<void> {
-  if (!batchId || !customerName || !deliveryRoute) return;
-  const minimum = await getShippingMinimum("jastip kargo", deliveryRoute);
-  if (!minimum?.enabled) return;
-
-  const allBatchKargo = await db
-    .select()
-    .from(packagesTable)
-    .where(
-      and(
-        eq(packagesTable.batchId, batchId),
-        eq(packagesTable.serviceType, "jastip kargo"),
-      ),
-    );
-  const customerLower = customerName.trim().toLowerCase();
-  const customerPkgs = allBatchKargo.filter(
-    (pkg) =>
-      (pkg.customerName || "").trim().toLowerCase() === customerLower &&
-      pkg.deliveryRoute === deliveryRoute,
-  );
-  if (!customerPkgs.length) return;
-
-  const normalTotals = customerPkgs.map((pkg) => Number(pkg.totalShipping) || 0);
-  const normalTotalOngkir = normalTotals.reduce((sum, amount) => sum + amount, 0);
-  if (normalTotalOngkir <= 0 || normalTotalOngkir >= minimum.minimumAmount) return;
-  const distributedTotals = distributeShippingTotal(
-    minimum.minimumAmount,
-    normalTotals,
-  );
-  await Promise.all(
-    customerPkgs.map((pkg, index) =>
-      db
-        .update(packagesTable)
-        .set({
-          totalShipping: String(distributedTotals[index]),
-          updatedAt: new Date(),
-        })
-        .where(eq(packagesTable.id, pkg.id)),
-    ),
-  );
+  // Jastip Kargo: TIDAK ADA MINIMAL. Ongkir dihitung murni dari berat digunakan/kubikasi × tarif M3.
+  return;
 }
 
 function getShippingRate(
@@ -467,6 +431,55 @@ async function ensurePelniPackagesMinimum() {
   }
 }
 
+let hasAutoFixedKargo = false;
+async function ensureKargoPackagesNoMinimum() {
+  if (hasAutoFixedKargo) return;
+  try {
+    const allKargo = await db
+      .select({
+        id: packagesTable.id,
+        serviceType: packagesTable.serviceType,
+        totalShipping: packagesTable.totalShipping,
+        shippingRate: packagesTable.shippingRate,
+        volumeWeight: packagesTable.volumeWeight,
+        usedWeight: packagesTable.usedWeight,
+        realWeight: packagesTable.realWeight,
+        length: packagesTable.length,
+        width: packagesTable.width,
+        height: packagesTable.height,
+      })
+      .from(packagesTable)
+      .where(eq(packagesTable.serviceType, "jastip kargo"));
+
+    for (const p of allKargo) {
+      const rate = Number(p.shippingRate) || 0;
+      if (rate > 0) {
+        let vol = Number(p.volumeWeight) || 0;
+        if (!vol && p.length && p.width && p.height) {
+          vol = (Number(p.length) * Number(p.width) * Number(p.height)) / 1000000;
+        }
+        const real = Number(p.realWeight) || 0;
+        const used = Number(p.usedWeight) || Math.max(real, vol) || vol;
+        const correctTotal = Math.round(used * rate);
+        if (p.totalShipping === "70000" && correctTotal !== 70000 && correctTotal > 0) {
+          await db
+            .update(packagesTable)
+            .set({
+              totalShipping: String(correctTotal),
+              volumeWeight: String(vol),
+              usedWeight: String(used),
+              updatedAt: new Date(),
+            })
+            .where(eq(packagesTable.id, p.id));
+        }
+      }
+    }
+    hasAutoFixedKargo = true;
+  } catch {
+    // ignore
+  }
+}
+
 function getVolumeDivisor(serviceType: string | null | undefined) {
   if (serviceType === "jastip pesawat") return 5000;
   if (serviceType === "jastip hemat+") return 4000;
@@ -513,6 +526,7 @@ router.get(
   async (req, res) => {
     try {
       await ensurePelniPackagesMinimum();
+      await ensureKargoPackagesNoMinimum();
       const user = (req as any).user;
       const {
         status,
@@ -718,11 +732,12 @@ router.post(
         totalShipping = Number(totalShippingInput);
       } else if (
         serviceType === "jastip kargo" &&
-        volumeWeight !== null &&
+        (usedWeight !== null || volumeWeight !== null) &&
         effectiveShippingRate !== null
       ) {
-        // Kargo: totalShipping = Berat Kubikasi × Ongkir/M3
-        totalShipping = Math.round(volumeWeight * effectiveShippingRate);
+        // Kargo: totalShipping = Berat Kubikasi (atau usedWeight) × Ongkir/M3
+        const kargoWeight = usedWeight ?? volumeWeight ?? 0;
+        totalShipping = Math.round(kargoWeight * effectiveShippingRate);
       } else {
         totalShipping = getTotalShipping(
           serviceType,
@@ -970,7 +985,7 @@ router.post(
               ? Math.max(effectiveRealWeight, volumeWeight)
               : (effectiveRealWeight ?? volumeWeight);
 
-          // Kargo: gunakan ongkir dari data row jika tersedia, bukan rumus berat × tarif
+          // Kargo: gunakan ongkir dari data row jika tersedia, atau hitung kubikasi × tarif
           let totalShipping: number | null;
           if (
             totalShippingRow !== undefined &&
@@ -978,6 +993,13 @@ router.post(
             totalShippingRow !== ""
           ) {
             totalShipping = Number(totalShippingRow);
+          } else if (
+            serviceType === "jastip kargo" &&
+            (usedWeight !== null || volumeWeight !== null) &&
+            shippingRate
+          ) {
+            const kargoWeight = usedWeight ?? volumeWeight ?? 0;
+            totalShipping = Math.round(kargoWeight * Number(shippingRate));
           } else {
             totalShipping = getTotalShipping(
               serviceType,
@@ -1564,9 +1586,10 @@ router.patch(
           totalShippingInput === null ||
           totalShippingInput === ""
         ) {
-          // Kargo: recalculate totalShipping = volumeWeight × shippingRate
-          if (vw != null && rate != null) {
-            updateData.totalShipping = String(Math.round(vw * rate));
+          // Kargo: recalculate totalShipping = (usedWeight || volumeWeight) × shippingRate
+          const kargoWeight = uw ?? vw;
+          if (kargoWeight != null && rate != null) {
+            updateData.totalShipping = String(Math.round(kargoWeight * rate));
           }
         }
       }

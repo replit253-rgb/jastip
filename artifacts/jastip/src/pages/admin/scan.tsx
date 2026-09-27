@@ -842,28 +842,35 @@ export default function AdminScan() {
                               <p>{item.itemName}</p>
                             </div>
                           )}
-                          <div>
-                            <p className="text-muted-foreground font-medium uppercase tracking-wide text-[10px]">Berat Real</p>
-                            <p className="font-semibold">{item.realWeight != null ? `${item.realWeight} Kg` : "-"}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground font-medium uppercase tracking-wide text-[10px]">Berat Volume</p>
-                            <p>{item.volumeWeight != null ? `${item.volumeWeight} Kg` : "-"}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground font-medium uppercase tracking-wide text-[10px]">Berat Digunakan</p>
-                            <p className="font-semibold">{item.usedWeight != null ? `${item.usedWeight} Kg` : "-"}</p>
-                          </div>
-                          {(item.length || item.width || item.height) && (
-                            <div>
-                              <p className="text-muted-foreground font-medium uppercase tracking-wide text-[10px]">Dimensi (cm)</p>
-                              <p className="font-mono">{item.length || "?"} × {item.width || "?"} × {item.height || "?"}</p>
-                            </div>
-                          )}
-                          <div>
-                            <p className="text-muted-foreground font-medium uppercase tracking-wide text-[10px]">Tarif Ongkir/kg</p>
-                            <p>{formatRp(item.shippingRate)}</p>
-                          </div>
+                          {(() => {
+                            const isK = (item.serviceType || "").toLowerCase().includes("kargo") || (item.serviceType || "").toLowerCase().includes("cargo");
+                            return (
+                              <>
+                                <div>
+                                  <p className="text-muted-foreground font-medium uppercase tracking-wide text-[10px]">Berat Real</p>
+                                  <p className="font-semibold">{item.realWeight != null ? `${item.realWeight} ${isK ? "Ton" : "Kg"}` : "-"}</p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground font-medium uppercase tracking-wide text-[10px]">Berat Volume</p>
+                                  <p>{item.volumeWeight != null ? `${Number(item.volumeWeight).toLocaleString("id-ID", { maximumFractionDigits: 5 })} ${isK ? "M³" : "Kg"}` : "-"}</p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground font-medium uppercase tracking-wide text-[10px]">Berat Digunakan</p>
+                                  <p className="font-semibold">{item.usedWeight != null ? `${Number(item.usedWeight).toLocaleString("id-ID", { maximumFractionDigits: 5 })} ${isK ? "M³" : "Kg"}` : "-"}</p>
+                                </div>
+                                {(item.length || item.width || item.height) && (
+                                  <div>
+                                    <p className="text-muted-foreground font-medium uppercase tracking-wide text-[10px]">Dimensi (cm)</p>
+                                    <p className="font-mono">{item.length || "?"} × {item.width || "?"} × {item.height || "?"}</p>
+                                  </div>
+                                )}
+                                <div>
+                                  <p className="text-muted-foreground font-medium uppercase tracking-wide text-[10px]">Tarif Ongkir{isK ? "/M³" : "/Kg"}</p>
+                                  <p>{formatRp(item.shippingRate)}</p>
+                                </div>
+                              </>
+                            );
+                          })()}
                           {(item.additionalFee ?? 0) > 0 && (
                             <div className="col-span-2">
                               <p className="text-muted-foreground font-medium uppercase tracking-wide text-[10px]">Biaya Tambahan</p>

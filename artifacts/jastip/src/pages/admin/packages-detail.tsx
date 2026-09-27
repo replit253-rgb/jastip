@@ -57,8 +57,9 @@ function BarcodeDisplay({ value, pkg }: { value: string; pkg?: any }) {
     const pkgNumber = pkg?.packageNumber || "-";
     const serviceType = pkg?.serviceType ? pkg.serviceType.replace("jastip ", "Jastip ") : "-";
     const pkgDate = pkg?.packageDate ? new Date(pkg.packageDate).toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" }) : "-";
-    const usedWeight = pkg?.usedWeight != null ? pkg.usedWeight + " Kg" : "-";
-    const realWeight = pkg?.realWeight != null ? pkg.realWeight + " Kg" : "-";
+    const isKargo = (pkg?.serviceType || "").toLowerCase().includes("kargo") || (pkg?.serviceType || "").toLowerCase().includes("cargo");
+    const usedWeight = pkg?.usedWeight != null ? `${pkg.usedWeight} ${isKargo ? "M³" : "Kg"}` : "-";
+    const realWeight = pkg?.realWeight != null ? `${pkg.realWeight} ${isKargo ? "Ton" : "Kg"}` : "-";
     const packaging = pkg?.packagingType || "-";
     const ongkir = pkg?.totalShipping != null ? "Rp " + Number(pkg.totalShipping).toLocaleString("id-ID") : "-";
     const route = pkg?.deliveryRoute || "-";
@@ -137,14 +138,46 @@ const READ_FIELDS: { label: string; key: string; format?: (v: any, pkg: any) => 
   { label: "No Resi", key: "resiNumber" },
   { label: "No Paket", key: "packageNumber", format: v => v || "-" },
   { label: "Nama Konsumen", key: "customerName", format: v => v || "-" },
-  { label: "Berat Real (Kg)", key: "realWeight", format: v => v ?? "-" },
+  {
+    label: "Berat Real",
+    key: "realWeight",
+    format: (v, p) => {
+      if (v == null) return "-";
+      const isK = (p?.serviceType || "").toLowerCase().includes("kargo") || (p?.serviceType || "").toLowerCase().includes("cargo");
+      return `${v} ${isK ? "Ton" : "Kg"}`;
+    },
+  },
   { label: "P (cm)", key: "length", format: v => v ?? "-" },
   { label: "L (cm)", key: "width", format: v => v ?? "-" },
   { label: "T (cm)", key: "height", format: v => v ?? "-" },
-  { label: "Berat Kubikasi", key: "volumeWeight", format: v => v ?? "-" },
+  {
+    label: "Berat Kubikasi",
+    key: "volumeWeight",
+    format: (v, p) => {
+      if (v == null) return "-";
+      const isK = (p?.serviceType || "").toLowerCase().includes("kargo") || (p?.serviceType || "").toLowerCase().includes("cargo");
+      return `${v} ${isK ? "M³" : "Kg"}`;
+    },
+  },
   { label: "Jenis Paking", key: "packagingType", format: v => packagingLabel(v) },
-  { label: "Berat Digunakan (Kg)", key: "usedWeight", format: v => v ?? "-" },
-  { label: "Ongkir/M3", key: "shippingRate", format: v => formatRp(v) },
+  {
+    label: "Berat Digunakan",
+    key: "usedWeight",
+    format: (v, p) => {
+      if (v == null) return "-";
+      const isK = (p?.serviceType || "").toLowerCase().includes("kargo") || (p?.serviceType || "").toLowerCase().includes("cargo");
+      return `${v} ${isK ? "M³" : "Kg"}`;
+    },
+  },
+  {
+    label: "Ongkir Satuan",
+    key: "shippingRate",
+    format: (v, p) => {
+      if (v == null) return "-";
+      const isK = (p?.serviceType || "").toLowerCase().includes("kargo") || (p?.serviceType || "").toLowerCase().includes("cargo");
+      return `${formatRp(v)}${isK ? " / M³" : " / Kg"}`;
+    },
+  },
   { label: "Total Berat (Kg)", key: "totalWeight", format: v => v ?? "-" },
   { label: "Harga Barang", key: "price", format: v => formatRp(v) },
   { label: "Total Ongkir", key: "totalShipping", format: v => formatRp(v) },

@@ -426,7 +426,7 @@ export default function OwnerSettings() {
               </div>
 
               <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
-                Ongkir kargo = MAX(M³, Ton digunakan) × tarif ini. Minimum tagihan = 10 M³/Ton.
+                Ongkir kargo = MAX(M³, Ton digunakan) × tarif ini. Tidak ada batas minimum untuk Jastip Kargo.
               </div>
 
               <Button onClick={handleSave} disabled={isSaving} className="w-full sm:w-auto">

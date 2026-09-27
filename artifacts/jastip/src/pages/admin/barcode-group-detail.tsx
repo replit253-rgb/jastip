@@ -328,7 +328,10 @@ export default function BarcodeGroupDetail() {
           p.totalShipping != null
             ? "Rp " + Number(p.totalShipping).toLocaleString("id-ID")
             : "-";
-        return labelPageHtml(`${qrSectionHtml(qrDataUrls[i], qrValue)}
+            const isK = (p.serviceType || "").toLowerCase().includes("kargo") || (p.serviceType || "").toLowerCase().includes("cargo");
+            const realW = p.realWeight != null ? `${p.realWeight} ${isK ? "Ton" : "Kg"}` : "-";
+            const usedW = p.usedWeight != null ? `${p.usedWeight} ${isK ? "M³" : "Kg"}` : "-";
+            return labelPageHtml(`${qrSectionHtml(qrDataUrls[i], qrValue)}
         <div class="info">
           <div class="cust">${p.customerName || "-"}</div>
           <div class="grid">
@@ -337,8 +340,8 @@ export default function BarcodeGroupDetail() {
             <div class="field"><div class="fl">Tanggal</div><div class="fv">${pkgDate}</div></div>
             <div class="field"><div class="fl">Jenis Jastip</div><div class="fv">${svcType}</div></div>
             <div class="field full"><div class="fl">Rute</div><div class="fv">${p.deliveryRoute || "-"}</div></div>
-            <div class="field"><div class="fl">Berat Real</div><div class="fv">${p.realWeight != null ? p.realWeight + " Kg" : "-"}</div></div>
-            <div class="field"><div class="fl">Berat Digunakan</div><div class="fv">${p.usedWeight != null ? p.usedWeight + " Kg" : "-"}</div></div>
+            <div class="field"><div class="fl">Berat Real</div><div class="fv">${realW}</div></div>
+            <div class="field"><div class="fl">Berat Digunakan</div><div class="fv">${usedW}</div></div>
             <div class="field"><div class="fl">Total Ongkir</div><div class="fv red">${ongkir}</div></div>
             ${(p.additionalFee ?? 0) > 0 ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${Number(p.additionalFee).toLocaleString("id-ID")}${p.additionalFeeReason ? ` (${p.additionalFeeReason})` : ""}</div></div>` : ""}
           </div>
@@ -518,7 +521,7 @@ export default function BarcodeGroupDetail() {
                       Berat Real
                     </p>
                     <p className="font-semibold">
-                      {pkg.realWeight != null ? `${pkg.realWeight} Kg` : "-"}
+                      {pkg.realWeight != null ? `${pkg.realWeight} ${(pkg.serviceType || "").toLowerCase().includes("kargo") || (pkg.serviceType || "").toLowerCase().includes("cargo") ? "Ton" : "Kg"}` : "-"}
                     </p>
                   </div>
                   <div>
@@ -527,7 +530,7 @@ export default function BarcodeGroupDetail() {
                     </p>
                     <p>
                       {pkg.volumeWeight != null
-                        ? `${Number(pkg.volumeWeight).toFixed(3)} Kg`
+                        ? `${Number(pkg.volumeWeight).toLocaleString("id-ID", { maximumFractionDigits: 5 })} ${(pkg.serviceType || "").toLowerCase().includes("kargo") || (pkg.serviceType || "").toLowerCase().includes("cargo") ? "M³" : "Kg"}`
                         : "-"}
                     </p>
                   </div>
@@ -536,7 +539,7 @@ export default function BarcodeGroupDetail() {
                       Berat Digunakan
                     </p>
                     <p className="font-semibold">
-                      {pkg.usedWeight != null ? `${pkg.usedWeight} Kg` : "-"}
+                      {pkg.usedWeight != null ? `${Number(pkg.usedWeight).toLocaleString("id-ID", { maximumFractionDigits: 5 })} ${(pkg.serviceType || "").toLowerCase().includes("kargo") || (pkg.serviceType || "").toLowerCase().includes("cargo") ? "M³" : "Kg"}` : "-"}
                     </p>
                   </div>
                   {(pkg.length || pkg.width || pkg.height) && (

@@ -378,7 +378,7 @@ const mockShippingMinimum: any[] = [
   { id: 1, serviceId: 1, originCity: "Jakarta", enabled: true, minimumAmount: "20000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
   { id: 2, serviceId: 1, originCity: "Surabaya", enabled: true, minimumAmount: "20000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
   { id: 3, serviceId: 2, originCity: "Surabaya", enabled: true, minimumAmount: "10000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
-  { id: 4, serviceId: 3, originCity: "Jakarta/Surabaya", enabled: true, minimumAmount: "25000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
+  { id: 4, serviceId: 3, originCity: "Jakarta/Surabaya", enabled: false, minimumAmount: "0", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
 ];
 const mockSettings: any[] = [
   { key: "cash_variance_tolerance", value: "0" },

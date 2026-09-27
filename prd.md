@@ -294,7 +294,7 @@ $$\text{Berat Pakai} = \max(\text{Berat Aktual (kg)}, \text{Berat Volume (kg)})$
 | **Jastip Pesawat** | Tarif acuan default: Rp77.000/kg.<br>Pembulatan berat kumulatif per customer per batch: $\le 0.2\text{ kg} \rightarrow 0.2\text{ kg}$; $\le 0.4\text{ kg} \rightarrow 0.4\text{ kg}$; $\le 0.5\text{ kg} \rightarrow 0.5\text{ kg}$; $> 0.5\text{ kg} \rightarrow \text{Berat Aktual}$. Ongkir didistribusikan proporsional ke paket-paketnya. Memiliki floor batas bawah pembulatan berat minimum 0.2 kg (setara ongkir minimum Rp15.400). |
 | **Jastip Hemat+** | Tarif acuan default: Rp10.000/kg.<br>Satu paket tunggal berat $< 1\text{ kg}$ dikenakan minimum $1\text{ kg}$ (minimum ongkir Rp10.000). Lebih dari satu paket milik customer yang sama dalam batch dihitung berdasarkan total berat gabungan tanpa pembulatan ke atas per paket, dengan floor batas minimum total ongkir grup Rp10.000. |
 | **Jastip Pelni** | Tarif tiering bertingkat berdasarkan total berat gabungan customer dalam batch yang sama:<br>Contoh Jakarta $\rightarrow$ Manokwari: $\le 10.1\text{ kg}: \text{Rp}20.000/\text{kg}$; $\le 20.1\text{ kg}: \text{Rp}19.000/\text{kg}$; $\le 40.1\text{ kg}: \text{Rp}18.000/\text{kg}$; $\le 80.1\text{ kg}: \text{Rp}17.000/\text{kg}$; $> 80.1\text{ kg}: \text{Rp}16.000/\text{kg}$.<br>Surabaya $\rightarrow$ Manokwari: $\le 10\text{ kg}: \text{Rp}18.000/\text{kg}$; $\le 20\text{ kg}: \text{Rp}17.000/\text{kg}$; $\le 40\text{ kg}: \text{Rp}16.000/\text{kg}$; $> 40\text{ kg}: \text{Rp}15.500/\text{kg}$.<br>**Ongkir Minimum Pelni**: Dikenakan minimum Rp20.000 per customer (ongkir total di bawah Rp20.000 otomatis dibulatkan menjadi Rp20.000). |
-| **Jastip Kargo** | Dihitung berdasarkan kubikasi $\text{M}^3$ ($\frac{P \times L \times T}{1.000.000}$) atau berat aktual dikalikan tarif kargo (default Rp7.000/kg). Memiliki nilai minimum input sistem Rp70.000 pada form input paket baru dan konfigurasi dasar minimum Rp25.000 pada pengaturan Owner. |
+| **Jastip Kargo** | Dihitung berdasarkan kubikasi $\text{M}^3$ ($\frac{P \times L \times T}{1.000.000}$) atau berat aktual (Ton) dikalikan tarif kargo per $\text{M}^3$. **TIDAK ADA MINIMAL ONGKIR** (tidak ada batas minimum Rp70.000, Rp25.000, maupun angka batas minimum lainnya; total ongkir dihitung murni sesuai hasil perkalian volume kubikasi $\text{M}^3 \times \text{Tarif/M}^3$, misalnya $0{,}02142\text{ M}^3 \times \text{Rp } 1.900.000 = \text{Rp } 40.698$). |
 
 ### 5.3 Sistem & Spesifikasi Ongkir Minimum (Shipping Minimums)
 
@@ -306,17 +306,19 @@ Sistem menerapkan arsitektur ongkir minimum berbasis grup konsumen dan layanan d
    | **Jastip Pelni** | Jakarta $\rightarrow$ Manokwari | **Rp 20.000** | Floor otomatis sistem & form input. Paket dengan total ongkir $< \text{Rp } 20.000$ (misal 0.5 kg $\times$ Rp 20.000 = Rp 10.000) otomatis dibulatkan menjadi Rp 20.000. |
    | **Jastip Pelni** | Surabaya $\rightarrow$ Manokwari | **Rp 18.000 / Rp 20.000** | Terdaftar pada konfigurasi minimum dengan batas dasar Rp 18.000 (Surabaya) dan floor rekalkulasi aktif Rp 20.000. |
    | **Jastip Hemat+** | Surabaya $\rightarrow$ Manokwari | **Rp 10.000** | Berlaku aturan minimum 1 kg (1 kg $\times$ Rp 10.000 = Rp 10.000) untuk paket tunggal, serta batas bawah total ongkir customer Rp 10.000. |
-   | **Jastip Kargo** | Jakarta/Surabaya $\rightarrow$ Manokwari | **Rp 70.000 / Rp 25.000** | Form input paket baru menerapkan `Math.max(70000, ...)`; pengaturan Owner mengonfigurasi batas default Rp 25.000. |
+   | **Jastip Kargo** | Jakarta/Surabaya $\rightarrow$ Manokwari | **Tidak Ada Minimal (Rp 0)** | Jastip Kargo **tidak memberlakukan tarif minimum sama sekali**. Total ongkir berapapun hasilnya (misal Rp 40.698 atau Rp 7.000) dihitung murni dari hasil volume M³ / berat Ton dikalikan tarif per M³, tanpa pembulatan minimum. |
    | **Jastip Pesawat** | Jakarta $\rightarrow$ Manokwari | **Rp 15.400** *(Weight Floor)* | Menggunakan floor pembulatan berat efektif terkecil $0.20\text{ kg} \times \text{Rp } 77.000 = \text{Rp } 15.400$. |
 
 2. **Aturan Berlaku Per Grup Konsumen (Customer-Level Minimum)**:
    - Ongkir minimum diperlakukan sebagai batas **total ongkir per customer** dalam batch yang sama, bukan membebani setiap paket secara terpisah jika customer mengirim banyak paket kecil.
    - **1 Paket Tunggal**: Jika total ongkir paket di bawah batas minimum, ongkir paket tersebut langsung dinaikkan ke nilai minimum.
    - **Multi-Paket (Lebih dari 1 Paket)**: Jika penjumlahan ongkir seluruh paket customer dalam batch tersebut masih di bawah batas minimum, selisih menuju nilai minimum didistribusikan secara proporsional ke masing-masing paket berdasarkan bobot berat pakai (`usedWeight` / `pkgEffectiveWeights`), sehingga penjumlahan seluruh `totalShipping` paket tepat setara dengan nominal minimum.
+   - **Pengecualian Kargo**: Jastip Kargo dikecualikan dari segala mekanisme redistribusi atau batas minimum, memastikan tarif murni per meter kubik / ton.
 
 3. **Manajemen Dinamis oleh Owner (`/owner/tarif`)**:
    - Menu *Pengaturan Tarif* Owner menyediakan kartu kontrol khusus **"Harga Ongkir Minimum"**.
    - Owner dapat mengaktifkan/menonaktifkan (toggle switch `ON` / `OFF`) serta mengubah besaran rupiah minimum untuk masing-masing jenis layanan dan kota asal.
+   - Layanan Jastip Kargo dikecualikan dari tabel pengaturan minimum dengan catatan panduan yang jelas.
    - Setiap perubahan nilai minimum mewajibkan input alasan perubahan (opsional tapi tercatat) dan disimpan ke tabel audit `tarif_history` yang mencatat siapa yang mengubah, waktu perubahan, nilai lama, dan nilai baru.
 
 ---
@@ -334,14 +336,14 @@ Sistem menerapkan arsitektur ongkir minimum berbasis grup konsumen dan layanan d
 | **`invoices`** | Dokumen tagihan Invoice A4 (`id`, `invoiceNo`, `customerName`, `customerPhone`, `subtotal`, `discount`, `discountReason`, `downPayment`, `total`, `balance`, `status` [BELUM_LUNAS/DIBAYAR_SEBAGIAN/LUNAS/BATAL], `notes`, `createdById`, `createdByName`, `issuedAt`, `dueDate`, `printCount`, `lastPrintedAt`, `history`). |
 | **`invoice_items`** | Rincian baris paket dalam invoice (`id`, `invoiceId`, `packageId`, `resiNumber`, `packageNumber`, `itemName`, `serviceType`, `deliveryRoute`, `usedWeight`, `shippingRate`, `additionalFee`, `additionalFeeReason`, `price`, `itemDate`). |
 | **`print_logs`** | Log audit cetak dokumen (`id`, `documentType` [INVOICE/RECEIPT/LABEL], `documentId`, `printedById`, `printedByName`, `printedAt`, `reason`). |
-| **`shift_sessions`** | Sesi shift kerja kasir (`id`, `adminId`, `shiftType` [PAGI/MALAM], `terminalId`, `openingBalance`, `status` [OPEN/CLOSED], `actualStart`, `actualEnd`). |
+| **`shift_sessions`** | Sesi shift kerja kasir (`id`, `adminId`, `shiftType` [PAGI/MALAM], `terminalId`, `openingBalance`, `status` [AKTIF/CLOSED], `actualStart`, `actualEnd`). |
 | **`shift_closings`** | Rekapitulasi penutupan shift laci (`id`, `shiftSessionId`, `systemCash`, `actualCash`, `selisih`, `alasanSelisih`, `closedAt`, `approvedBy`). |
 | **`void_requests`** | Log permohonan pembatalan transaksi (`id`, `transactionId`, `reasonCode`, `notes`, `requestedBy`, `reversalAmount`, `packageIdsReturned`, `statusBefore`, `statusAfter` [MENUNGGU_APPROVAL/VOID/DITOLAK], `approvedBy`, `approvedAt`). |
-| **`pengeluaran`** | Pengeluaran kas operasional (`id`, `nominal`, `kategori`, `keterangan`, `metodePembayaran` [cash/transfer/lainnya], `adminId`, `createdAt`). |
+| **`pengeluaran`** | Pengeluaran kas operasional (`id`, `tanggal`, `nominal`, `kategori`, `catatan`, `metodePembayaran` [cash/transfer/lainnya], `dicatatOleh`, `namaPencatat`, `createdAt`). |
 | **`service_types`** | Master jenis layanan jastip (`id`, `name`, `code`, `divisor`, `defaultRate`). |
 | **`settings`** | Konfigurasi tarif umum & tiering Pelni dalam format JSON key-value. |
 | **`settings_shipping_minimum`** | Pengaturan harga ongkir minimum per layanan dan rute (`id`, `serviceId`, `originCity`, `enabled` (boolean), `minimumAmount` (numeric), `updatedBy`, `createdAt`, `updatedAt`). |
-| **`tarif_history`** | Riwayat audit perubahan tarif dan ongkir minimum oleh Owner (`id`, `serviceType`, `oldRate`, `newRate`, `changedBy`, `createdAt`). |
+| **`tarif_history`** | Riwayat audit perubahan tarif dan ongkir minimum oleh Owner (`id`, `jenisJastip`, `tarifLama`, `tarifBaru`, `alasan`, `diubahOleh`, `namaUbah`, `createdAt`). |
 
 ---
 
@@ -354,41 +356,50 @@ Sistem dilengkapi suite pengujian otomatis untuk memastikan integritas logika bi
    npm run lint
    npm run typecheck
    ```
-   *Status:* Lulus tanpa error sintaksis atau tipe data TypeScript.
+   *Status:* **100% LULUS** (Zero type / syntax errors).
 
-2. **Pengujian Biaya Tambahan (Opsional) di Detail Paket & Barcode**:
+2. **Pengujian Komprehensif Seluruh Modul & Fitur Sistem (26 Poin Uji)**:
    ```bash
-   npx tsx scripts/src/test-additional-fee-detail.ts
+   npx --prefix scripts tsx scripts/src/verify-all-system-features.ts
    ```
    *Cakupan:*
-   - Input paket baru dengan nominal & keterangan biaya tambahan (Rp 15.000, "Paking kayu & bubble wrap ekstra").
-   - Pengambilan detail paket via GET `/api/packages/:id` dan verifikasi integritas data.
-   - Pembaruan (PATCH `/api/packages/:id`) biaya tambahan (Rp 25.000, "Paking kayu ukuran besar + karung berlapis").
-   - Pengujian reset biaya tambahan ke 0 / null.
-   *Status:* **100% LULUS**.
+   - [x] **System Bootstrap & Health**: Endpoint `/healthz` merespons HTTP 200 `status: ok`.
+   - [x] **Autentikasi & Profile**: Login Owner & Admin, token session, dan endpoint `/api/auth/me`.
+   - [x] **Batch Pengiriman**: Query list batch dan pembuatan batch baru oleh Owner.
+   - [x] **Input Paket**: Satuan Pesawat, Pelni (dengan proteksi paking kayu), Kargo (murni M³ tanpa batas minimal: 34×30×21 cm $\rightarrow$ Rp40.698), dan Bulk Import Multi-Resi.
+   - [x] **Label Barcode**: Generate otomatis kode barcode `JAJ-...` pada seluruh paket.
+   - [x] **Verifikasi Paket**: Scan fisik dan update status verifikasi paket di gudang.
+   - [x] **Shift Kasir**: Deteksi status shift `AKTIF` dan pembukaan shift dengan modal awal.
+   - [x] **Transaksi Kasir**: Transaksi tunai lunas, perhitungan kembalian laci kas, dan penerbitan format struk termal.
+   - [x] **Invoice A4**: Pemetaan status `package-map`, penerbitan Invoice A4 resmi dengan DP/Diskon, dan render cetak snapshot.
+   - [x] **Transaksi & VOID**: Pengajuan permohonan VOID oleh kasir dan persetujuan approval + *cash reversal* oleh Owner.
+   - [x] **Pengeluaran Kas**: Pencatatan beban harian operasional dan rekapitulasi riwayat kas keluar.
+   - [x] **Pengaturan Tarif**: Query daftar pengaturan tarif aktif dan audit histori perubahan.
+   - [x] **Manajemen User**: Pengelolaan akun staf/admin oleh Owner.
+   - [x] **Laporan & Keuangan**: Ringkasan laporan keuangan dan arus kas.
+   *Status:* **26 / 26 PENGUJIAN LULUS (100%)**.
 
-3. **Pengujian Alur Invoice A4, Package Map, & Cetak Snapshot**:
+3. **Pengujian Kalkulasi Jastip Kargo (Tanpa Batas Minimum)**:
    ```bash
-   npx tsx scripts/src/test-invoices-flow.ts
-   ```
-   *Cakupan:* Query `/api/invoices/package-map`, penerbitan Invoice A4 dari paket terpilih, query detail items invoice, dan pencatatan audit log cetak snapshot.
-   *Status:* **100% LULUS**.
-
-4. **Pengujian UAT Fase 8: Konsistensi Ekspor & Dokumen Cetak**:
-   ```bash
-   npx tsx scripts/src/verify-fase8-uat.ts
+   npx --prefix scripts tsx scripts/src/test-kargo-calc.ts
    ```
    *Cakupan:*
-   - Perbandingan baris data dan total nominal antara Excel, PDF, dan SQL Database untuk berbagai batch.
-   - Text wrapping pada tabel cetak untuk teks panjang ($\ge 60$ karakter) tanpa terpotong (*truncate*).
-   - Konsistensi 100% antara filter visual UI dan baris ekspor.
+   - Kasus 1 (Rak Sepatu 34×30×21 cm): $0{,}02142\text{ M}^3 \times \text{Rp } 1.900.000 = \text{Rp } 40.698$ (Bukan Rp70.000 atau Rp25.000).
+   - Kasus 2 (Kereta Bayi 66×64×13 cm): $0{,}054912\text{ M}^3 \times \text{Rp } 1.900.000 = \text{Rp } 104.333$.
+   - Kasus 3 (Kasur 200×90×26 cm): $0{,}468\text{ M}^3 \times \text{Rp } 1.500.000 = \text{Rp } 702.000$.
    *Status:* **100% LULUS**.
 
-5. **Pengujian Regresi End-to-End**:
+4. **Pengujian Biaya Tambahan (Opsional) di Detail Paket & Barcode**:
    ```bash
-   npx tsx scripts/src/verify-full-regression-e2e.ts
+   npx --prefix scripts tsx scripts/src/test-additional-fee-detail.ts
    ```
-   *Cakupan:* Bootstrap DB, Login Multi-role, Transaksi Tunai/Transfer/QRIS/Piutang, Pelunasan Piutang 2 Tahap, VOID & Reversal Saldo Kas, Proteksi Anti-Repeat VOID, Struk Termal, Invariansi Snapshot Tarif, Blind Closing Shift, Rekonsiliasi Excel vs DB, dan Proteksi Role Admin (HTTP 403).
+   *Status:* **100% LULUS**.
+
+5. **Pengujian Regresi Penuh End-to-End (15 Langkah)**:
+   ```bash
+   npx --prefix scripts tsx scripts/src/verify-full-regression-e2e.ts
+   ```
+   *Status:* **15 / 15 LANGKAH REGRESI LULUS 100%**.
 
 ---
 

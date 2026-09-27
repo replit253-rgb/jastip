@@ -79,16 +79,16 @@ const SERVICES = [
     borderColor: "border-orange-200",
     badgeBg: "bg-orange-100 text-orange-700",
     rateType: "per-kg" as const,
-    rateNote: "Tarif flat Rp 7.000/kg",
+    rateNote: "Kargo: M³ / Ton (Tanpa Minimum)",
     routes: [
       {
         route: "Jakarta / Surabaya → Manokwari",
         flatRate: 7000,
         rates: [
-          { label: "10 kg", ratePerKg: 7000, total: 70000 },
-          { label: "20 kg", ratePerKg: 7000, total: 140000 },
-          { label: "50 kg", ratePerKg: 7000, total: 350000 },
-          { label: "100 kg", ratePerKg: 7000, total: 700000 },
+          { label: "1 M³ / Ton", ratePerKg: 7000, total: 7000 },
+          { label: "5 M³ / Ton", ratePerKg: 7000, total: 35000 },
+          { label: "10 M³ / Ton", ratePerKg: 7000, total: 70000 },
+          { label: "20 M³ / Ton", ratePerKg: 7000, total: 140000 },
         ],
       },
     ],

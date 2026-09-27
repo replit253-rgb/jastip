@@ -491,13 +491,13 @@ export default function AdminPackagesImport() {
           // Kolom Pakai (m3) diisi langsung — simpan apa adanya (fix bug 0.01→10)
           vw = row.pakaiM3;
         } else if (row.length && row.width && row.height && row.length > 0 && row.width > 0 && row.height > 0) {
-          vw = Number(((row.length * row.width * row.height) / 1000000).toFixed(4));
+          vw = Number(((row.length * row.width * row.height) / 1000000).toFixed(6));
         }
         // usedWeight = max(realWeight, volumeWeight) — nilai asli, bukan dibulatkan ke minimum
         const usedWeight = rw > 0 && vw !== null ? Math.max(rw, vw) : rw > 0 ? rw : (vw ?? null);
-        // Ongkir diambil langsung dari kolom Ongkir Paket; Harga Kubikasi → shippingRate
+        // Ongkir diambil langsung dari kolom Ongkir Paket; jika kosong hitung dari kubikasi * tarif
         const rate  = row.kargoRate ?? null;
-        const total = row.ongkirPaket ?? null;
+        const total = row.ongkirPaket ?? (usedWeight && rate ? Math.round(usedWeight * rate) : null);
         return {
           ...row,
           volumeWeight: vw,

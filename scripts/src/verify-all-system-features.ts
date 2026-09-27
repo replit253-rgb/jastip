@@ -159,7 +159,31 @@ async function runComprehensiveTests() {
     if (pkg2.id) createdPkgIds.push(pkg2.id);
     check("4. Input Paket", "Input Satuan Jastip Pelni (Kayu)", pkg2Res.status === 201 && pkg2.totalShipping > 0, `ID: ${pkg2.id}, Ongkir: Rp${pkg2.totalShipping}`);
 
-    // 4.3 Input Bulk / Import
+    // 4.3 Input Jastip Kargo (Murni tanpa minimum)
+    const pkgKargoRes = await fetch(`${API_BASE}/packages`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({
+        customerName: "Kargo Test User",
+        customerPhone: "081234567899",
+        itemName: "Mesin Pabrik / Material",
+        resiNumber: `RESI-KARGO-${Date.now()}`,
+        serviceType: "jastip kargo",
+        deliveryRoute: "Jakarta/Surabaya → Manokwari",
+        length: 34,
+        width: 30,
+        height: 21,
+        realWeight: 0.01,
+        shippingRate: 1900000,
+        batchId: testBatchId,
+      }),
+    });
+    const pkgKargo = await pkgKargoRes.json();
+    // 34 * 30 * 21 / 1000000 = 0.02142 * 1900000 = 40698
+    const kargoNoMin = pkgKargo.totalShipping === 40698;
+    check("4. Input Paket", "Input Satuan Jastip Kargo (Murni M³ Tanpa Minimal)", pkgKargoRes.status === 201 && kargoNoMin, `ID: ${pkgKargo.id}, Ongkir: Rp${pkgKargo.totalShipping} (Target: Rp40.698)`);
+
+    // 4.4 Input Bulk / Import
     const bulkRes = await fetch(`${API_BASE}/packages/import`, {
       method: "POST",
       headers: adminHeaders,
@@ -224,7 +248,7 @@ async function runComprehensiveTests() {
         body: JSON.stringify({ verified: true }),
       });
       const verifyData = await verifyRes.json();
-      check("6. Verifikasi Paket", "Verifikasi Fisik Paket Individual", verifyRes.status === 200 && verifyData.status === "verified", `Status: ${verifyData.status}`);
+      check("6. Verifikasi Paket", "Verifikasi Fisik Paket Individual", verifyRes.status === 200 && (verifyData.statusVerifikasi === "SUDAH_DIVERIFIKASI" || verifyData.verified === "sudah_diverifikasi"), `Status: ${verifyData.statusVerifikasi || verifyData.verified}`);
     }
   } catch (err: any) {
     check("6. Verifikasi Paket", "Verification", false, err.message);
@@ -235,7 +259,7 @@ async function runComprehensiveTests() {
   try {
     const checkShift = await fetch(`${API_BASE}/shifts/current`, { headers: adminHeaders });
     const currShift = await checkShift.json();
-    if (currShift.shift?.status === "OPEN") {
+    if (currShift.shift?.status === "AKTIF" || currShift.shift?.status === "OPEN") {
       shiftSessionId = currShift.shift.id;
     } else {
       const openShiftRes = await fetch(`${API_BASE}/shifts/open`, {
@@ -244,11 +268,11 @@ async function runComprehensiveTests() {
         body: JSON.stringify({
           shiftType: "PAGI",
           openingBalance: 150000,
-          terminalId: "TERM-TEST-01",
+          terminalId: `TERM-TEST-${Date.now()}`,
         }),
       });
       const shiftData = await openShiftRes.json();
-      shiftSessionId = shiftData.shift?.id || shiftData.id;
+      shiftSessionId = shiftData.shift?.id || shiftData.shiftId || shiftData.id;
     }
     check("7. Shift Kasir", "Status Shift Kasir Aktif", !!shiftSessionId, `Shift ID: ${shiftSessionId}`);
   } catch (err: any) {
@@ -267,7 +291,8 @@ async function runComprehensiveTests() {
           customerName: "Budi Santoso",
           packageIds: [payPkgId],
           paymentMethod: "tunai",
-          paymentType: "PELUNASAN_LANGSUNG",
+          subtotal: 138600,
+          total: 138600,
           paidAmount: 200000,
           idempotencyKey: `test-trx-${Date.now()}`,
         }),
@@ -351,13 +376,15 @@ async function runComprehensiveTests() {
 
   // 11. PENGELUARAN HARIAN OPERASIONAL
   try {
+    const today = new Date().toISOString().split("T")[0];
     const createExpRes = await fetch(`${API_BASE}/pengeluaran`, {
       method: "POST",
       headers: ownerHeaders,
       body: JSON.stringify({
+        tanggal: today,
         nominal: 45000,
         kategori: "operasional",
-        keterangan: "Beli lakban cokelat & karung packing",
+        catatan: "Beli lakban cokelat & karung packing",
         metodePembayaran: "cash",
       }),
     });
@@ -373,11 +400,11 @@ async function runComprehensiveTests() {
 
   // 12. PENGATURAN TARIF & AUDIT TRAIL
   try {
-    const listTarifRes = await fetch(`${API_BASE}/tarif`, { headers: ownerHeaders });
+    const listTarifRes = await fetch(`${API_BASE}/settings`, { headers: ownerHeaders });
     const tarifData = await listTarifRes.json();
-    check("12. Pengaturan Tarif", "Daftar Tarif Aktif", listTarifRes.status === 200, `Layanan Terkonfigurasi: ${Object.keys(tarifData).length}`);
+    check("12. Pengaturan Tarif", "Daftar Tarif Aktif", listTarifRes.status === 200, `Pengaturan Terkonfigurasi: ${Object.keys(tarifData).length}`);
 
-    const historyRes = await fetch(`${API_BASE}/tarif/history`, { headers: ownerHeaders });
+    const historyRes = await fetch(`${API_BASE}/settings/history`, { headers: ownerHeaders });
     const historyData = await historyRes.json();
     check("12. Pengaturan Tarif", "Histori Audit Perubahan Tarif", historyRes.status === 200 && Array.isArray(historyData), `Total Log Histori: ${historyData.length}`);
   } catch (err: any) {
@@ -386,7 +413,7 @@ async function runComprehensiveTests() {
 
   // 13. MANAJEMEN USER & ADMIN (OWNER ACCESS)
   try {
-    const listUsersRes = await fetch(`${API_BASE}/users`, { headers: ownerHeaders });
+    const listUsersRes = await fetch(`${API_BASE}/admins`, { headers: ownerHeaders });
     const usersData = await listUsersRes.json();
     check("13. Manajemen User", "List Data Admin & Staf (Owner)", listUsersRes.status === 200 && Array.isArray(usersData), `Total User: ${usersData.length}`);
   } catch (err: any) {
@@ -395,7 +422,7 @@ async function runComprehensiveTests() {
 
   // 14. LAPORAN OPERASIONAL & KEUANGAN
   try {
-    const reportsRes = await fetch(`${API_BASE}/reports/summary`, { headers: ownerHeaders });
+    const reportsRes = await fetch(`${API_BASE}/reports?type=ringkasan`, { headers: ownerHeaders });
     const repData = await reportsRes.json();
     check("14. Laporan & Keuangan", "Ringkasan Laporan Laba/Rugi & Arus Kas", reportsRes.status === 200, `Status Laporan: OK`);
   } catch (err: any) {

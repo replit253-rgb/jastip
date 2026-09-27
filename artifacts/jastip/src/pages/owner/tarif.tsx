@@ -451,7 +451,9 @@ export default function OwnerTarif() {
           <CardTitle className="text-base flex items-center gap-2">
             <Truck className="w-4 h-4 text-orange-500" /> Jastip Kargo
           </CardTitle>
-          <CardDescription>Ongkir kargo diisi manual per paket. Tarif di sini hanya sebagai panduan default.</CardDescription>
+          <CardDescription>
+            Ongkir kargo diisi manual per paket / dihitung dari MAX(M³, Ton) × tarif. Tidak ada batas minimum ongkir.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="space-y-1.5">
@@ -466,6 +468,11 @@ export default function OwnerTarif() {
                 onChange={(e) => setKargoRate(e.target.value)}
               />
             </div>
+            {kargoRate && !isNaN(Number(kargoRate)) && (
+              <p className="text-xs text-muted-foreground">
+                = <strong>{formatRp(Number(kargoRate))}</strong> per M³/Ton (tanpa batas minimum)
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -519,12 +526,14 @@ export default function OwnerTarif() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {shippingMinimums.length === 0 ? (
+          {shippingMinimums.filter((row) => row.serviceName !== "jastip kargo").length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Nilai awal belum tersedia. Jalankan migrasi seed Fase 4 terlebih dahulu.
             </p>
           ) : (
-            shippingMinimums.map((row) => (
+            shippingMinimums
+              .filter((row) => row.serviceName !== "jastip kargo")
+              .map((row) => (
               <div
                 key={row.id}
                 className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr,170px,auto] sm:items-center"
@@ -568,6 +577,9 @@ export default function OwnerTarif() {
               </div>
             ))
           )}
+          <div className="rounded-md bg-muted/50 border px-3 py-2 text-xs text-muted-foreground">
+            💡 <strong>Jastip Kargo:</strong> Tidak memiliki tarif minimum (dihitung murni sesuai volume M³ atau berat Ton × tarif).
+          </div>
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
             <p className="text-xs text-muted-foreground">
               Perubahan dicatat di riwayat tarif dengan nilai lama, nilai baru, waktu, dan Owner.

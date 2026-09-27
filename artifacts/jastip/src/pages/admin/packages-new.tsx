@@ -153,7 +153,7 @@ function getTotalShipping(
     return Math.max(10000, Math.round(weight * 10000));
   }
   if (serviceType === "jastip kargo" && deliveryRoute === "Jakarta/Surabaya → Manokwari") {
-    return Math.max(70000, Math.round(weight * 7000));
+    return Math.round(weight * 7000);
   }
   if (serviceType === "jastip pelni") {
     const rate = getPelniRateByTotalWeight(weight, deliveryRoute) || 20000;
@@ -396,7 +396,7 @@ export default function AdminPackagesNew() {
     let vw: number | null = null;
     const divisor = serviceType ? volumeDivisor[serviceType] : undefined;
     if (divisor && length && width && height && length > 0 && width > 0 && height > 0) {
-      vw = Number(((length * width * height) / divisor).toFixed(4));
+      vw = Number(((length * width * height) / divisor).toFixed(6));
     }
     form.setValue("volumeWeight", vw, { shouldDirty: true });
 
@@ -418,12 +418,13 @@ export default function AdminPackagesNew() {
   // Kargo: auto-hitung totalShipping = Berat Kubikasi × Ongkir/M3
   useEffect(() => {
     if (serviceType !== "jastip kargo") return;
-    if (watchedVolumeWeight != null && watchedVolumeWeight > 0 && watchedShippingRate != null && watchedShippingRate > 0) {
-      form.setValue("totalShipping", Math.round(watchedVolumeWeight * watchedShippingRate), { shouldDirty: true });
+    const effectiveWeight = watchedUsedWeight ?? watchedVolumeWeight;
+    if (effectiveWeight != null && effectiveWeight > 0 && watchedShippingRate != null && watchedShippingRate > 0) {
+      form.setValue("totalShipping", Math.round(effectiveWeight * watchedShippingRate), { shouldDirty: true });
     } else {
       form.setValue("totalShipping", null, { shouldDirty: true });
     }
-  }, [watchedVolumeWeight, watchedShippingRate, serviceType]);
+  }, [watchedUsedWeight, watchedVolumeWeight, watchedShippingRate, serviceType]);
 
   async function onSubmit(values: PackageFormValues) {
     // Require customerName for all modes
@@ -1063,9 +1064,9 @@ export default function AdminPackagesNew() {
 
                     {/* M3 (auto dari dimensi) */}
                     <div className="rounded-lg border bg-muted/30 p-3">
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">M³ / Ton (Kubikasi)</p>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">M³ (Kubikasi)</p>
                       <p className="text-xl font-black text-orange-600">
-                        {watchedVolumeWeight != null ? watchedVolumeWeight.toFixed(4) : "—"}
+                        {watchedVolumeWeight != null ? `${watchedVolumeWeight.toLocaleString("id-ID", { maximumFractionDigits: 6 })} M³` : "—"}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">P × L × T ÷ 1.000.000</p>
                     </div>
@@ -1076,7 +1077,7 @@ export default function AdminPackagesNew() {
                       name="realWeight"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>M³ / Ton (Berat Aktual) <span className="text-xs font-normal text-muted-foreground">(Opsional)</span></FormLabel>
+                          <FormLabel>Berat Aktual (Ton) <span className="text-xs font-normal text-muted-foreground">(Opsional)</span></FormLabel>
                           <FormControl>
                             <Input
                               type="number" step="0.001" placeholder="0.000"
@@ -1096,11 +1097,11 @@ export default function AdminPackagesNew() {
                         <div className="flex-1">
                           <p className="text-xs font-semibold text-orange-700 uppercase tracking-wide">M³/Ton yang Digunakan</p>
                           <p className="text-lg font-black text-orange-700">
-                            {watchedUsedWeight.toFixed(4)}
+                            {watchedUsedWeight.toLocaleString("id-ID", { maximumFractionDigits: 6 })}
                             <span className="text-xs font-normal ml-1">
                               {watchedVolumeWeight != null && realWeight != null
-                                ? (watchedVolumeWeight >= (realWeight ?? 0) ? "(M³ lebih besar)" : "(Ton lebih besar)")
-                                : ""}
+                                ? (watchedVolumeWeight >= (realWeight ?? 0) ? "M³ (dari Dimensi)" : "Ton (Berat Aktual)")
+                                : "M³"}
                             </span>
                           </p>
                         </div>
@@ -1139,7 +1140,7 @@ export default function AdminPackagesNew() {
                         <p className="text-2xl font-black text-primary mt-1">{formatRp(watchedTotalShipping)}</p>
                         {watchedVolumeWeight != null && watchedShippingRate != null && (
                           <p className="text-xs text-muted-foreground mt-1">
-                            {watchedVolumeWeight.toFixed(4)} M³ × {formatRp(watchedShippingRate)} = {formatRp(watchedTotalShipping)}
+                            {(watchedUsedWeight ?? watchedVolumeWeight)?.toLocaleString("id-ID", { maximumFractionDigits: 6 })} M³ × {formatRp(watchedShippingRate)} = {formatRp(watchedTotalShipping)}
                           </p>
                         )}
                       </div>
