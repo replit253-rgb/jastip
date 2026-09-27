@@ -375,10 +375,10 @@ const mockServiceTypes: any[] = [
   { id: 4, name: "jastip pesawat", label: "Jastip Pesawat", description: "Layanan kilat udara", divisor: 5000, isActive: true },
 ];
 const mockShippingMinimum: any[] = [
-  { id: 1, serviceId: 1, originCity: "Jakarta", enabled: true, minimumAmount: "20000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
-  { id: 2, serviceId: 1, originCity: "Surabaya", enabled: true, minimumAmount: "20000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
-  { id: 3, serviceId: 2, originCity: "Surabaya", enabled: true, minimumAmount: "10000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
-  { id: 4, serviceId: 3, originCity: "Jakarta/Surabaya", enabled: false, minimumAmount: "0", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
+  { id: 1, serviceId: 1, serviceName: "jastip pelni", serviceLabel: "Jastip Pelni", originCity: "Jakarta", enabled: true, minimumAmount: "20000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
+  { id: 2, serviceId: 1, serviceName: "jastip pelni", serviceLabel: "Jastip Pelni", originCity: "Surabaya", enabled: true, minimumAmount: "20000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
+  { id: 3, serviceId: 2, serviceName: "jastip hemat+", serviceLabel: "Jastip Hemat+", originCity: "Surabaya", enabled: true, minimumAmount: "10000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
+  { id: 4, serviceId: 3, serviceName: "jastip kargo", serviceLabel: "Jastip Kargo", originCity: "Jakarta/Surabaya", enabled: false, minimumAmount: "0", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
 ];
 const mockSettings: any[] = [
   { key: "cash_variance_tolerance", value: "0" },

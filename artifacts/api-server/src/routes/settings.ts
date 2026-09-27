@@ -205,6 +205,9 @@ router.get(
   requireRole("owner"),
   async (req, res) => {
     try {
+      const services = await db.select().from(serviceTypesTable);
+      const serviceMap = new Map(services.map((s: any) => [s.id, s]));
+
       const rows = await db
         .select({
           id: settingsShippingMinimumTable.id,
@@ -218,18 +221,22 @@ router.get(
           updatedAt: settingsShippingMinimumTable.updatedAt,
         })
         .from(settingsShippingMinimumTable)
-        .innerJoin(
+        .leftJoin(
           serviceTypesTable,
           eq(settingsShippingMinimumTable.serviceId, serviceTypesTable.id),
-        )
-        .orderBy(serviceTypesTable.label, settingsShippingMinimumTable.originCity);
-      res.json(
-        rows.map((row) => ({
+        );
+
+      const enrichedRows = rows.map((row: any) => {
+        const svc = serviceMap.get(row.serviceId);
+        return {
           ...row,
+          serviceName: row.serviceName || svc?.name || (row.serviceId === 1 ? "jastip pelni" : row.serviceId === 2 ? "jastip hemat+" : "jastip kargo"),
+          serviceLabel: row.serviceLabel || svc?.label || (row.serviceId === 1 ? "Jastip Pelni" : row.serviceId === 2 ? "Jastip Hemat+" : "Jastip Kargo"),
           minimumAmount: Number(row.minimumAmount) || 0,
           updatedAt: safeIsoString(row.updatedAt),
-        })),
-      );
+        };
+      });
+      res.json(enrichedRows);
     } catch (err) {
       req.log.error(err);
       res.status(500).json({ error: "Gagal memuat pengaturan harga minimum" });
