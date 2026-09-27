@@ -12,7 +12,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Settings, Save, Loader2, Plane, Ship, Package, Truck, History, Plus, Trash2, RefreshCw,
+  Settings, Save, Loader2, Plane, Ship, Package, Truck, History, Plus, Trash2, RefreshCw, CheckCircle2, Info, ArrowRight,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
@@ -72,8 +72,8 @@ function authHeaders() {
 }
 
 function formatRp(n: number | null | undefined) {
-  if (n == null) return "-";
-  return `Rp ${n.toLocaleString("id-ID")}`;
+  if (n == null || isNaN(Number(n))) return "-";
+  return `Rp ${Number(n).toLocaleString("id-ID")}`;
 }
 
 function formatDate(d: string) {
@@ -131,7 +131,7 @@ function TierEditor({ tiers, onChange }: { tiers: PelniTier[]; onChange: (t: Pel
             placeholder="Contoh: 20000"
             value={tier.rate}
             onChange={(e) => updateTier(i, "rate", e.target.value)}
-            className="text-sm"
+            className="text-sm font-medium"
           />
           <Button
             size="icon"
@@ -148,6 +148,102 @@ function TierEditor({ tiers, onChange }: { tiers: PelniTier[]; onChange: (t: Pel
       <Button size="sm" variant="outline" className="gap-1.5" onClick={addTier}>
         <Plus className="w-3.5 h-3.5" /> Tambah Tier
       </Button>
+    </div>
+  );
+}
+
+// ── Minimum Rounding Control Component ───────────────────────────────────────
+function MinimumRoundingControl({
+  row,
+  onUpdate,
+  exampleNote,
+}: {
+  row?: ShippingMinimumRow;
+  onUpdate: (id: number, key: "enabled" | "minimumAmount", val: any) => void;
+  exampleNote?: string;
+}) {
+  if (!row) return null;
+
+  return (
+    <div
+      className={`rounded-xl border p-4 transition-all space-y-3 ${
+        row.enabled
+          ? "bg-primary/5 border-primary/30 shadow-2xs"
+          : "bg-muted/20 border-border/80"
+      }`}
+    >
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2.5 border-b border-border/60">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-sm">Pembulatan Otomatis Minimal</span>
+            <Badge variant="outline" className="text-[11px] bg-background font-normal">
+              {row.originCity} → Manokwari
+            </Badge>
+            <span
+              className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                row.enabled
+                  ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
+                  : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+              }`}
+            >
+              {row.enabled ? "AKTIF" : "NONAKTIF"}
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {row.enabled
+              ? `Status: Total ongkir di bawah ${formatRp(row.minimumAmount)} otomatis dibulatkan ke ${formatRp(row.minimumAmount)}.`
+              : "Status: Pembulatan nonaktif (ongkir dihitung murni sesuai kalkulasi tarif)."
+            }
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto bg-background px-3 py-1.5 rounded-lg border">
+          <Switch
+            id={`switch-min-${row.id}`}
+            checked={row.enabled}
+            onCheckedChange={(enabled) => onUpdate(row.id, "enabled", enabled)}
+          />
+          <Label htmlFor={`switch-min-${row.id}`} className="text-xs font-semibold cursor-pointer">
+            {row.enabled ? "Pembulatan Aktif" : "Pembulatan Matikan"}
+          </Label>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-[1fr,240px] items-center">
+        <div>
+          <Label className="text-xs font-semibold text-foreground">
+            Atur Nominal Pembulatan Otomatis Minimal (Rp)
+          </Label>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Nominal dasar pembulatan ke atas jika total kalkulasi harga berada di bawah angka ini.
+          </p>
+        </div>
+        <div className="relative">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">
+            Rp
+          </span>
+          <Input
+            type="number"
+            min="0"
+            step="1000"
+            className="pl-9 h-9 font-semibold"
+            value={row.minimumAmount}
+            disabled={!row.enabled}
+            onChange={(e) => {
+              const val = e.target.value === "" ? 0 : Number(e.target.value);
+              onUpdate(row.id, "minimumAmount", val);
+            }}
+            placeholder="Contoh: 10000"
+          />
+        </div>
+      </div>
+
+      {exampleNote && (
+        <div className="text-[11px] text-muted-foreground bg-background/80 p-2.5 rounded-lg border border-border/50 flex items-start gap-1.5">
+          <Info className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+          <span>{exampleNote}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -174,6 +270,9 @@ function HistoryModal({ open, onClose }: { open: boolean; onClose: () => void })
       if (Array.isArray(parsed)) {
         return parsed.map((t: any) => `≤${t.maxKg}kg→Rp${Number(t.rate).toLocaleString("id-ID")}`).join(" | ");
       }
+      if (typeof parsed === "object" && parsed !== null && "minimumAmount" in parsed) {
+        return `${parsed.enabled ? "AKTIF" : "NONAKTIF"} (Rp ${Number(parsed.minimumAmount).toLocaleString("id-ID")})`;
+      }
     } catch {}
     return isNaN(Number(val)) ? val : `Rp ${Number(val).toLocaleString("id-ID")}`;
   }
@@ -183,7 +282,7 @@ function HistoryModal({ open, onClose }: { open: boolean; onClose: () => void })
       <DialogContent className="max-w-3xl max-h-[80vh]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <History className="w-5 h-5" /> Riwayat Perubahan Harga
+            <History className="w-5 h-5 text-primary" /> Riwayat Perubahan Harga & Pembulatan
           </DialogTitle>
         </DialogHeader>
         <div className="overflow-y-auto">
@@ -196,9 +295,9 @@ function HistoryModal({ open, onClose }: { open: boolean; onClose: () => void })
               <TableHeader>
                 <TableRow>
                   <TableHead>Waktu</TableHead>
-                  <TableHead>Layanan</TableHead>
-                  <TableHead>Harga Lama</TableHead>
-                  <TableHead>Harga Baru</TableHead>
+                  <TableHead>Layanan / Jenis</TableHead>
+                  <TableHead>Harga / Status Lama</TableHead>
+                  <TableHead>Harga / Status Baru</TableHead>
                   <TableHead>Alasan</TableHead>
                   <TableHead>Diubah Oleh</TableHead>
                 </TableRow>
@@ -207,7 +306,7 @@ function HistoryModal({ open, onClose }: { open: boolean; onClose: () => void })
                 {rows.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell className="text-xs whitespace-nowrap">{formatDate(r.createdAt)}</TableCell>
-                    <TableCell className="font-medium">{r.jenisJastip}</TableCell>
+                    <TableCell className="font-medium text-xs">{r.jenisJastip}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{formatTarif(r.tarifLama)}</TableCell>
                     <TableCell className="text-xs font-semibold">{formatTarif(r.tarifBaru)}</TableCell>
                     <TableCell className="text-xs">{r.alasan || "-"}</TableCell>
@@ -231,11 +330,15 @@ export default function OwnerTarif() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isSavingMinimum, setIsSavingMinimum] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [alasan, setAlasan] = useState("");
 
-  // State untuk setiap tarif
+  // Aktif tarif saat ini (untuk badge display)
+  const [activePesawatRate, setActivePesawatRate] = useState<number | null>(null);
+  const [activeHematRate, setActiveHematRate] = useState<number | null>(null);
+  const [activeKargoRate, setActiveKargoRate] = useState<number | null>(null);
+
+  // State input tarif baru
   const [pesawatRate, setPesawatRate] = useState<string>("");
   const [hematRate, setHematRate] = useState<string>("");
   const [kargoRate, setKargoRate] = useState<string>("");
@@ -246,6 +349,20 @@ export default function OwnerTarif() {
 
   // Tab state untuk Pelni
   const [pelniTab, setPelniTab] = useState<"jakarta" | "surabaya">("jakarta");
+
+  function getMinRow(serviceName: string, originCity?: string) {
+    return shippingMinimums.find((r) => {
+      const matchName = (r.serviceName || "").toLowerCase() === serviceName.toLowerCase();
+      if (!originCity) return matchName;
+      return matchName && (r.originCity || "").toLowerCase() === originCity.toLowerCase();
+    });
+  }
+
+  function handleUpdateMinimum(id: number, key: "enabled" | "minimumAmount", val: any) {
+    setShippingMinimums((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, [key]: val } : item))
+    );
+  }
 
   async function handleRecalcKargo() {
     setIsRecalculatingKargo(true);
@@ -282,9 +399,20 @@ export default function OwnerTarif() {
       if (!settingsRes.ok || !minimumRes.ok) throw new Error("Gagal memuat");
       const d: TarifData = await settingsRes.json();
       const minimumRows: ShippingMinimumRow[] = await minimumRes.json();
-      if (d.pesawatRate) setPesawatRate(String(d.pesawatRate));
-      if (d.hematRate) setHematRate(String(d.hematRate));
-      if (d.kargoRate) setKargoRate(String(d.kargoRate));
+
+      if (d.pesawatRate) {
+        setPesawatRate(String(d.pesawatRate));
+        setActivePesawatRate(d.pesawatRate);
+      }
+      if (d.hematRate) {
+        setHematRate(String(d.hematRate));
+        setActiveHematRate(d.hematRate);
+      }
+      if (d.kargoRate) {
+        setKargoRate(String(d.kargoRate));
+        setActiveKargoRate(d.kargoRate);
+      }
+
       setPelniTiersJakarta(parseTiers(d.pelniTiersJakarta, DEFAULT_TIERS_JKT));
       setPelniTiersSurabaya(parseTiers(d.pelniTiersSurabaya, DEFAULT_TIERS_SBY));
       setShippingMinimums(minimumRows);
@@ -295,14 +423,54 @@ export default function OwnerTarif() {
     }
   }
 
-  async function handleSaveMinimums() {
+  async function handleSaveAll() {
+    const pRate = Number(pesawatRate);
+    const hRate = Number(hematRate);
+    const kRate = Number(kargoRate);
+
+    if (pesawatRate && (isNaN(pRate) || pRate <= 0)) {
+      toast({ variant: "destructive", title: "Tarif Pesawat tidak valid" }); return;
+    }
+    if (hematRate && (isNaN(hRate) || hRate <= 0)) {
+      toast({ variant: "destructive", title: "Tarif Hemat tidak valid" }); return;
+    }
+    if (kargoRate && (isNaN(kRate) || kRate <= 0)) {
+      toast({ variant: "destructive", title: "Tarif Kargo tidak valid" }); return;
+    }
+
     if (shippingMinimums.some((row) => !Number.isInteger(Number(row.minimumAmount)) || Number(row.minimumAmount) < 0)) {
-      toast({ variant: "destructive", title: "Nominal minimum tidak valid" });
+      toast({ variant: "destructive", title: "Nominal minimum pembulatan tidak valid" });
       return;
     }
-    setIsSavingMinimum(true);
+
+    setIsSaving(true);
     try {
-      const res = await fetch("/api/settings/shipping-minimum", {
+      // 1. Save main rates
+      const payload: Record<string, any> = { _alasan: alasan };
+      if (pesawatRate) payload.pesawatRate = pRate;
+      if (hematRate) payload.hematRate = hRate;
+      if (kargoRate) payload.kargoRate = kRate;
+
+      const normJkt = pelniTiersJakarta.map((t, i) => ({
+        maxKg: (i === pelniTiersJakarta.length - 1 || !t.maxKg) ? 999999 : Number(t.maxKg),
+        rate: Number(t.rate) || 0,
+      }));
+      const normSby = pelniTiersSurabaya.map((t, i) => ({
+        maxKg: (i === pelniTiersSurabaya.length - 1 || !t.maxKg) ? 999999 : Number(t.maxKg),
+        rate: Number(t.rate) || 0,
+      }));
+      payload.pelniTiersJakarta = normJkt;
+      payload.pelniTiersSurabaya = normSby;
+
+      const resRates = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify(payload),
+      });
+      if (!resRates.ok) throw new Error("Gagal menyimpan tarif utama");
+
+      // 2. Save shipping minimums
+      const resMin = await fetch("/api/settings/shipping-minimum", {
         method: "PATCH",
         headers: authHeaders(),
         body: JSON.stringify({
@@ -315,71 +483,20 @@ export default function OwnerTarif() {
           })),
         }),
       });
-      if (!res.ok) {
-        const error = await res.json().catch(() => null);
-        throw new Error(error?.error || "Gagal menyimpan");
-      }
-      setShippingMinimums(await res.json());
+      if (!resMin.ok) throw new Error("Gagal menyimpan pembulatan otomatis");
+
       toast({
-        title: "✓ Harga minimum berhasil disimpan",
-        description: "Pengaturan hanya berlaku untuk paket baru; toggle awal tetap OFF.",
+        title: "✓ Tarif & Pembulatan Otomatis Berhasil Disimpan",
+        description: "Perubahan berlaku untuk paket baru yang diinput setelah ini.",
       });
-    } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Gagal menyimpan harga minimum",
-        description: error instanceof Error ? error.message : undefined,
-      });
-    } finally {
-      setIsSavingMinimum(false);
-    }
-  }
-
-  async function handleSave() {
-    // Validate
-    const pRate = Number(pesawatRate);
-    const hRate = Number(hematRate);
-    const kRate = Number(kargoRate);
-    if (pesawatRate && (isNaN(pRate) || pRate <= 0)) {
-      toast({ variant: "destructive", title: "Tarif Pesawat tidak valid" }); return;
-    }
-    if (hematRate && (isNaN(hRate) || hRate <= 0)) {
-      toast({ variant: "destructive", title: "Tarif Hemat tidak valid" }); return;
-    }
-    if (kargoRate && (isNaN(kRate) || kRate <= 0)) {
-      toast({ variant: "destructive", title: "Tarif Kargo tidak valid" }); return;
-    }
-
-    const payload: Record<string, any> = { _alasan: alasan };
-    if (pesawatRate) payload.pesawatRate = pRate;
-    if (hematRate) payload.hematRate = hRate;
-    if (kargoRate) payload.kargoRate = kRate;
-
-    // Normalize tiers: set last tier maxKg to 999999
-    const normJkt = pelniTiersJakarta.map((t, i) => ({
-      maxKg: (i === pelniTiersJakarta.length - 1 || !t.maxKg) ? 999999 : Number(t.maxKg),
-      rate: Number(t.rate) || 0,
-    }));
-    const normSby = pelniTiersSurabaya.map((t, i) => ({
-      maxKg: (i === pelniTiersSurabaya.length - 1 || !t.maxKg) ? 999999 : Number(t.maxKg),
-      rate: Number(t.rate) || 0,
-    }));
-    payload.pelniTiersJakarta = normJkt;
-    payload.pelniTiersSurabaya = normSby;
-
-    setIsSaving(true);
-    try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: authHeaders(),
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error("Gagal menyimpan");
-      toast({ title: "✓ Tarif berhasil disimpan", description: "Harga baru berlaku untuk paket yang diinput setelah perubahan ini." });
       setAlasan("");
       fetchSettings();
-    } catch {
-      toast({ variant: "destructive", title: "Gagal menyimpan tarif" });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Gagal menyimpan data",
+        description: err?.message || "Terjadi kesalahan saat menyimpan data.",
+      });
     } finally {
       setIsSaving(false);
     }
@@ -388,320 +505,321 @@ export default function OwnerTarif() {
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 text-muted-foreground py-12 justify-center">
-        <Loader2 className="w-5 h-5 animate-spin" /> Memuat pengaturan tarif...
+        <Loader2 className="w-5 h-5 animate-spin" /> Memuat pengaturan tarif & pembulatan...
       </div>
     );
   }
 
+  const pesawatMinRow = getMinRow("jastip pesawat", "Jakarta");
+  const hematMinRow = getMinRow("jastip hemat+", "Surabaya");
+  const kargoMinJkt = getMinRow("jastip kargo", "Jakarta");
+  const kargoMinSby = getMinRow("jastip kargo", "Surabaya");
+  const pelniMinJkt = getMinRow("jastip pelni", "Jakarta");
+  const pelniMinSby = getMinRow("jastip pelni", "Surabaya");
+
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 max-w-3xl pb-10">
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <Settings className="w-6 h-6 text-primary" />
-            Pengaturan Harga / Tarif Jastip
+            Pengaturan Tarif & Pembulatan Otomatis Jastip
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Hanya Owner yang bisa mengubah tarif. Harga baru hanya berlaku untuk paket yang diinput setelah perubahan.
+            Kelola tarif dasar saat ini, tarif baru, serta batas nominal pembulatan otomatis minimal untuk setiap jenis jastip.
           </p>
         </div>
         <Button variant="outline" className="gap-1.5" onClick={() => setShowHistory(true)}>
-          <History className="w-4 h-4" /> Riwayat Perubahan
+          <History className="w-4 h-4 text-primary" /> Riwayat Perubahan
         </Button>
       </div>
 
-      {/* Pesawat */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Plane className="w-4 h-4 text-blue-500" /> Jastip Pesawat
-          </CardTitle>
-          <CardDescription>Tarif per kg — Jakarta → Manokwari. Pembulatan berat: ≤0,20 kg→0,20 | ≤0,40→0,40 | ≤0,50→0,50</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1.5">
-            <Label>Tarif per Kg</Label>
-            <div className="relative max-w-xs">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">Rp</span>
-              <Input
-                type="number" step="1000" min="0"
-                placeholder="Contoh: 77000"
-                className="pl-9"
-                value={pesawatRate}
-                onChange={(e) => setPesawatRate(e.target.value)}
-              />
-            </div>
-            {pesawatRate && !isNaN(Number(pesawatRate)) && (
-              <p className="text-xs text-muted-foreground">= <strong>{formatRp(Number(pesawatRate))}</strong> per kg</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Hemat+ */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Package className="w-4 h-4 text-green-600" /> Jastip Hemat+
-          </CardTitle>
-          <CardDescription>Tarif flat per kg — Surabaya → Manokwari. Minimum 1 kg.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1.5">
-            <Label>Tarif per Kg</Label>
-            <div className="relative max-w-xs">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">Rp</span>
-              <Input
-                type="number" step="500" min="0"
-                placeholder="Contoh: 10000"
-                className="pl-9"
-                value={hematRate}
-                onChange={(e) => setHematRate(e.target.value)}
-              />
-            </div>
-            {hematRate && !isNaN(Number(hematRate)) && (
-              <p className="text-xs text-muted-foreground">= <strong>{formatRp(Number(hematRate))}</strong> per kg</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Kargo */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Truck className="w-4 h-4 text-orange-500" /> Jastip Kargo
-          </CardTitle>
-          <CardDescription>
-            Ongkir kargo diisi manual per paket / dihitung dari MAX(M³, Ton) × tarif. Tidak ada batas minimum ongkir.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1.5">
-            <Label>Tarif Default per M³/Ton</Label>
-            <div className="relative max-w-xs">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">Rp</span>
-              <Input
-                type="number" step="1000" min="0"
-                placeholder="Contoh: 7000"
-                className="pl-9"
-                value={kargoRate}
-                onChange={(e) => setKargoRate(e.target.value)}
-              />
-            </div>
-            {kargoRate && !isNaN(Number(kargoRate)) && (
-              <p className="text-xs text-muted-foreground">
-                = <strong>{formatRp(Number(kargoRate))}</strong> per M³/Ton (tanpa batas minimum)
-              </p>
-            )}
-          </div>
-          <div className="pt-2 border-t flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">
-              Hitung ulang seluruh paket Kargo yang tersimpan:
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleRecalcKargo}
-              disabled={isRecalculatingKargo}
-              className="border-orange-300 text-orange-700 hover:bg-orange-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isRecalculatingKargo ? "animate-spin" : ""}`} />
-              {isRecalculatingKargo ? "Menghitung Ulang..." : "Hitung Ulang Semua Paket Kargo"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Pelni */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Ship className="w-4 h-4 text-indigo-500" /> Jastip Pelni
-          </CardTitle>
-          <CardDescription>
-            Harga bertingkat berdasarkan total berat gabungan konsumen dalam 1 batch. Minimal ongkir Rp 20.000 (total ongkir di bawah Rp 20.000 otomatis dibulatkan jadi Rp 20.000).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Tab buttons */}
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant={pelniTab === "jakarta" ? "default" : "outline"}
-              onClick={() => setPelniTab("jakarta")}
-            >
+      {/* ── CARD 1: Jastip Pesawat ────────────────────────────────────────── */}
+      <Card className="border-blue-200/80 shadow-xs">
+        <CardHeader className="pb-3 border-b bg-blue-50/50 dark:bg-blue-950/20">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <CardTitle className="text-base flex items-center gap-2 text-blue-950 dark:text-blue-100">
+              <Plane className="w-5 h-5 text-blue-600" /> Jastip Pesawat
+            </CardTitle>
+            <Badge variant="secondary" className="bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200 border-blue-200">
               Jakarta → Manokwari
-            </Button>
-            <Button
-              size="sm"
-              variant={pelniTab === "surabaya" ? "default" : "outline"}
-              onClick={() => setPelniTab("surabaya")}
-            >
-              Surabaya → Manokwari
-            </Button>
+            </Badge>
           </div>
-
-          {pelniTab === "jakarta" ? (
-            <TierEditor tiers={pelniTiersJakarta} onChange={setPelniTiersJakarta} />
-          ) : (
-            <TierEditor tiers={pelniTiersSurabaya} onChange={setPelniTiersSurabaya} />
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Harga minimum untuk Semua Jenis Jastip */}
-      <Card className="border-primary/20">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Settings className="w-4 h-4 text-primary" /> Pengaturan Batas Minimal Ongkir (Semua Jenis Jastip)
-          </CardTitle>
           <CardDescription>
-            Tentukan batas nominal ongkir minimum untuk setiap jenis jastip &amp; kota asal. Jika toggle <strong>ON</strong>, total ongkir yang berada di bawah nilai minimal otomatis dibulatkan ke batas minimal tersebut. Jika <strong>OFF</strong>, ongkir dihitung murni sesuai tarif tanpa batas minimum.
+            Pengiriman via udara. Pembulatan berat: ≤0,20 kg→0,20 | ≤0,40→0,40 | ≤0,50→0,50 | &gt;0,50 kg asli.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {shippingMinimums.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Memuat pengaturan harga minimum...
-            </p>
-          ) : (
-            shippingMinimums.map((row) => {
-              const svcName = (row.serviceName || "").toLowerCase();
-              let Icon = Settings;
-              let iconColor = "text-primary";
-              let badgeBg = "bg-primary/10 text-primary";
-
-              if (svcName.includes("pesawat")) {
-                Icon = Plane;
-                iconColor = "text-blue-600";
-                badgeBg = "bg-blue-50 text-blue-700 border-blue-200";
-              } else if (svcName.includes("pelni")) {
-                Icon = Ship;
-                iconColor = "text-indigo-600";
-                badgeBg = "bg-indigo-50 text-indigo-700 border-indigo-200";
-              } else if (svcName.includes("hemat")) {
-                Icon = Package;
-                iconColor = "text-green-600";
-                badgeBg = "bg-green-50 text-green-700 border-green-200";
-              } else if (svcName.includes("kargo")) {
-                Icon = Truck;
-                iconColor = "text-orange-600";
-                badgeBg = "bg-orange-50 text-orange-700 border-orange-200";
-              }
-
-              return (
-                <div
-                  key={row.id}
-                  className={`grid gap-3 rounded-lg border p-3.5 sm:grid-cols-[1fr,200px,auto] sm:items-center transition-all ${
-                    row.enabled ? "bg-card border-primary/30 shadow-xs" : "bg-muted/20 border-border"
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className={`p-2 rounded-lg bg-muted shrink-0 mt-0.5`}>
-                      <Icon className={`w-4 h-4 ${iconColor}`} />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-semibold text-sm">{row.serviceLabel}</p>
-                        <span className={`text-[11px] px-2 py-0.5 rounded-md border font-medium ${badgeBg}`}>
-                          {row.originCity} → Manokwari
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {row.enabled
-                          ? `Batas minimal aktif: total ongkir < ${formatRp(row.minimumAmount)} otomatis dibulatkan ke ${formatRp(row.minimumAmount)}`
-                          : "Nonaktif: ongkir dihitung murni sesuai tarif / kubikasi / berat"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Batas Minimal (Rp)</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">Rp</span>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="1000"
-                        className="pl-9 h-9"
-                        value={row.minimumAmount}
-                        disabled={!row.enabled}
-                        onChange={(event) => {
-                          const value = event.target.value === "" ? 0 : Number(event.target.value);
-                          setShippingMinimums((current) =>
-                            current.map((item) =>
-                              item.id === row.id ? { ...item, minimumAmount: value } : item,
-                            ),
-                          );
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex sm:flex-col items-center justify-between sm:justify-center gap-2 sm:pl-2">
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={row.enabled}
-                        onCheckedChange={(enabled) => {
-                          setShippingMinimums((current) =>
-                            current.map((item) =>
-                              item.id === row.id ? { ...item, enabled } : item,
-                            ),
-                          );
-                        }}
-                        aria-label={`Aktifkan batas minimal ${row.serviceLabel} ${row.originCity}`}
-                      />
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded ${row.enabled ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}`}>
-                        {row.enabled ? "AKTIF" : "NONAKTIF"}
-                      </span>
-                    </div>
-                  </div>
+        <CardContent className="pt-4 space-y-4">
+          {/* Section Tarif Dasar */}
+          <div className="space-y-2 p-3.5 rounded-xl bg-muted/30 border">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <Label className="font-semibold text-xs text-muted-foreground uppercase tracking-wider">1. Tarif Per Kg</Label>
+              {activePesawatRate && (
+                <div className="flex items-center gap-1.5 text-xs text-blue-700 dark:text-blue-300 font-semibold bg-blue-50 dark:bg-blue-900/40 px-2.5 py-1 rounded-md border border-blue-200">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                  Tarif Aktif Saat Ini: {formatRp(activePesawatRate)} / kg
                 </div>
-              );
-            })
-          )}
-
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t">
-            <p className="text-xs text-muted-foreground">
-              💡 Seluruh perubahan batas minimal tercatat di riwayat tarif audit beserta nama Owner &amp; waktu pengubahan.
-            </p>
-            <Button
-              onClick={handleSaveMinimums}
-              disabled={isSavingMinimum || shippingMinimums.length === 0}
-              className="gap-2"
-            >
-              {isSavingMinimum ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> Menyimpan...</>
-              ) : (
-                <><Save className="w-4 h-4" /> Simpan Pengaturan Batas Minimal</>
               )}
-            </Button>
+            </div>
+
+            <div className="space-y-1.5 pt-1">
+              <Label className="text-xs">Atur Tarif Baru (Rp / kg)</Label>
+              <div className="relative max-w-sm">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">Rp</span>
+                <Input
+                  type="number" step="1000" min="0"
+                  placeholder="Contoh: 77000"
+                  className="pl-9 font-semibold"
+                  value={pesawatRate}
+                  onChange={(e) => setPesawatRate(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Section Pembulatan Otomatis */}
+          <MinimumRoundingControl
+            row={pesawatMinRow}
+            onUpdate={handleUpdateMinimum}
+            exampleNote="Contoh: Jika total kalkulasi ongkir paket pesawat dibawah batas minimal (misal Rp 10.000), harganya otomatis dibulatkan ke batas minimal yang diaktifkan."
+          />
+        </CardContent>
+      </Card>
+
+      {/* ── CARD 2: Jastip Hemat+ ────────────────────────────────────────── */}
+      <Card className="border-green-200/80 shadow-xs">
+        <CardHeader className="pb-3 border-b bg-green-50/50 dark:bg-green-950/20">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <CardTitle className="text-base flex items-center gap-2 text-green-950 dark:text-green-100">
+              <Package className="w-5 h-5 text-green-600" /> Jastip Hemat+
+            </CardTitle>
+            <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200 border-green-200">
+              Surabaya → Manokwari
+            </Badge>
+          </div>
+          <CardDescription>
+            Pengiriman laut ekonomis flat per kg (minimal 1 kg per pengiriman).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-4 space-y-4">
+          {/* Section Tarif Dasar */}
+          <div className="space-y-2 p-3.5 rounded-xl bg-muted/30 border">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <Label className="font-semibold text-xs text-muted-foreground uppercase tracking-wider">1. Tarif Per Kg</Label>
+              {activeHematRate && (
+                <div className="flex items-center gap-1.5 text-xs text-green-700 dark:text-green-300 font-semibold bg-green-50 dark:bg-green-900/40 px-2.5 py-1 rounded-md border border-green-200">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
+                  Tarif Aktif Saat Ini: {formatRp(activeHematRate)} / kg
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1.5 pt-1">
+              <Label className="text-xs">Atur Tarif Baru (Rp / kg)</Label>
+              <div className="relative max-w-sm">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">Rp</span>
+                <Input
+                  type="number" step="500" min="0"
+                  placeholder="Contoh: 10000"
+                  className="pl-9 font-semibold"
+                  value={hematRate}
+                  onChange={(e) => setHematRate(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Section Pembulatan Otomatis */}
+          <MinimumRoundingControl
+            row={hematMinRow}
+            onUpdate={handleUpdateMinimum}
+            exampleNote="Contoh Kasus: Paket Anton dihitung total ongkirnya Rp 5.000 untuk Jastip Hemat. Jika pembulatan otomatis diaktifkan sebesar Rp 10.000, maka berapapun harga dibawah Rp 10.000 (seperti 1k, 5k) akan otomatis dibulatkan ke Rp 10.000."
+          />
+        </CardContent>
+      </Card>
+
+      {/* ── CARD 3: Jastip Kargo ────────────────────────────────────────── */}
+      <Card className="border-orange-200/80 shadow-xs">
+        <CardHeader className="pb-3 border-b bg-orange-50/50 dark:bg-orange-950/20">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <CardTitle className="text-base flex items-center gap-2 text-orange-950 dark:text-orange-100">
+              <Truck className="w-5 h-5 text-orange-600" /> Jastip Kargo
+            </CardTitle>
+            <div className="flex gap-1.5">
+              <Badge variant="secondary" className="bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-200 border-orange-200 text-[11px]">
+                Jakarta → Manokwari
+              </Badge>
+              <Badge variant="secondary" className="bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-200 border-orange-200 text-[11px]">
+                Surabaya → Manokwari
+              </Badge>
+            </div>
+          </div>
+          <CardDescription>
+            Pengiriman barang besar / kontainer berdasarkan MAX(M³, Ton) × tarif.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-4 space-y-4">
+          {/* Section Tarif Dasar */}
+          <div className="space-y-3 p-3.5 rounded-xl bg-muted/30 border">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <Label className="font-semibold text-xs text-muted-foreground uppercase tracking-wider">1. Tarif Default per M³ / Ton</Label>
+              {activeKargoRate && (
+                <div className="flex items-center gap-1.5 text-xs text-orange-700 dark:text-orange-300 font-semibold bg-orange-50 dark:bg-orange-900/40 px-2.5 py-1 rounded-md border border-orange-200">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-orange-600" />
+                  Tarif Aktif Saat Ini: {formatRp(activeKargoRate)} / M³
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1.5 pt-1">
+              <Label className="text-xs">Atur Tarif Baru (Rp / M³ / Ton)</Label>
+              <div className="relative max-w-sm">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">Rp</span>
+                <Input
+                  type="number" step="1000" min="0"
+                  placeholder="Contoh: 7000"
+                  className="pl-9 font-semibold"
+                  value={kargoRate}
+                  onChange={(e) => setKargoRate(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 border-t flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                Kalkulasi ulang seluruh paket Kargo tersimpan menggunakan tarif ini:
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleRecalcKargo}
+                disabled={isRecalculatingKargo}
+                className="border-orange-300 text-orange-700 hover:bg-orange-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isRecalculatingKargo ? "animate-spin" : ""}`} />
+                {isRecalculatingKargo ? "Menghitung Ulang..." : "Hitung Ulang Semua Paket Kargo"}
+              </Button>
+            </div>
+          </div>
+
+          {/* Section Pembulatan Otomatis Per Rute */}
+          <div className="space-y-3">
+            <Label className="font-semibold text-xs text-muted-foreground uppercase tracking-wider block">
+              2. Pembulatan Otomatis Per Rute Kargo
+            </Label>
+            <MinimumRoundingControl
+              row={kargoMinJkt}
+              onUpdate={handleUpdateMinimum}
+            />
+            <MinimumRoundingControl
+              row={kargoMinSby}
+              onUpdate={handleUpdateMinimum}
+            />
           </div>
         </CardContent>
       </Card>
 
-      {/* Alasan & Save */}
-      <Card>
-        <CardContent className="pt-4 space-y-4">
+      {/* ── CARD 4: Jastip Pelni ────────────────────────────────────────── */}
+      <Card className="border-indigo-200/80 shadow-xs">
+        <CardHeader className="pb-3 border-b bg-indigo-50/50 dark:bg-indigo-950/20">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <CardTitle className="text-base flex items-center gap-2 text-indigo-950 dark:text-indigo-100">
+              <Ship className="w-5 h-5 text-indigo-600" /> Jastip Pelni
+            </CardTitle>
+            <div className="flex gap-1.5">
+              <Badge variant="secondary" className="bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-200 border-indigo-200 text-[11px]">
+                Tarif Bertingkat (Tiers)
+              </Badge>
+            </div>
+          </div>
+          <CardDescription>
+            Harga bertingkat per-kg berdasarkan total berat gabungan konsumen dalam 1 batch.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-4 space-y-5">
+          {/* Tabs Rute */}
+          <div className="space-y-3 p-3.5 rounded-xl bg-muted/30 border">
+            <div className="flex items-center justify-between gap-2 flex-wrap pb-1">
+              <Label className="font-semibold text-xs text-muted-foreground uppercase tracking-wider">
+                1. Atur Tarif Bertingkat Per Rute
+              </Label>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  type="button"
+                  variant={pelniTab === "jakarta" ? "default" : "outline"}
+                  onClick={() => setPelniTab("jakarta")}
+                  className="h-8 text-xs"
+                >
+                  Jakarta → Manokwari
+                </Button>
+                <Button
+                  size="sm"
+                  type="button"
+                  variant={pelniTab === "surabaya" ? "default" : "outline"}
+                  onClick={() => setPelniTab("surabaya")}
+                  className="h-8 text-xs"
+                >
+                  Surabaya → Manokwari
+                </Button>
+              </div>
+            </div>
+
+            {pelniTab === "jakarta" ? (
+              <TierEditor tiers={pelniTiersJakarta} onChange={setPelniTiersJakarta} />
+            ) : (
+              <TierEditor tiers={pelniTiersSurabaya} onChange={setPelniTiersSurabaya} />
+            )}
+          </div>
+
+          {/* Section Pembulatan Otomatis Per Rute Pelni */}
+          <div className="space-y-3">
+            <Label className="font-semibold text-xs text-muted-foreground uppercase tracking-wider block">
+              2. Pembulatan Otomatis Per Rute Pelni
+            </Label>
+            <MinimumRoundingControl
+              row={pelniMinJkt}
+              onUpdate={handleUpdateMinimum}
+              exampleNote="Rute Jakarta: Bila total ongkir kelompok konsumen Pelni di bawah nominal minimal, harganya dibulatkan ke nominal ini."
+            />
+            <MinimumRoundingControl
+              row={pelniMinSby}
+              onUpdate={handleUpdateMinimum}
+              exampleNote="Rute Surabaya: Bila total ongkir kelompok konsumen Pelni di bawah nominal minimal, harganya dibulatkan ke nominal ini."
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── CARD 5: Save Section ────────────────────────────────────────── */}
+      <Card className="border-primary/30 shadow-md">
+        <CardContent className="pt-5 space-y-4">
           <div className="space-y-1.5">
-            <Label>Alasan Perubahan <span className="text-muted-foreground font-normal">(opsional)</span></Label>
+            <Label className="font-semibold">Alasan Perubahan <span className="text-muted-foreground font-normal">(opsional)</span></Label>
             <Input
-              placeholder="Contoh: Promo bulan Juli, penyesuaian operasional..."
+              placeholder="Contoh: Penyesuaian tarif operasional & pembulatan minimal baru..."
               value={alasan}
               onChange={(e) => setAlasan(e.target.value)}
             />
           </div>
-          <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
-            ⚠️ Harga baru <strong>hanya berlaku untuk paket baru</strong> yang diinput setelah perubahan dilakukan. Paket lama tidak terpengaruh.
+
+          <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 p-3.5 text-xs text-amber-800 dark:text-amber-300 space-y-1">
+            <div className="font-semibold flex items-center gap-1.5">
+              <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              Catatan Penting Perubahan:
+            </div>
+            <p className="pl-5">
+              Perubahan tarif dan aturan pembulatan otomatis <strong>hanya berlaku untuk paket baru</strong> yang diinput setelah perubahan disimpan. Paket yang sudah ada tidak akan berubah secara otomatis.
+            </p>
           </div>
-          <Button onClick={handleSave} disabled={isSaving} className="w-full sm:w-auto gap-2">
+
+          <Button onClick={handleSaveAll} disabled={isSaving} className="w-full sm:w-auto h-11 px-6 text-sm font-semibold gap-2 shadow-sm">
             {isSaving ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /> Menyimpan...</>
+              <><Loader2 className="w-4 h-4 animate-spin" /> Menyimpan Semua Tarif & Pembulatan...</>
             ) : (
-              <><Save className="w-4 h-4" /> Simpan Semua Tarif</>
+              <><Save className="w-4 h-4" /> Simpan Perubahan Tarif & Pembulatan Otomatis</>
             )}
           </Button>
         </CardContent>

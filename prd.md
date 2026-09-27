@@ -2,7 +2,7 @@
 
 > **Status dokumen:** As-is / reverse-engineered dan sinkronisasi penuh dari source code proyek aktif  
 > **Tanggal pembaruan:** 2026-09-27  
-> **Tujuan dokumen:** Mendeskripsikan arsitektur, halaman, navigasi, role, fitur operasional, sistem Invoice A4, modul barcode & detail paket (termasuk biaya tambahan opsional), verifikasi scan, manajemen shift kasir, keuangan & VOID, database schema Drizzle ORM, rumus tarif & ongkir minimum, dan panduan testing yang benar-benar ada dan berjalan di sistem saat ini.
+> **Tujuan dokumen:** Mendeskripsikan arsitektur, halaman, navigasi, role, fitur operasional, sistem Invoice A4, modul barcode & detail paket (termasuk biaya tambahan opsional & navigasi detail /owner/packages), verifikasi scan, manajemen shift kasir, keuangan & VOID, database schema Drizzle ORM, rumus tarif & komponen pembulatan otomatis minimal terintegrasi di `/owner/tarif`, dan panduan testing yang benar-benar ada dan berjalan di sistem saat ini.
 
 ---
 
@@ -94,7 +94,7 @@ Admin bertanggung jawab atas alur harian logistik dan kasir:
 
 #### Section 1: Menu Utama Owner (13 Item)
 1. **Dashboard** (`/owner/dashboard`) — Analisis grafik performa omzet dan laporan kas.
-2. **Monitor Paket** (`/owner/packages`) — Pemantauan seluruh paket dari semua admin.
+2. **Monitor Paket** (`/owner/packages`) — Pemantauan seluruh paket dari semua admin, dilengkapi navigasi klik baris/kartu & tombol **Detail** ke rincian paket `/owner/packages/:id`.
 3. **Data Admin** (`/owner/admins`) — Daftar dan evaluasi kinerja staf admin.
 4. **Keuangan** (`/owner/finance`) — Arus kas masuk/keluar, pendapatan per layanan.
 5. **Invoice A4** (`/owner/invoices`) — Akses penuh penerbitan dan audit invoice A4.
@@ -315,12 +315,16 @@ Sistem menerapkan arsitektur ongkir minimum berbasis grup konsumen dan layanan d
    - **Multi-Paket (Lebih dari 1 Paket)**: Jika penjumlahan ongkir seluruh paket customer dalam batch tersebut masih di bawah batas minimum, selisih menuju nilai minimum didistribusikan secara proporsional ke masing-masing paket berdasarkan bobot berat pakai (`usedWeight` / `pkgEffectiveWeights`), sehingga penjumlahan seluruh `totalShipping` paket tepat setara dengan nominal minimum.
    - **Pengecualian Kargo**: Jastip Kargo dikecualikan dari segala mekanisme redistribusi atau batas minimum, memastikan tarif murni per meter kubik / ton.
 
-3. **Manajemen Dinamis oleh Owner (`/owner/tarif`)**:
-   - Menu *Pengaturan Tarif* Owner menyediakan kartu kontrol khusus **"Pengaturan Batas Minimal Ongkir (Semua Jenis Jastip)"**.
-   - Owner dapat mengatur batas minimal harga untuk **seluruh jenis jastip** (Jastip Pesawat, Jastip Pelni, Jastip Hemat+, dan Jastip Kargo) untuk masing-masing kota asal (Jakarta & Surabaya).
-   - Setiap jenis jastip memiliki toggle switch `AKTIF` / `NONAKTIF` dan input nominal batas minimal (Rp).
-   - Jika `AKTIF`, total ongkir di bawah batas minimal otomatis dibulatkan ke batas minimal tersebut. Jika `NONAKTIF`, ongkir dihitung murni sesuai tarif/kubikasi/berat tanpa batas minimal.
-   - Setiap perubahan nilai minimum disimpan dan dicatat ke tabel audit `tarif_history` yang mencatat siapa yang mengubah, waktu perubahan, nilai lama, dan nilai baru.
+3. **Manajemen Terintegrasi oleh Owner (`/owner/tarif`)**:
+   - Menu *Pengaturan Tarif* Owner menyajikan kartu terintegrasi untuk masing-masing jenis jastip (**Jastip Pesawat**, **Jastip Hemat+**, **Jastip Kargo**, dan **Jastip Pelni**).
+   - Setiap kartu layanan menampilkan secara berdampingan:
+     1. **Tarif Aktif Saat Ini**: Badge indikator visual yang menampilkan tarif dasar yang sedang digunakan di sistem (misal `Tarif Aktif Saat Ini: Rp 77.000 / kg`, `Rp 10.000 / kg`, `Rp 7.000 / M³`, atau tiering Pelni).
+     2. **Input Tarif Baru**: Form input langsung untuk mengubah tarif dasar per kg / per M³ / tiering Pelni.
+     3. **Pembulatan Otomatis Minimal**: Komponen kontrol pembulatan otomatis yang terintegrasi di dalam setiap kartu layanan, dilengkapi dengan:
+        - **Toggle Sakelar (AKTIF / NONAKTIF)**: Mengaktifkan atau mematikan pembulatan otomatis minimal untuk jenis jastip tersebut secara mandiri.
+        - **Input Nominal Pembulatan Otomatis**: Form input untuk menentukan batas nominal minimal baru (misal diset ke **Rp 10.000**).
+        - **Keterangan Skenario**: Penjelasan contoh kasus (seperti paket Anton dengan harga kalkulasi Rp 5.000 yang otomatis dibulatkan ke Rp 10.000 jika pembulatan aktif).
+   - **Simpan Sekaligus**: Tombol *"Simpan Perubahan Tarif & Pembulatan Otomatis"* menyimpan tarif utama dan aturan pembulatan secara simultan dalam satu transaksi dengan audit log lengkap di `tarif_history`.
 
 ---
 
