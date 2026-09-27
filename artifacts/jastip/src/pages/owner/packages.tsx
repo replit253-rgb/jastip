@@ -587,7 +587,11 @@ export default function OwnerPackages() {
           ) : paginated && paginated.length > 0 ? (
             <div className="divide-y">
               {paginated.map((pkg) => (
-                <div key={pkg.id} className="p-4 hover:bg-muted/20 transition-colors">
+                <div
+                  key={pkg.id}
+                  className="p-4 cursor-pointer hover:bg-muted/20 active:bg-muted/30 transition-colors"
+                  onClick={() => setLocation(`/owner/packages/${pkg.id}`)}
+                >
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold truncate">{pkg.customerName || "-"}</p>
@@ -601,10 +605,18 @@ export default function OwnerPackages() {
                     {(pkg as any).usedWeight && <span>{(pkg as any).usedWeight} Kg</span>}
                   </div>
                   <span className="font-bold text-primary text-sm mt-1 block">{(pkg as any).totalShipping ? formatRp((pkg as any).totalShipping) : "-"}</span>
-                  <div className="mt-2">
+                  <div className="mt-2 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 flex-1"
+                      onClick={() => setLocation(`/owner/packages/${pkg.id}`)}
+                    >
+                      Detail
+                    </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <Button size="sm" variant="outline" className="gap-1.5 border-red-300 text-red-600 hover:bg-red-50 w-full" disabled={deletingId === pkg.id}>
+                        <Button size="sm" variant="outline" className="gap-1.5 border-red-300 text-red-600 hover:bg-red-50 flex-1" disabled={deletingId === pkg.id}>
                           <Trash2 className="w-3.5 h-3.5" /> {deletingId === pkg.id ? "Menghapus..." : "Hapus"}
                         </Button>
                       </AlertDialogTrigger>
@@ -638,17 +650,21 @@ export default function OwnerPackages() {
           <table className="w-full text-sm min-w-[1400px]">
             <thead>
               <tr className="border-b bg-muted/30">
-                {["Tanggal","No Resi","No Paket","Nama Konsumen","Jenis Jastip","Berat Real (Kg)","P (cm)","L (cm)","T (cm)","Berat Volume","Jenis Paking","Berat Digunakan","Ongkir/Kg","Total Berat","Total Ongkir","Status",""].map((h, i) => (
+                {["Tanggal","No Resi","No Paket","Nama Konsumen","Jenis Jastip","Berat Real (Kg)","P (cm)","L (cm)","T (cm)","Berat Volume","Jenis Paking","Berat Digunakan","Ongkir/Kg","Total Berat","Total Ongkir","Status","Aksi"].map((h, i) => (
                   <th key={i} className="text-left py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={16} className="h-24 text-center text-muted-foreground py-10">Memuat data...</td></tr>
+                <tr><td colSpan={17} className="h-24 text-center text-muted-foreground py-10">Memuat data...</td></tr>
               ) : paginated && paginated.length > 0 ? (
                 paginated.map((pkg) => (
-                  <tr key={pkg.id} className="border-b hover:bg-muted/20 transition-colors">
+                  <tr
+                    key={pkg.id}
+                    className="border-b hover:bg-muted/20 cursor-pointer transition-colors"
+                    onClick={() => setLocation(`/owner/packages/${pkg.id}`)}
+                  >
                     <td className="py-3 px-3 whitespace-nowrap text-muted-foreground">{formatDate((pkg as any).packageDate || pkg.createdAt)}</td>
                     <td className="py-3 px-3 font-mono font-medium whitespace-nowrap">{pkg.resiNumber || "-"}</td>
                     <td className="py-3 px-3 font-mono whitespace-nowrap">{(pkg as any).packageNumber || "-"}</td>
@@ -668,30 +684,39 @@ export default function OwnerPackages() {
                     <td className="py-3 px-3 whitespace-nowrap text-right">{(pkg as any).totalWeight ?? "-"}</td>
                     <td className="py-3 px-3 whitespace-nowrap text-right font-semibold text-primary">{(pkg as any).totalShipping ? formatRp((pkg as any).totalShipping) : "-"}</td>
                     <td className="py-3 px-3 whitespace-nowrap"><StatusBadge status={pkg.status} /></td>
-                    <td className="py-3 px-3 whitespace-nowrap">
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button size="sm" variant="outline" className="gap-1.5 border-red-300 text-red-600 hover:bg-red-50" disabled={deletingId === pkg.id}>
-                            <Trash2 className="w-3.5 h-3.5" /> {deletingId === pkg.id ? "..." : "Hapus"}
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle className="flex items-center gap-2">
-                              <AlertTriangle className="w-5 h-5 text-red-500" /> Hapus paket ini?
-                            </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Data paket <span className="font-semibold">{pkg.resiNumber}</span> akan dihapus permanen dan tidak bisa dikembalikan.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Batal</AlertDialogCancel>
-                            <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => deletePackage(pkg.id, pkg.resiNumber || String(pkg.id))}>
-                              Ya, Hapus
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                    <td className="py-3 px-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setLocation(`/owner/packages/${pkg.id}`)}
+                        >
+                          Detail
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button size="sm" variant="outline" className="gap-1.5 border-red-300 text-red-600 hover:bg-red-50" disabled={deletingId === pkg.id}>
+                              <Trash2 className="w-3.5 h-3.5" /> {deletingId === pkg.id ? "..." : "Hapus"}
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle className="flex items-center gap-2">
+                                <AlertTriangle className="w-5 h-5 text-red-500" /> Hapus paket ini?
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Data paket <span className="font-semibold">{pkg.resiNumber}</span> akan dihapus permanen dan tidak bisa dikembalikan.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Batal</AlertDialogCancel>
+                              <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => deletePackage(pkg.id, pkg.resiNumber || String(pkg.id))}>
+                                Ya, Hapus
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
                     </td>
                   </tr>
                 ))
