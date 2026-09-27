@@ -242,9 +242,31 @@ export default function OwnerTarif() {
   const [pelniTiersJakarta, setPelniTiersJakarta] = useState<PelniTier[]>(DEFAULT_TIERS_JKT);
   const [pelniTiersSurabaya, setPelniTiersSurabaya] = useState<PelniTier[]>(DEFAULT_TIERS_SBY);
   const [shippingMinimums, setShippingMinimums] = useState<ShippingMinimumRow[]>([]);
+  const [isRecalculatingKargo, setIsRecalculatingKargo] = useState(false);
 
   // Tab state untuk Pelni
   const [pelniTab, setPelniTab] = useState<"jakarta" | "surabaya">("jakarta");
+
+  async function handleRecalcKargo() {
+    setIsRecalculatingKargo(true);
+    try {
+      const res = await fetch("/api/packages/recalculate-kargo", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ defaultRate: kargoRate ? Number(kargoRate) : undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Gagal menghitung ulang");
+      toast({
+        title: "Hitung Ulang Kargo Selesai",
+        description: data.message || `Berhasil memperbarui ${data.updatedCount} paket Kargo.`,
+      });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Gagal", description: err.message });
+    } finally {
+      setIsRecalculatingKargo(false);
+    }
+  }
 
   useEffect(() => {
     fetchSettings();
@@ -473,6 +495,22 @@ export default function OwnerTarif() {
                 = <strong>{formatRp(Number(kargoRate))}</strong> per M³/Ton (tanpa batas minimum)
               </p>
             )}
+          </div>
+          <div className="pt-2 border-t flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              Hitung ulang seluruh paket Kargo yang tersimpan:
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleRecalcKargo}
+              disabled={isRecalculatingKargo}
+              className="border-orange-300 text-orange-700 hover:bg-orange-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isRecalculatingKargo ? "animate-spin" : ""}`} />
+              {isRecalculatingKargo ? "Menghitung Ulang..." : "Hitung Ulang Semua Paket Kargo"}
+            </Button>
           </div>
         </CardContent>
       </Card>

@@ -1,4 +1,5 @@
-import { useListPackages, useListBatches, PackageStatus } from "@workspace/api-client-react";
+import { useListPackages, useListBatches, PackageStatus, getListPackagesQueryKey } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -7,7 +8,7 @@ import { Pagination } from "@/components/pagination";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { Search, FileDown, Download, X, Filter } from "lucide-react";
+import { Search, FileDown, Download, X, Filter, Calculator, RefreshCw } from "lucide-react";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -94,7 +95,30 @@ export default function AdminPackages() {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  const [pdfOpen, setPdfOpen] = useState(false);
+  const [isRecalculating, setIsRecalculating] = useState(false);
+  const queryClient = useQueryClient();
+
+  async function handleRecalculateKargo() {
+    setIsRecalculating(true);
+    try {
+      const token = localStorage.getItem("jaj_token");
+      const res = await fetch("/api/packages/recalculate-kargo", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Gagal menghitung ulang");
+      await queryClient.invalidateQueries({ queryKey: getListPackagesQueryKey() });
+      toast({
+        title: "Hitung Ulang Selesai",
+        description: data.message || `Berhasil memperbarui ${data.updatedCount} paket Kargo.`,
+      });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Gagal", description: err.message });
+    } finally {
+      setIsRecalculating(false);
+    }
+  }
   const [pdfBatchId, setPdfBatchId] = useState<string>("");
   const [pdfJenis, setPdfJenis] = useState<string>("all");
   const [pdfNamaKapal, setPdfNamaKapal] = useState("");
@@ -558,7 +582,18 @@ export default function AdminPackages() {
           <h1 className="text-3xl font-bold tracking-tight">Semua Paket</h1>
           <p className="text-muted-foreground mt-1">Kelola paket yang sudah tercatat di Barcode atau Arsip.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRecalculateKargo}
+            disabled={isRecalculating}
+            className="border-orange-200 text-orange-700 hover:bg-orange-50"
+            title="Hitung ulang seluruh ongkir Jastip Kargo berdasarkan kubikasi M³ murni tanpa batas minimum"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isRecalculating ? "animate-spin" : ""}`} />
+            {isRecalculating ? "Menghitung..." : "Hitung Ulang Kargo"}
+          </Button>
           <Button
             variant="outline"
             size="sm"

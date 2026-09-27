@@ -647,6 +647,43 @@ export default function BarcodeBatchDetail({
   >([]);
   const [syncing, setSyncing] = useState(false);
 
+  const [isRecalculatingBatch, setIsRecalculatingBatch] = useState(false);
+
+  async function handleRecalculateThisBatch() {
+    setIsRecalculatingBatch(true);
+    try {
+      const token = localStorage.getItem("jaj_token");
+      const res = await fetch("/api/packages/recalculate-batch", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ batchId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Gagal menghitung ulang ongkir batch");
+      await queryClient.invalidateQueries({
+        queryKey: getListPackagesQueryKey({ batchId }),
+      });
+      await queryClient.invalidateQueries({
+        queryKey: getListPackagesQueryKey(),
+      });
+      toast({
+        title: "Hitung Ulang Selesai",
+        description: data.message || `Berhasil memperbarui paket pada Batch #${batchId}.`,
+      });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Gagal",
+        description: err.message,
+      });
+    } finally {
+      setIsRecalculatingBatch(false);
+    }
+  }
+
   const { data: batches } = useListBatches();
   const { data: packages, isLoading } = useListPackages({ batchId });
 
@@ -1017,13 +1054,25 @@ export default function BarcodeBatchDetail({
             Ongkir {formatRp(totalShipping)}
           </p>
         </div>
-        <Button
-          onClick={printAll}
-          disabled={batchPkgs.length === 0}
-          className="gap-2 shrink-0"
-        >
-          <Printer className="h-4 w-4" /> Cetak Semua
-        </Button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            onClick={handleRecalculateThisBatch}
+            disabled={isRecalculatingBatch || batchPkgs.length === 0}
+            className="gap-2 border-orange-300 text-orange-700 hover:bg-orange-50"
+            title="Hitung ulang seluruh ongkir paket khusus pada batch ini"
+          >
+            <RefreshCw className={`h-4 w-4 ${isRecalculatingBatch ? "animate-spin" : ""}`} />
+            {isRecalculatingBatch ? "Menghitung..." : "Hitung Ulang Batch Ini"}
+          </Button>
+          <Button
+            onClick={printAll}
+            disabled={batchPkgs.length === 0}
+            className="gap-2"
+          >
+            <Printer className="h-4 w-4" /> Cetak Semua
+          </Button>
+        </div>
       </div>
 
       {!selectedServiceType ? (

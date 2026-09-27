@@ -1849,4 +1849,166 @@ router.get(
   },
 );
 
+// POST /api/packages/recalculate-batch — Recalculate all packages in a specific batch
+router.post(
+  "/recalculate-batch",
+  requireAuth,
+  requireRole("admin", "owner"),
+  async (req, res) => {
+    try {
+      const { batchId, defaultKargoRate } = req.body || {};
+      if (!batchId) {
+        res.status(400).json({ error: "batchId diperlukan" });
+        return;
+      }
+
+      const numBatchId = Number(batchId);
+      const batchPkgs = await db
+        .select()
+        .from(packagesTable)
+        .where(eq(packagesTable.batchId, numBatchId));
+
+      let updatedCount = 0;
+
+      // 1. Kargo packages: pure M³/Ton x rate, NO minimum floor
+      const kargoPkgs = batchPkgs.filter(
+        (p) => (p.serviceType || "").toLowerCase() === "jastip kargo",
+      );
+      for (const p of kargoPkgs) {
+        let vol = Number(p.volumeWeight) || 0;
+        const l = Number(p.length) || 0;
+        const w = Number(p.width) || 0;
+        const h = Number(p.height) || 0;
+        if ((!vol || vol <= 0) && l > 0 && w > 0 && h > 0) {
+          vol = (l * w * h) / 1000000;
+        }
+        const rw = Number(p.realWeight) || 0;
+        const usedWeight = Math.max(rw, vol) || vol || rw || 0.01;
+        const rate = Number(defaultKargoRate) || Number(p.shippingRate) || 1900000;
+        const calculatedTotal = Math.round(usedWeight * rate);
+
+        await db
+          .update(packagesTable)
+          .set({
+            volumeWeight: String(vol > 0 ? vol : usedWeight),
+            usedWeight: String(usedWeight),
+            shippingRate: String(rate),
+            totalShipping: String(calculatedTotal),
+            updatedAt: new Date(),
+          })
+          .where(eq(packagesTable.id, p.id));
+        updatedCount++;
+      }
+
+      // 2. Pelni packages in this batch: recalculate per customer group
+      const pelniPkgs = batchPkgs.filter(
+        (p) => (p.serviceType || "").toLowerCase() === "jastip pelni",
+      );
+      const pelniCustomers = Array.from(
+        new Set(pelniPkgs.map((p) => p.customerName).filter(Boolean)),
+      );
+      for (const c of pelniCustomers) {
+        const sample = pelniPkgs.find((p) => p.customerName === c);
+        await recalcPelniCustomerOngkir(numBatchId, c as string, sample?.deliveryRoute);
+        updatedCount += pelniPkgs.filter((p) => p.customerName === c).length;
+      }
+
+      // 3. Pesawat packages in this batch: recalculate per customer group
+      const pesawatPkgs = batchPkgs.filter(
+        (p) => (p.serviceType || "").toLowerCase() === "jastip pesawat",
+      );
+      const pesawatCustomers = Array.from(
+        new Set(pesawatPkgs.map((p) => p.customerName).filter(Boolean)),
+      );
+      for (const c of pesawatCustomers) {
+        await recalcPesawatCustomerOngkir(numBatchId, c as string);
+        updatedCount += pesawatPkgs.filter((p) => p.customerName === c).length;
+      }
+
+      // 4. Hemat+ packages in this batch: recalculate per customer group
+      const hematPkgs = batchPkgs.filter(
+        (p) => (p.serviceType || "").toLowerCase() === "jastip hemat+",
+      );
+      const hematCustomers = Array.from(
+        new Set(hematPkgs.map((p) => p.customerName).filter(Boolean)),
+      );
+      for (const c of hematCustomers) {
+        await recalcHematCustomerOngkir(numBatchId, c as string);
+        updatedCount += hematPkgs.filter((p) => p.customerName === c).length;
+      }
+
+      res.json({
+        success: true,
+        batchId: numBatchId,
+        updatedCount,
+        message: `Berhasil menghitung ulang seluruh paket pada Batch #${numBatchId}.`,
+      });
+    } catch (err) {
+      req.log.error(err);
+      res.status(500).json({ error: "Gagal menghitung ulang ongkir batch" });
+    }
+  },
+);
+
+// POST /api/packages/recalculate-kargo — Bulk recalculate Kargo packages to pure M³/Ton without minimum floor
+router.post(
+  "/recalculate-kargo",
+  requireAuth,
+  requireRole("admin", "owner"),
+  async (req, res) => {
+    try {
+      const { batchId, defaultRate } = req.body || {};
+
+      const allKargo = await db
+        .select()
+        .from(packagesTable)
+        .where(eq(packagesTable.serviceType, "jastip kargo"));
+
+      const targetPkgs = batchId
+        ? allKargo.filter((p) => p.batchId === Number(batchId))
+        : allKargo;
+      let updatedCount = 0;
+
+      for (const p of targetPkgs) {
+        let vol = Number(p.volumeWeight) || 0;
+        const l = Number(p.length) || 0;
+        const w = Number(p.width) || 0;
+        const h = Number(p.height) || 0;
+        if ((!vol || vol <= 0) && l > 0 && w > 0 && h > 0) {
+          vol = (l * w * h) / 1000000;
+        }
+        const rw = Number(p.realWeight) || 0;
+        const usedWeight = Math.max(rw, vol) || vol || rw || 0.01;
+
+        // Rate priority: body defaultRate -> package shippingRate -> 1900000
+        let rate = Number(defaultRate) || Number(p.shippingRate) || 1900000;
+        const calculatedTotal = Math.round(usedWeight * rate);
+
+        await db
+          .update(packagesTable)
+          .set({
+            volumeWeight: String(vol > 0 ? vol : usedWeight),
+            usedWeight: String(usedWeight),
+            shippingRate: String(rate),
+            totalShipping: String(calculatedTotal),
+            updatedAt: new Date(),
+          })
+          .where(eq(packagesTable.id, p.id));
+        updatedCount++;
+      }
+
+      res.json({
+        success: true,
+        updatedCount,
+        message: batchId
+          ? `Berhasil menghitung ulang ${updatedCount} paket Kargo pada Batch #${batchId}.`
+          : `Berhasil menghitung ulang ${updatedCount} paket Jastip Kargo secara otomatis tanpa batas minimum.`,
+      });
+    } catch (err) {
+      req.log.error(err);
+      res.status(500).json({ error: "Gagal menghitung ulang ongkir kargo" });
+    }
+  },
+);
+
 export default router;
