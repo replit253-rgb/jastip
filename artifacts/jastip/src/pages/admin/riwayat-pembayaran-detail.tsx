@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, useParams } from "wouter";
 import { useListBatches, useListPackages } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -93,8 +93,10 @@ async function bayarPiutang(id: number, paymentType: "tunai" | "transfer") {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-export default function RiwayatPembayaranDetail({ params }: { params: { id: string } }) {
-  const batchId = Number(params?.id);
+export default function RiwayatPembayaranDetail({ params: propsParams }: { params?: { id: string } } = {}) {
+  const routerParams = useParams();
+  const rawId = propsParams?.id || routerParams?.id || "0";
+  const batchId = Number(rawId);
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const base = user?.role === "owner" ? "/owner" : "/admin";

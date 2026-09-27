@@ -552,86 +552,131 @@ export default function OwnerTarif() {
         </CardContent>
       </Card>
 
-      {/* Harga minimum Fase 4 */}
+      {/* Harga minimum untuk Semua Jenis Jastip */}
       <Card className="border-primary/20">
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
-            <Settings className="w-4 h-4 text-primary" /> Harga Ongkir Minimum
+            <Settings className="w-4 h-4 text-primary" /> Pengaturan Batas Minimal Ongkir (Semua Jenis Jastip)
           </CardTitle>
           <CardDescription>
-            Berlaku sebagai batas total ongkir per customer dan layanan, bukan per baris paket.
-            Semua toggle dimulai OFF agar ongkir existing tidak berubah.
+            Tentukan batas nominal ongkir minimum untuk setiap jenis jastip &amp; kota asal. Jika toggle <strong>ON</strong>, total ongkir yang berada di bawah nilai minimal otomatis dibulatkan ke batas minimal tersebut. Jika <strong>OFF</strong>, ongkir dihitung murni sesuai tarif tanpa batas minimum.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {shippingMinimums.filter((row) => row.serviceName !== "jastip kargo").length === 0 ? (
+          {shippingMinimums.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Nilai awal belum tersedia. Jalankan migrasi seed Fase 4 terlebih dahulu.
+              Memuat pengaturan harga minimum...
             </p>
           ) : (
-            shippingMinimums
-              .filter((row) => row.serviceName !== "jastip kargo")
-              .map((row) => (
-              <div
-                key={row.id}
-                className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr,170px,auto] sm:items-center"
-              >
-                <div>
-                  <p className="font-medium">{row.serviceLabel}</p>
-                  <p className="text-xs text-muted-foreground">{row.originCity} → Manokwari</p>
+            shippingMinimums.map((row) => {
+              const svcName = (row.serviceName || "").toLowerCase();
+              let Icon = Settings;
+              let iconColor = "text-primary";
+              let badgeBg = "bg-primary/10 text-primary";
+
+              if (svcName.includes("pesawat")) {
+                Icon = Plane;
+                iconColor = "text-blue-600";
+                badgeBg = "bg-blue-50 text-blue-700 border-blue-200";
+              } else if (svcName.includes("pelni")) {
+                Icon = Ship;
+                iconColor = "text-indigo-600";
+                badgeBg = "bg-indigo-50 text-indigo-700 border-indigo-200";
+              } else if (svcName.includes("hemat")) {
+                Icon = Package;
+                iconColor = "text-green-600";
+                badgeBg = "bg-green-50 text-green-700 border-green-200";
+              } else if (svcName.includes("kargo")) {
+                Icon = Truck;
+                iconColor = "text-orange-600";
+                badgeBg = "bg-orange-50 text-orange-700 border-orange-200";
+              }
+
+              return (
+                <div
+                  key={row.id}
+                  className={`grid gap-3 rounded-lg border p-3.5 sm:grid-cols-[1fr,200px,auto] sm:items-center transition-all ${
+                    row.enabled ? "bg-card border-primary/30 shadow-xs" : "bg-muted/20 border-border"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className={`p-2 rounded-lg bg-muted shrink-0 mt-0.5`}>
+                      <Icon className={`w-4 h-4 ${iconColor}`} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold text-sm">{row.serviceLabel}</p>
+                        <span className={`text-[11px] px-2 py-0.5 rounded-md border font-medium ${badgeBg}`}>
+                          {row.originCity} → Manokwari
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {row.enabled
+                          ? `Batas minimal aktif: total ongkir < ${formatRp(row.minimumAmount)} otomatis dibulatkan ke ${formatRp(row.minimumAmount)}`
+                          : "Nonaktif: ongkir dihitung murni sesuai tarif / kubikasi / berat"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Batas Minimal (Rp)</Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">Rp</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1000"
+                        className="pl-9 h-9"
+                        value={row.minimumAmount}
+                        disabled={!row.enabled}
+                        onChange={(event) => {
+                          const value = event.target.value === "" ? 0 : Number(event.target.value);
+                          setShippingMinimums((current) =>
+                            current.map((item) =>
+                              item.id === row.id ? { ...item, minimumAmount: value } : item,
+                            ),
+                          );
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex sm:flex-col items-center justify-between sm:justify-center gap-2 sm:pl-2">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={row.enabled}
+                        onCheckedChange={(enabled) => {
+                          setShippingMinimums((current) =>
+                            current.map((item) =>
+                              item.id === row.id ? { ...item, enabled } : item,
+                            ),
+                          );
+                        }}
+                        aria-label={`Aktifkan batas minimal ${row.serviceLabel} ${row.originCity}`}
+                      />
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded ${row.enabled ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}`}>
+                        {row.enabled ? "AKTIF" : "NONAKTIF"}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">Rp</span>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="1000"
-                    className="pl-9"
-                    value={row.minimumAmount}
-                    onChange={(event) => {
-                      const value = event.target.value === "" ? 0 : Number(event.target.value);
-                      setShippingMinimums((current) =>
-                        current.map((item) =>
-                          item.id === row.id ? { ...item, minimumAmount: value } : item,
-                        ),
-                      );
-                    }}
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    checked={row.enabled}
-                    onCheckedChange={(enabled) => {
-                      setShippingMinimums((current) =>
-                        current.map((item) =>
-                          item.id === row.id ? { ...item, enabled } : item,
-                        ),
-                      );
-                    }}
-                    aria-label={`Aktifkan minimum ${row.serviceLabel} ${row.originCity}`}
-                  />
-                  <span className="text-sm font-medium">{row.enabled ? "ON" : "OFF"}</span>
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
-          <div className="rounded-md bg-muted/50 border px-3 py-2 text-xs text-muted-foreground">
-            💡 <strong>Jastip Kargo:</strong> Tidak memiliki tarif minimum (dihitung murni sesuai volume M³ atau berat Ton × tarif).
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t">
             <p className="text-xs text-muted-foreground">
-              Perubahan dicatat di riwayat tarif dengan nilai lama, nilai baru, waktu, dan Owner.
+              💡 Seluruh perubahan batas minimal tercatat di riwayat tarif audit beserta nama Owner &amp; waktu pengubahan.
             </p>
             <Button
               onClick={handleSaveMinimums}
               disabled={isSavingMinimum || shippingMinimums.length === 0}
-              variant="outline"
               className="gap-2"
             >
               {isSavingMinimum ? (
                 <><Loader2 className="w-4 h-4 animate-spin" /> Menyimpan...</>
               ) : (
-                <><Save className="w-4 h-4" /> Simpan Harga Minimum</>
+                <><Save className="w-4 h-4" /> Simpan Pengaturan Batas Minimal</>
               )}
             </Button>
           </div>

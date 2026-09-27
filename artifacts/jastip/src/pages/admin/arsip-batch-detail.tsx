@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useListPackages, useListBatches } from "@workspace/api-client-react";
-import { useLocation } from "wouter";
+import { useLocation, useParams } from "wouter";
 import QRCode from "qrcode";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -255,9 +255,11 @@ function GroupedArsipCard({ pkgs, batchLabel, base }: { pkgs: any[]; batchLabel:
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-export default function ArsipBatchDetail({ params }: { params: { id: string } }) {
-  const isNoBatch = params?.id === "no-batch";
-  const batchId = isNoBatch ? null : Number(params?.id);
+export default function ArsipBatchDetail({ params: propsParams }: { params?: { id: string } } = {}) {
+  const routerParams = useParams();
+  const rawId = propsParams?.id || routerParams?.id || "";
+  const isNoBatch = rawId === "no-batch";
+  const batchId = isNoBatch ? null : Number(rawId);
 
   const [, setLocation] = useLocation();
   const { toast } = useToast();

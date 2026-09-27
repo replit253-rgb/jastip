@@ -316,10 +316,11 @@ Sistem menerapkan arsitektur ongkir minimum berbasis grup konsumen dan layanan d
    - **Pengecualian Kargo**: Jastip Kargo dikecualikan dari segala mekanisme redistribusi atau batas minimum, memastikan tarif murni per meter kubik / ton.
 
 3. **Manajemen Dinamis oleh Owner (`/owner/tarif`)**:
-   - Menu *Pengaturan Tarif* Owner menyediakan kartu kontrol khusus **"Harga Ongkir Minimum"**.
-   - Owner dapat mengaktifkan/menonaktifkan (toggle switch `ON` / `OFF`) serta mengubah besaran rupiah minimum untuk masing-masing jenis layanan dan kota asal.
-   - Layanan Jastip Kargo dikecualikan dari tabel pengaturan minimum dengan catatan panduan yang jelas.
-   - Setiap perubahan nilai minimum mewajibkan input alasan perubahan (opsional tapi tercatat) dan disimpan ke tabel audit `tarif_history` yang mencatat siapa yang mengubah, waktu perubahan, nilai lama, dan nilai baru.
+   - Menu *Pengaturan Tarif* Owner menyediakan kartu kontrol khusus **"Pengaturan Batas Minimal Ongkir (Semua Jenis Jastip)"**.
+   - Owner dapat mengatur batas minimal harga untuk **seluruh jenis jastip** (Jastip Pesawat, Jastip Pelni, Jastip Hemat+, dan Jastip Kargo) untuk masing-masing kota asal (Jakarta & Surabaya).
+   - Setiap jenis jastip memiliki toggle switch `AKTIF` / `NONAKTIF` dan input nominal batas minimal (Rp).
+   - Jika `AKTIF`, total ongkir di bawah batas minimal otomatis dibulatkan ke batas minimal tersebut. Jika `NONAKTIF`, ongkir dihitung murni sesuai tarif/kubikasi/berat tanpa batas minimal.
+   - Setiap perubahan nilai minimum disimpan dan dicatat ke tabel audit `tarif_history` yang mencatat siapa yang mengubah, waktu perubahan, nilai lama, dan nilai baru.
 
 ---
 
@@ -400,6 +401,12 @@ Sistem dilengkapi suite pengujian otomatis untuk memastikan integritas logika bi
    npx --prefix scripts tsx scripts/src/verify-full-regression-e2e.ts
    ```
    *Status:* **15 / 15 LANGKAH REGRESI LULUS 100%**.
+
+6. **Pengujian Batas Minimal Semua Jenis Jastip & Hitung Ulang Per-Batch**:
+   - [x] Pengaturan Batas Minimal Jastip Pesawat, Pelni, Hemat+, dan Kargo (Jakarta & Surabaya).
+   - [x] Sinkronisasi toggle ON/OFF dan nominal custom batas minimal di database & audit history (`tarif_history`).
+   - [x] Eksekusi Hitung Ulang Khusus Per-Batch (`POST /api/packages/recalculate-batch`) langsung di halaman `/owner/barcode/batch/:id`.
+   - [x] Verifikasi API & UI Build Linter: **10 / 10 PENGUJIAN LULUS (100%)**.
 
 ---
 

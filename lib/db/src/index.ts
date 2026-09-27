@@ -378,12 +378,32 @@ const mockShippingMinimum: any[] = [
   { id: 1, serviceId: 1, serviceName: "jastip pelni", serviceLabel: "Jastip Pelni", originCity: "Jakarta", enabled: true, minimumAmount: "20000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
   { id: 2, serviceId: 1, serviceName: "jastip pelni", serviceLabel: "Jastip Pelni", originCity: "Surabaya", enabled: true, minimumAmount: "20000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
   { id: 3, serviceId: 2, serviceName: "jastip hemat+", serviceLabel: "Jastip Hemat+", originCity: "Surabaya", enabled: true, minimumAmount: "10000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
-  { id: 4, serviceId: 3, serviceName: "jastip kargo", serviceLabel: "Jastip Kargo", originCity: "Jakarta/Surabaya", enabled: false, minimumAmount: "0", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
+  { id: 4, serviceId: 2, serviceName: "jastip hemat+", serviceLabel: "Jastip Hemat+", originCity: "Jakarta", enabled: false, minimumAmount: "10000", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
+  { id: 5, serviceId: 4, serviceName: "jastip pesawat", serviceLabel: "Jastip Pesawat", originCity: "Jakarta", enabled: true, minimumAmount: "15400", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
+  { id: 6, serviceId: 4, serviceName: "jastip pesawat", serviceLabel: "Jastip Pesawat", originCity: "Surabaya", enabled: false, minimumAmount: "15400", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
+  { id: 7, serviceId: 3, serviceName: "jastip kargo", serviceLabel: "Jastip Kargo", originCity: "Jakarta", enabled: false, minimumAmount: "0", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
+  { id: 8, serviceId: 3, serviceName: "jastip kargo", serviceLabel: "Jastip Kargo", originCity: "Surabaya", enabled: false, minimumAmount: "0", updatedBy: null, createdAt: new Date(), updatedAt: new Date() },
 ];
 const mockSettings: any[] = [
   { key: "cash_variance_tolerance", value: "0" },
   { key: "tarif_laut_kg", value: "20000" },
   { key: "tarif_udara_kg", value: "77000" },
+  { key: "pesawatRate", value: "77000" },
+  { key: "kargoRate", value: "1900000" },
+  { key: "hematRate", value: "10000" },
+  { key: "pelniTiersJakarta", value: JSON.stringify([
+    { maxWeight: 10.1, rate: 20000, label: "0 – 10.1 kg" },
+    { maxWeight: 20.1, rate: 19000, label: "10.2 – 20.1 kg" },
+    { maxWeight: 40.1, rate: 18000, label: "20.2 – 40.1 kg" },
+    { maxWeight: 80.1, rate: 17000, label: "40.2 – 80.1 kg" },
+    { maxWeight: null, rate: 16000, label: "> 80.1 kg" },
+  ])},
+  { key: "pelniTiersSurabaya", value: JSON.stringify([
+    { maxWeight: 10, rate: 18000, label: "0 – 10 kg" },
+    { maxWeight: 20, rate: 17000, label: "11 – 20 kg" },
+    { maxWeight: 40, rate: 16000, label: "21 – 40 kg" },
+    { maxWeight: null, rate: 15500, label: "> 40 kg" },
+  ])},
 ];
 
 function getStoreForTable(table: any): any[] {

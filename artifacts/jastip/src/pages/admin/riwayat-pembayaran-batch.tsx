@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, useParams } from "wouter";
 import { useListBatches, useListPackages } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -96,11 +96,13 @@ const SVC_DEFS = [
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function RiwayatPembayaranBatch({
-  params,
+  params: propsParams,
 }: {
-  params: { id: string };
-}) {
-  const batchId = Number(params?.id);
+  params?: { id: string };
+} = {}) {
+  const routerParams = useParams();
+  const rawId = propsParams?.id || routerParams?.id || "0";
+  const batchId = Number(rawId);
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const base = user?.role === "owner" ? "/owner" : "/admin";

@@ -230,8 +230,8 @@ router.get(
         const svc = serviceMap.get(row.serviceId);
         return {
           ...row,
-          serviceName: row.serviceName || svc?.name || (row.serviceId === 1 ? "jastip pelni" : row.serviceId === 2 ? "jastip hemat+" : "jastip kargo"),
-          serviceLabel: row.serviceLabel || svc?.label || (row.serviceId === 1 ? "Jastip Pelni" : row.serviceId === 2 ? "Jastip Hemat+" : "Jastip Kargo"),
+          serviceName: row.serviceName || svc?.name || (row.serviceId === 1 ? "jastip pelni" : row.serviceId === 2 ? "jastip hemat+" : row.serviceId === 3 ? "jastip kargo" : "jastip pesawat"),
+          serviceLabel: row.serviceLabel || svc?.label || (row.serviceId === 1 ? "Jastip Pelni" : row.serviceId === 2 ? "Jastip Hemat+" : row.serviceId === 3 ? "Jastip Kargo" : "Jastip Pesawat"),
           minimumAmount: Number(row.minimumAmount) || 0,
           updatedAt: safeIsoString(row.updatedAt),
         };
@@ -450,8 +450,8 @@ router.patch("/", requireAuth, requireRole("owner"), async (req, res) => {
   }
 });
 
-// GET /api/settings/history — tarif change history (owner only)
-router.get("/history", requireAuth, requireRole("owner"), async (req, res) => {
+// GET /api/settings/history or /api/settings/tarif-history — tarif change history (owner only)
+router.get(["/history", "/tarif-history"], requireAuth, requireRole("owner"), async (req, res) => {
   try {
     const rows = await db
       .select()

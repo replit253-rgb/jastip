@@ -204,9 +204,10 @@ function toDateInput(d: string | null | undefined) {
   try { return format(new Date(d), "yyyy-MM-dd"); } catch { return ""; }
 }
 
-export default function AdminPackagesDetail() {
-  const params = useParams();
-  const id = parseInt(params.id || "0");
+export default function AdminPackagesDetail({ params: propsParams }: { params?: { id: string } } = {}) {
+  const routerParams = useParams();
+  const rawId = propsParams?.id || routerParams?.id || "0";
+  const id = parseInt(rawId);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();

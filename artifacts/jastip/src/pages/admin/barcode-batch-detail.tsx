@@ -5,7 +5,7 @@ import {
   getListPackagesQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, useParams } from "wouter";
 import QRCode from "qrcode";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -591,11 +591,13 @@ function GroupedBarcodeCard({
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function BarcodeBatchDetail({
-  params,
+  params: propsParams,
 }: {
-  params: { id: string };
-}) {
-  const batchId = Number(params?.id);
+  params?: { id: string };
+} = {}) {
+  const routerParams = useParams();
+  const rawId = propsParams?.id || routerParams?.id || "0";
+  const batchId = Number(rawId);
   const [location, setLocation] = useLocation();
   const { user } = useAuth();
   const base = user?.role === "owner" ? "/owner" : "/admin";

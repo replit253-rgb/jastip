@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { useListPackages, useListBatches, useVerifyPackage } from "@workspace/api-client-react";
-import { useLocation } from "wouter";
+import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -68,9 +68,11 @@ function batchStatusLabel(s: string) {
   return "Arsip";
 }
 
-export default function VerifyBatchDetail({ params }: { params: { id: string } }) {
-  const isNoBatch = params?.id === "no-batch";
-  const batchId = isNoBatch ? null : Number(params?.id);
+export default function VerifyBatchDetail({ params: propsParams }: { params?: { id: string } } = {}) {
+  const routerParams = useParams();
+  const rawId = propsParams?.id || routerParams?.id || "";
+  const isNoBatch = rawId === "no-batch";
+  const batchId = isNoBatch ? null : Number(rawId);
 
   const [, setLocation] = useLocation();
   const { toast } = useToast();

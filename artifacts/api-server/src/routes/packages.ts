@@ -43,10 +43,6 @@ async function getShippingMinimum(
   deliveryRoute: string | null | undefined,
 ) {
   if (!serviceType) return null;
-  // Jastip Kargo: TIDAK ADA MINIMAL (sesuai instruksi client)
-  if (serviceType === "jastip kargo") {
-    return null;
-  }
   const originCity = deliveryRoute ? String(deliveryRoute).split("→")[0]?.trim() : "";
   try {
     const rows = await db
@@ -67,9 +63,9 @@ async function getShippingMinimum(
       )
       .limit(1);
     const row = rows[0];
-    if (row && row.enabled) {
+    if (row) {
       return {
-        enabled: row.enabled,
+        enabled: Boolean(row.enabled),
         minimumAmount: Number(row.minimumAmount) || 0,
       };
     }
@@ -77,13 +73,18 @@ async function getShippingMinimum(
     // Ignore query fallback
   }
 
-  // Default minimum rules Jastip Anggun Jaya:
-  // Jastip Pelni: minimal Rp 20.000 (ongkir total di bawah 20 rb langsung jadi 20 rb)
+  // Default minimum rules if not yet set in database:
   if (serviceType === "jastip pelni") {
     return { enabled: true, minimumAmount: 20000 };
   }
   if (serviceType === "jastip hemat+") {
     return { enabled: true, minimumAmount: 10000 };
+  }
+  if (serviceType === "jastip pesawat") {
+    return { enabled: false, minimumAmount: 15400 };
+  }
+  if (serviceType === "jastip kargo") {
+    return { enabled: false, minimumAmount: 0 };
   }
   return null;
 }
@@ -1885,7 +1886,11 @@ router.post(
         const rw = Number(p.realWeight) || 0;
         const usedWeight = Math.max(rw, vol) || vol || rw || 0.01;
         const rate = Number(defaultKargoRate) || Number(p.shippingRate) || 1900000;
-        const calculatedTotal = Math.round(usedWeight * rate);
+        const baseTotal = Math.round(usedWeight * rate);
+        const minKargo = await getShippingMinimum("jastip kargo", p.deliveryRoute);
+        const calculatedTotal = minKargo?.enabled && minKargo.minimumAmount > 0
+          ? Math.max(baseTotal, minKargo.minimumAmount)
+          : baseTotal;
 
         await db
           .update(packagesTable)
@@ -1982,7 +1987,11 @@ router.post(
 
         // Rate priority: body defaultRate -> package shippingRate -> 1900000
         let rate = Number(defaultRate) || Number(p.shippingRate) || 1900000;
-        const calculatedTotal = Math.round(usedWeight * rate);
+        const baseTotal = Math.round(usedWeight * rate);
+        const minKargo = await getShippingMinimum("jastip kargo", p.deliveryRoute);
+        const calculatedTotal = minKargo?.enabled && minKargo.minimumAmount > 0
+          ? Math.max(baseTotal, minKargo.minimumAmount)
+          : baseTotal;
 
         await db
           .update(packagesTable)

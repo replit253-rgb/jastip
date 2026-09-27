@@ -63,16 +63,21 @@ function ProtectedRoute({ component: Component, roles, role, ...rest }: any) {
   const [, setLocation] = useLocation();
 
   const allowedRoles: string[] = roles ? roles : role ? [role] : [];
+  // Owner is super-admin and has full access to admin views
+  const isAllowed =
+    allowedRoles.length === 0 ||
+    allowedRoles.includes(user?.role || "") ||
+    (user?.role === "owner" && allowedRoles.includes("admin"));
 
   useEffect(() => {
     if (!isLoading) {
       if (!user) {
         setLocation("/login");
-      } else if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
+      } else if (!isAllowed) {
         setLocation(`/${user.role}/dashboard`);
       }
     }
-  }, [user, isLoading, setLocation]);
+  }, [user, isLoading, isAllowed, setLocation]);
 
   if (isLoading || !user) {
     return (
@@ -87,7 +92,18 @@ function ProtectedRoute({ component: Component, roles, role, ...rest }: any) {
     );
   }
 
-  if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) return null;
+  if (!isAllowed) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-muted/20">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-16 h-16 rounded-xl bg-primary flex items-center justify-center text-primary-foreground font-bold text-4xl animate-pulse shadow-lg">
+            J
+          </div>
+          <div className="text-muted-foreground animate-pulse">Mengalihkan...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <AppLayout>
@@ -123,6 +139,9 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={RedirectToDashboard} />
+      <Route path="/admin" component={RedirectToDashboard} />
+      <Route path="/owner" component={RedirectToDashboard} />
+      <Route path="/customer" component={RedirectToDashboard} />
       <Route path="/login" component={Login} />
 
       {/* Admin Routes */}
@@ -187,7 +206,22 @@ function Router() {
         {(params) => <ProtectedRoute role="admin" component={ArsipBatchDetail} params={params} />}
       </Route>
       <Route path="/admin/settings">
-        {(params) => <ProtectedRoute role="owner" component={OwnerSettings} params={params} />}
+        {(params) => <ProtectedRoute roles={["admin", "owner"]} component={OwnerSettings} params={params} />}
+      </Route>
+      <Route path="/admin/tarif">
+        {(params) => <ProtectedRoute roles={["admin", "owner"]} component={OwnerTarif} params={params} />}
+      </Route>
+      <Route path="/admin/admins">
+        {(params) => <ProtectedRoute role="owner" component={OwnerAdmins} params={params} />}
+      </Route>
+      <Route path="/admin/reports">
+        {(params) => <ProtectedRoute role="owner" component={OwnerReports} params={params} />}
+      </Route>
+      <Route path="/admin/users">
+        {(params) => <ProtectedRoute role="owner" component={OwnerUsers} params={params} />}
+      </Route>
+      <Route path="/admin/voids">
+        {(params) => <ProtectedRoute role="owner" component={OwnerVoids} params={params} />}
       </Route>
       <Route path="/admin/shift/handover">
         {(params) => <ProtectedRoute role="admin" component={ShiftHandover} params={params} />}
