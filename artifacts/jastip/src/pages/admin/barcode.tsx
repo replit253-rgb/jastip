@@ -66,6 +66,8 @@ interface EditForm {
   length: string;
   width: string;
   height: string;
+  additionalFee: string;
+  additionalFeeReason: string;
 }
 
 function buildSinglePrintHtml(pkg: any, qrDataUrl: string, qrValue: string, batchLabel?: string) {
@@ -682,6 +684,8 @@ export default function AdminBarcode() {
       length: pkg.length != null ? String(pkg.length) : "",
       width: pkg.width != null ? String(pkg.width) : "",
       height: pkg.height != null ? String(pkg.height) : "",
+      additionalFee: pkg.additionalFee != null && Number(pkg.additionalFee) > 0 ? String(pkg.additionalFee) : "",
+      additionalFeeReason: pkg.additionalFeeReason || "",
     });
   }
 
@@ -706,6 +710,8 @@ export default function AdminBarcode() {
           length: editForm.length ? Number(editForm.length) : null,
           width: editForm.width ? Number(editForm.width) : null,
           height: editForm.height ? Number(editForm.height) : null,
+          additionalFee: editForm.additionalFee !== "" ? Number(editForm.additionalFee) : 0,
+          additionalFeeReason: editForm.additionalFeeReason || null,
         }),
       });
       if (!r.ok) throw new Error("Gagal menyimpan perubahan");
@@ -1005,6 +1011,40 @@ export default function AdminBarcode() {
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Tinggi (cm)</label>
               <Input type="number" step="0.1" value={editForm.height} onChange={e => setEditForm(f => ({ ...f, height: e.target.value }))} placeholder="0" />
+            </div>
+
+            {/* Biaya Tambahan (Opsional) */}
+            <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50/40 p-4 space-y-3 md:col-span-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-amber-900 uppercase tracking-wide">
+                  Biaya Tambahan <span className="font-normal text-muted-foreground text-[11px]">(Opsional)</span>
+                </p>
+                <span className="text-[11px] text-amber-700">Contoh: Paking kayu, bubble wrap, karung, dll</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Nominal Biaya Tambahan (Rp)</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">Rp</span>
+                    <Input
+                      type="number"
+                      step="1000"
+                      placeholder="0"
+                      className="pl-9 font-semibold"
+                      value={editForm.additionalFee}
+                      onChange={e => setEditForm(f => ({ ...f, additionalFee: e.target.value }))}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Keterangan Biaya Tambahan</label>
+                  <Input
+                    placeholder="Contoh: Paking kayu, bubble wrap ekstra..."
+                    value={editForm.additionalFeeReason}
+                    onChange={e => setEditForm(f => ({ ...f, additionalFeeReason: e.target.value }))}
+                  />
+                </div>
+              </div>
             </div>
           </div>
           <p className="text-xs text-muted-foreground">Berat volume, berat digunakan, tarif, dan total ongkir akan dihitung ulang otomatis saat disimpan.</p>

@@ -160,7 +160,7 @@ async function runComprehensiveTests() {
     check("4. Input Paket", "Input Satuan Jastip Pelni (Kayu)", pkg2Res.status === 201 && pkg2.totalShipping > 0, `ID: ${pkg2.id}, Ongkir: Rp${pkg2.totalShipping}`);
 
     // 4.3 Input Bulk / Import
-    const bulkRes = await fetch(`${API_BASE}/packages/bulk`, {
+    const bulkRes = await fetch(`${API_BASE}/packages/import`, {
       method: "POST",
       headers: adminHeaders,
       body: JSON.stringify({

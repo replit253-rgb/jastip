@@ -148,7 +148,9 @@ const READ_FIELDS: { label: string; key: string; format?: (v: any, pkg: any) => 
   { label: "Total Berat (Kg)", key: "totalWeight", format: v => v ?? "-" },
   { label: "Harga Barang", key: "price", format: v => formatRp(v) },
   { label: "Total Ongkir", key: "totalShipping", format: v => formatRp(v) },
-  { label: "Biaya Tambahan", key: "additionalFee", format: (v, p) => v ? `${formatRp(v)}${p.additionalFeeReason ? ` (${p.additionalFeeReason})` : ""}` : "-" },
+  { label: "Nominal Biaya Tambahan (Rp)", key: "additionalFee", format: v => formatRp(v ?? 0) },
+  { label: "Keterangan Biaya Tambahan", key: "additionalFeeReason", format: v => v || "-" },
+  { label: "Total Tagihan", key: "totalShipping", format: (v, p) => Number(p.additionalFee || 0) > 0 ? formatRp((Number(v) || 0) + Number(p.additionalFee)) : formatRp(v) },
 ];
 
 // Fields editable for Cargo packages (and generally)
@@ -160,6 +162,8 @@ interface EditForm {
   packageDate: string;
   totalShipping: string;
   notes: string;
+  additionalFee: string;
+  additionalFeeReason: string;
 }
 
 function toDateInput(d: string | null | undefined) {
@@ -182,6 +186,7 @@ export default function AdminPackagesDetail() {
   const [form, setForm] = useState<EditForm>({
     customerName: "", resiNumber: "", packageNumber: "",
     itemName: "", packageDate: "", totalShipping: "", notes: "",
+    additionalFee: "", additionalFeeReason: "",
   });
 
   const { data: pkg, isLoading } = useGetPackage(id, { query: { queryKey: ["package", id], enabled: !!id } });
@@ -199,6 +204,8 @@ export default function AdminPackagesDetail() {
       packageDate: toDateInput((pkg as any).packageDate),
       totalShipping: (pkg as any).totalShipping != null ? String((pkg as any).totalShipping) : "",
       notes: (pkg as any).notes || "",
+      additionalFee: (pkg as any).additionalFee != null && Number((pkg as any).additionalFee) > 0 ? String((pkg as any).additionalFee) : "",
+      additionalFeeReason: (pkg as any).additionalFeeReason || "",
     });
     setEditing(true);
   }
@@ -213,6 +220,8 @@ export default function AdminPackagesDetail() {
         itemName: form.itemName || null,
         packageDate: form.packageDate || null,
         notes: form.notes || null,
+        additionalFee: form.additionalFee !== "" ? Number(form.additionalFee) : 0,
+        additionalFeeReason: form.additionalFeeReason || null,
       };
       if (isKargo && form.totalShipping !== "") {
         body.totalShipping = Number(form.totalShipping);
@@ -417,6 +426,41 @@ export default function AdminPackagesDetail() {
                   <div className="col-span-2">
                     <Label>Catatan</Label>
                     <Input className="mt-1" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Opsional" />
+                  </div>
+
+                  {/* Biaya Tambahan (Opsional) */}
+                  <div className="col-span-2 rounded-lg border border-dashed border-amber-300 bg-amber-50/40 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-amber-900 uppercase tracking-wide">
+                        Biaya Tambahan <span className="font-normal text-muted-foreground text-[11px]">(Opsional)</span>
+                      </p>
+                      <span className="text-[11px] text-amber-700">Contoh: Paking kayu, bubble wrap, karung, dll</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs">Nominal Biaya Tambahan (Rp)</Label>
+                        <div className="relative mt-1">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">Rp</span>
+                          <Input
+                            type="number"
+                            step="1000"
+                            placeholder="0"
+                            className="pl-9 font-semibold"
+                            value={form.additionalFee}
+                            onChange={e => setForm(f => ({ ...f, additionalFee: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-xs">Keterangan Biaya Tambahan</Label>
+                        <Input
+                          className="mt-1"
+                          placeholder="Contoh: Paking kayu, bubble wrap ekstra..."
+                          value={form.additionalFeeReason}
+                          onChange={e => setForm(f => ({ ...f, additionalFeeReason: e.target.value }))}
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
                 {!isKargo && (

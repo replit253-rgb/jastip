@@ -1,8 +1,8 @@
 # PRD — Jastip Anggun Jaya
 
 > **Status dokumen:** As-is / reverse-engineered dan sinkronisasi penuh dari source code proyek aktif  
-> **Tanggal pembaruan:** 2026-09-22  
-> **Tujuan dokumen:** Mendeskripsikan arsitektur, halaman, navigasi, role, fitur operasional, sistem Invoice A4, verifikasi scan, manajemen shift kasir, keuangan & VOID, database schema Drizzle ORM, rumus tarif & ongkir minimum, dan panduan testing yang benar-benar ada dan berjalan di sistem saat ini.
+> **Tanggal pembaruan:** 2026-09-27  
+> **Tujuan dokumen:** Mendeskripsikan arsitektur, halaman, navigasi, role, fitur operasional, sistem Invoice A4, modul barcode & detail paket (termasuk biaya tambahan opsional), verifikasi scan, manajemen shift kasir, keuangan & VOID, database schema Drizzle ORM, rumus tarif & ongkir minimum, dan panduan testing yang benar-benar ada dan berjalan di sistem saat ini.
 
 ---
 
@@ -114,14 +114,15 @@ Menyediakan akses cepat bagi Owner untuk menjalankan seluruh alat operasional Ad
 
 ## 4. Spesifikasi Modul & Fitur Utama
 
-### 4.1 Modul Invoice A4 (Pencarian, Pemilihan Manual, & Penanda Status)
+### 4.1 Modul Invoice A4 (Pencarian, Pemilihan Manual, Penanda Status, & Cetak PDF)
 
 Modul Invoice A4 (`/admin/invoices` & `/owner/invoices`) dirancang untuk memenuhi kebutuhan pembuatan tagihan resmi multi-paket per customer:
 
-1. **Alur Pencarian Customer Manual**:
-   - Admin memasukkan nama customer (contoh: *"Andi"*) pada kotak pencarian nama.
-   - Sistem secara dinamis mencari dan menampilkan seluruh daftar paket yang terdaftar atas nama pelanggan tersebut dari database.
-   - Pada setiap baris paket ditampilkan informasi lengkap: No. Resi, No. Paket, Nama Barang, Layanan (Pesawat/Pelni/Hemat+/Kargo), Berat Pakai, Rute, Batch Kapal, dan Total Ongkir.
+1. **Alur Pencarian Customer Manual & Tab Transaksi**:
+   - **Mode Manual (Pilih Paket & Buat Invoice)**: Admin memasukkan nama customer (contoh: *"Andi"*) pada kotak pencarian nama. Sistem secara dinamis mencari dan menampilkan seluruh daftar paket yang terdaftar atas nama pelanggan tersebut dari database.
+   - **Filter Batch Pengiriman**: Dilengkapi filter dropdown batch pengiriman kapal yang memungkinkan admin menyaring paket khusus pada batch tertentu atau menampilkan dari semua batch.
+   - **Mode Dari Transaksi**: Memungkinkan pembuatan invoice langsung dari transaksi kasir yang telah dicatat sebelumnya.
+   - Pada setiap baris paket ditampilkan informasi lengkap: No. Resi, No. Paket, Nama Barang, Layanan (Pesawat/Pelni/Hemat+/Kargo), Berat Pakai, Rute, Batch Kapal, Biaya Tambahan, dan Total Ongkir.
 
 2. **Penanda Visual Status Invoice Paket (Package Invoicing Indicator)**:
    - Sistem memanfaatkan endpoint `/api/invoices/package-map` untuk memetakan paket mana saja yang sudah pernah dibuatkan invoice.
@@ -135,7 +136,7 @@ Modul Invoice A4 (`/admin/invoices` & `/owner/invoices`) dirancang untuk memenuh
    - Tombol *"Cek Detail Paket"* memungkinkan modal dialog inspeksi rincian fisik, resi, nomor grup, dan histori paket.
 
 4. **Kalkulasi & Form Penerbitan Invoice**:
-   - Sistem otomatis menghitung subtotal ongkir dari seluruh paket yang dicentang.
+   - Sistem otomatis menghitung subtotal ongkir dan biaya tambahan dari seluruh paket yang dicentang.
    - Input opsional:
      - **Diskon (Potongan Harga)** + Keterangan Alasan Diskon.
      - **Uang Muka / Down Payment (DP)** yang telah diserahkan pelanggan.
@@ -145,8 +146,8 @@ Modul Invoice A4 (`/admin/invoices` & `/owner/invoices`) dirancang untuk memenuh
      - `DIBAYAR_SEBAGIAN` (jika DP > 0 dan DP < Total).
      - `LUNAS` (jika DP >= Total).
 
-5. **Format Dokumen Cetak Snapshot A4**:
-   - Desain tata letak standar ukuran A4 yang rapi dan elegan saat di-print (`window.print` / popup print dialog).
+5. **Format Dokumen Cetak & Download PDF Snapshot A4**:
+   - Desain tata letak standar ukuran A4 yang rapi dan elegan saat di-print (`window.print()` / popup browser print preview / *Save as PDF*).
    - Header resmi Jastip Anggun Jaya (kontak, rute Jakarta/Surabaya → Manokwari).
    - Informasi Invoice No, Tanggal Terbit, Jatuh Tempo, Kasir Pembuat, dan Identitas Pelanggan.
    - Tabel rincian paket bergaris dengan kolom: No, Resi / Identitas, Nama Barang, Layanan & Rute, Berat / Kubikasi, Ongkir Satuan, Biaya Tambahan, dan Subtotal.
@@ -157,12 +158,46 @@ Modul Invoice A4 (`/admin/invoices` & `/owner/invoices`) dirancang untuk memenuh
 6. **Riwayat & Audit Invoice**:
    - Tab **Riwayat Invoice Terbit** menampilkan daftar seluruh invoice yang pernah diterbitkan.
    - Fitur pencarian invoice berdasarkan nomor invoice (`INV-...`) atau nama pelanggan serta filter status pembayaran.
-   - Tombol **Cetak / PDF A4** (membuka kembali snapshot dokumen cetak A4).
+   - Tombol **Cetak / PDF A4** (membuka kembali snapshot dokumen cetak A4 dan memanggil dialog cetak/PDF).
    - Tombol **Batalkan Invoice** (mengubah status menjadi `BATAL` dan melepaskan status penanda pada paket-paket terkait).
 
 ---
 
-### 4.2 Modul Verifikasi Paket Fisik (Gudang & Bongkar Muat)
+### 4.2 Modul Barcode & Detail Paket (Termasuk Biaya Tambahan Opsional)
+
+Modul Barcode dan Detail Paket dirancang untuk menyajikan transparansi seluruh komponen data paket yang diinput oleh admin:
+
+1. **Halaman Detail Barcode / Detail Grup Paket (`/admin/barcode-group` & `/owner/barcode-group`)**:
+   - Menampilkan kartu detail lengkap setiap paket:
+     - **No Resi**: Nomor resi kurir asal (misal `spxid069821994619`).
+     - **No Paket**: Nomor urut paket per pemesan (`#1`, `#2`, dst).
+     - **Tanggal**: Tanggal pencatatan paket fisik.
+     - **Jenis Jastip**: Pesawat, Pelni, Hemat+, atau Kargo.
+     - **Rute Pengiriman**: Rute asal ke tujuan (misal *Jakarta → Manokwari*).
+     - **Nama Barang**: Identitas jenis isi barang (wajib/penting untuk Kargo dan Pelni).
+     - **Berat Real**: Bobot timbangan fisik (kg).
+     - **Berat Volume**: Hasil kalkulasi dimensi kubikasi ($P \times L \times T / \text{Divisor}$).
+     - **Berat Digunakan**: Bobot pakai penentu ongkir ($\max(\text{Berat Real}, \text{Berat Volume})$).
+     - **Dimensi (cm)**: Ukuran fisik Panjang $\times$ Lebar $\times$ Tinggi.
+     - **Total Ongkir**: Ongkir murni berdasarkan berat dan tarif layanan.
+     - **Nominal Biaya Tambahan (Rp)**: Biaya perlindungan/layanan ekstra (misal *Rp 15.000*, default *Rp 0* jika tidak ada biaya tambahan).
+     - **Keterangan Biaya Tambahan**: Penjelasan jenis biaya tambahan (contoh: *Paking kayu, bubble wrap ekstra, karung berlapis*).
+     - **Total Tagihan**: Penjumlahan $\text{Total Ongkir} + \text{Biaya Tambahan}$ dengan penyorotan warna hijau tegas saat biaya tambahan aktif.
+   - **Header Ringkasan Grup**: Menampilkan akumulasi jumlah paket, total berat, total ongkir, total biaya tambahan, dan grand total.
+   - **Dialog Edit Paket**: Menyediakan form penyuntingan lengkap termasuk box *Biaya Tambahan (Opsional)* untuk mengubah nominal dan alasan biaya tambahan secara langsung.
+
+2. **Halaman Detail Paket Individual (`/admin/packages/:id` & `/owner/packages/:id`)**:
+   - Menampilkan tabel atribut lengkap dengan pemisahan baris *Nominal Biaya Tambahan (Rp)*, *Keterangan Biaya Tambahan*, dan *Total Tagihan*.
+   - Mode edit form mendukung pembaruan nominal serta keterangan biaya tambahan yang langsung tersimpan ke PostgreSQL melalui endpoint PATCH `/api/packages/:id`.
+   - Modul Cetak Stiker Label Barcode/QR (`BarcodeDisplay`) menyertakan baris Biaya Tambahan bila bernilai $> 0$.
+
+3. **Input Paket Baru & Import Excel**:
+   - Form input (`/admin/packages/new`): Komponen khusus bergaris putus-putus amber dengan field *Nominal Biaya Tambahan (Rp)* dan *Keterangan Biaya Tambahan*.
+   - Import file Excel (`/admin/packages/import`): Kolom *Biaya Tambahan* dan *Ket Biaya Tambahan* yang langsung terpetakan ke database.
+
+---
+
+### 4.3 Modul Verifikasi Paket Fisik (Gudang & Bongkar Muat)
 
 1. **Scan Barcode & QR Code**:
    - Menggunakan webcam/kamera scanner (`Html5QrcodeScanner`), upload file foto barcode, atau input manual nomor barcode/resi.
@@ -312,25 +347,48 @@ Sistem menerapkan arsitektur ongkir minimum berbasis grup konsumen dan layanan d
 
 ## 7. Prosedur Pengujian & Verifikasi Kualitas
 
-Sistem dilengkapi suite pengujian otomatis untuk memastikan integritas logika bisnis:
+Sistem dilengkapi suite pengujian otomatis untuk memastikan integritas logika bisnis dan fungsionalitas UI/API:
 
 1. **Linting & Type Safety**:
    ```bash
    npm run lint
    npm run typecheck
    ```
+   *Status:* Lulus tanpa error sintaksis atau tipe data TypeScript.
 
-2. **Pengujian Regresi End-to-End (15 Langkah Kritis)**:
+2. **Pengujian Biaya Tambahan (Opsional) di Detail Paket & Barcode**:
+   ```bash
+   npx tsx scripts/src/test-additional-fee-detail.ts
+   ```
+   *Cakupan:*
+   - Input paket baru dengan nominal & keterangan biaya tambahan (Rp 15.000, "Paking kayu & bubble wrap ekstra").
+   - Pengambilan detail paket via GET `/api/packages/:id` dan verifikasi integritas data.
+   - Pembaruan (PATCH `/api/packages/:id`) biaya tambahan (Rp 25.000, "Paking kayu ukuran besar + karung berlapis").
+   - Pengujian reset biaya tambahan ke 0 / null.
+   *Status:* **100% LULUS**.
+
+3. **Pengujian Alur Invoice A4, Package Map, & Cetak Snapshot**:
+   ```bash
+   npx tsx scripts/src/test-invoices-flow.ts
+   ```
+   *Cakupan:* Query `/api/invoices/package-map`, penerbitan Invoice A4 dari paket terpilih, query detail items invoice, dan pencatatan audit log cetak snapshot.
+   *Status:* **100% LULUS**.
+
+4. **Pengujian UAT Fase 8: Konsistensi Ekspor & Dokumen Cetak**:
+   ```bash
+   npx tsx scripts/src/verify-fase8-uat.ts
+   ```
+   *Cakupan:*
+   - Perbandingan baris data dan total nominal antara Excel, PDF, dan SQL Database untuk berbagai batch.
+   - Text wrapping pada tabel cetak untuk teks panjang ($\ge 60$ karakter) tanpa terpotong (*truncate*).
+   - Konsistensi 100% antara filter visual UI dan baris ekspor.
+   *Status:* **100% LULUS**.
+
+5. **Pengujian Regresi End-to-End**:
    ```bash
    npx tsx scripts/src/verify-full-regression-e2e.ts
    ```
    *Cakupan:* Bootstrap DB, Login Multi-role, Transaksi Tunai/Transfer/QRIS/Piutang, Pelunasan Piutang 2 Tahap, VOID & Reversal Saldo Kas, Proteksi Anti-Repeat VOID, Struk Termal, Invariansi Snapshot Tarif, Blind Closing Shift, Rekonsiliasi Excel vs DB, dan Proteksi Role Admin (HTTP 403).
-
-3. **Pengujian Alur Invoice A4, Package Map, & Print**:
-   ```bash
-   ./node_modules/.bin/tsx scripts/src/test-invoices-flow.ts
-   ```
-   *Cakupan:* Query `/api/invoices/package-map`, Penerbitan Invoice A4 dari paket terpilih, query detail items, dan pencatatan audit log print snapshot.
 
 ---
 
