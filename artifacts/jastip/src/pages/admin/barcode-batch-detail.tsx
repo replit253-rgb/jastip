@@ -448,6 +448,10 @@ function GroupedBarcodeCard({
     0,
   );
   const totalShipping = calcGroupTotalShipping(pkgs);
+  const totalAdditionalFee = pkgs.reduce(
+    (s, p) => s + (Number(p.additionalFee) || 0),
+    0,
+  );
   const pelniRate = isPelniCard
     ? getPelniRateByTotalWeight(totalWeight, first?.deliveryRoute || "")
     : null;
