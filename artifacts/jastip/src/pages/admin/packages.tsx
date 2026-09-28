@@ -262,6 +262,11 @@ export default function AdminPackages() {
       (sum: number, p: any) => sum + (Number(p.totalShipping) || 0),
       0,
     );
+    const totalAdditionalFee = sorted.reduce(
+      (sum: number, p: any) => sum + (Number(p.additionalFee) || 0),
+      0,
+    );
+    const grandTotal = totalOngkir + totalAdditionalFee;
 
     saveTabularPdf({
       filename: `laporan-kargo${selectedPdfBatch ? `-${selectedPdfBatch.namaKapal.replace(/\s+/g, "-").toLowerCase()}` : ""}.pdf`,
@@ -270,8 +275,12 @@ export default function AdminPackages() {
       columns: cargoColumns,
       rows: cargoRows,
       summaryRows: [[
-        "Total Paket", sorted.length, "", "", "", "", "", "", "", "",
-        formatExportRp(totalOngkir), "",
+        "Total", "", "", "", "", "", "", "", "", "",
+        formatExportRp(totalOngkir),
+        formatExportRp(totalAdditionalFee),
+        "",
+        formatExportRp(grandTotal),
+        "",
       ]],
       landscape: true,
       exportedBy: user?.name || "Pengguna aktif",
@@ -283,12 +292,15 @@ export default function AdminPackages() {
         3: { cellWidth: 24 },
         4: { cellWidth: 12, halign: "center" },
         5: { cellWidth: 12 },
-        6: { cellWidth: 68, overflow: "linebreak" },
+        6: { cellWidth: 32, overflow: "linebreak" },
         7: { cellWidth: 18, halign: "center" },
         8: { cellWidth: 16, halign: "right" },
-        9: { cellWidth: 24, halign: "right" },
-        10: { cellWidth: 25, halign: "right" },
-        11: { cellWidth: 18, halign: "center" },
+        9: { cellWidth: 22, halign: "right" },
+        10: { cellWidth: 24, halign: "right" },
+        11: { cellWidth: 22, halign: "right" },
+        12: { cellWidth: 24, overflow: "linebreak" },
+        13: { cellWidth: 24, halign: "right" },
+        14: { cellWidth: 17, halign: "center" },
       },
     });
     setPdfOpen(false);
@@ -316,7 +328,6 @@ export default function AdminPackages() {
     const exportedBy = user?.name || "Pengguna aktif";
 
     const totalPaket = filtered.length;
-    const totalBeratAll = filtered.reduce((s: number, p: any) => s + (Number(p.usedWeight) || 0), 0);
 
     const serviceUpper: Record<string, string> = {
       "jastip pelni": "JASTIP PELNI",
@@ -369,26 +380,32 @@ export default function AdminPackages() {
       "TOTAL\nBERAT",
       "HARGA",
       "TOTAL ONGKIR\nJASTIP",
+      "BIAYA\nTAMBAHAN",
+      "KET. BIAYA\nTAMBAHAN",
+      "TOTAL\nTAGIHAN",
     ]];
 
     const colStyles: Record<number, object> = {
-      0:  { cellWidth: 15 },
-      1:  { cellWidth: 25 },
-      2:  { cellWidth: 25 },
-      3:  { cellWidth: 13, halign: "center" },
-      4:  { cellWidth: 12, halign: "center" },
-      5:  { cellWidth: 18 },
-      6:  { cellWidth: 9,  halign: "right" },
-      7:  { cellWidth: 7,  halign: "right" },
-      8:  { cellWidth: 7,  halign: "right" },
-      9:  { cellWidth: 7,  halign: "right" },
-      10: { cellWidth: 10, halign: "right" },
-      11: { cellWidth: 13, halign: "center" },
-      12: { cellWidth: 14, halign: "right" },
-      13: { cellWidth: 18, halign: "right" },
-      14: { cellWidth: 13, halign: "right" },
-      15: { cellWidth: 16, halign: "right" },
-      16: { cellWidth: 20, halign: "right" },
+      0:  { cellWidth: 14 },
+      1:  { cellWidth: 20 },
+      2:  { cellWidth: 20 },
+      3:  { cellWidth: 12, halign: "center" },
+      4:  { cellWidth: 10, halign: "center" },
+      5:  { cellWidth: 16 },
+      6:  { cellWidth: 8,  halign: "right" },
+      7:  { cellWidth: 6,  halign: "right" },
+      8:  { cellWidth: 6,  halign: "right" },
+      9:  { cellWidth: 6,  halign: "right" },
+      10: { cellWidth: 9,  halign: "right" },
+      11: { cellWidth: 12, halign: "center" },
+      12: { cellWidth: 12, halign: "right" },
+      13: { cellWidth: 16, halign: "right" },
+      14: { cellWidth: 12, halign: "right" },
+      15: { cellWidth: 14, halign: "right" },
+      16: { cellWidth: 17, halign: "right" },
+      17: { cellWidth: 16, halign: "right" },
+      18: { cellWidth: 24, overflow: "linebreak" },
+      19: { cellWidth: 19, halign: "right" },
     };
 
     // ── Loop per grup konsumen ──────────────────────────────────────────────
@@ -397,6 +414,8 @@ export default function AdminPackages() {
       const totalBeratGrup = pkgs.reduce((s: number, p: any) => s + (Number(p.usedWeight) || 0), 0);
       let rawTotalOngkirGrup = pkgs.reduce((s: number, p: any) => s + (Number(p.totalShipping) || 0), 0);
       const totalOngkirGrup = (isPelni && rawTotalOngkirGrup > 0 && rawTotalOngkirGrup < 20000) ? 20000 : rawTotalOngkirGrup;
+      const totalAddFeeGrup = pkgs.reduce((s: number, p: any) => s + (Number(p.additionalFee) || 0), 0);
+      const grandTotalGrup = totalOngkirGrup + totalAddFeeGrup;
       const hargaPerKg = pkgs.find((p: any) => p.shippingRate != null)?.shippingRate ?? (isPelni ? 20000 : null);
 
       if (210 - y < 22) { doc.addPage(); y = 10; }
@@ -406,7 +425,8 @@ export default function AdminPackages() {
       doc.text(`NAMA KONSUMEN       ${customerName}`, margin, y + 3);
       doc.setFontSize(7.5);
       doc.setFont("helvetica", "normal");
-      doc.text(`  Jumlah Paket:     ${pkgs.length}.0`, margin, y + 7.5);
+      const summaryLine = `Jumlah Paket: ${pkgs.length} pkt · Total Ongkir: ${formatExportRp(totalOngkirGrup)}${totalAddFeeGrup > 0 ? ` · Biaya Tambahan: ${formatExportRp(totalAddFeeGrup)} · Total Tagihan: ${formatExportRp(grandTotalGrup)}` : ""}`;
+      doc.text(`  ${summaryLine}`, margin, y + 7.5);
       y += 12;
 
       const rows = pkgs.map((p: any, i: number) => {
@@ -414,6 +434,8 @@ export default function AdminPackages() {
         if (isPelni && rawTotalOngkirGrup > 0 && rawTotalOngkirGrup < 20000) {
           ongkirPaket = pkgs.length === 1 ? 20000 : Math.round((Number(p.usedWeight || 0) / (totalBeratGrup || 1)) * 20000);
         }
+        const addFee = Number(p.additionalFee) || 0;
+        const totalTagihanPaket = ongkirPaket + addFee;
         return [
           formatDate(p.packageDate || p.createdAt),
           p.resiNumber || "-",
@@ -432,6 +454,9 @@ export default function AdminPackages() {
           i === 0 ? formatNumber(totalBeratGrup, 2) : "",
           i === 0 ? formatExportRp(hargaPerKg) : "",
           i === 0 ? formatExportRp(totalOngkirGrup) : "",
+          addFee > 0 ? formatExportRp(addFee) : "-",
+          p.additionalFeeReason || "-",
+          formatExportRp(totalTagihanPaket),
         ];
       });
 
@@ -440,8 +465,8 @@ export default function AdminPackages() {
         head: tableHead,
         body: rows,
          didDrawPage: () => drawExportFooter(doc, exportedBy, generatedAt),
-        styles: { fontSize: 5.8, cellPadding: 1.1, overflow: "linebreak", lineColor: [200, 200, 200], lineWidth: 0.1 },
-        headStyles: { fillColor: [185, 28, 28], textColor: 255, fontStyle: "bold", fontSize: 5.8, halign: "center", valign: "middle" },
+        styles: { fontSize: 5.6, cellPadding: 1.0, overflow: "linebreak", lineColor: [200, 200, 200], lineWidth: 0.1 },
+        headStyles: { fillColor: [185, 28, 28], textColor: 255, fontStyle: "bold", fontSize: 5.6, halign: "center", valign: "middle" },
         alternateRowStyles: { fillColor: [253, 248, 248] },
         showHead: "everyPage",
         rowPageBreak: "avoid",
@@ -492,25 +517,42 @@ export default function AdminPackages() {
     const safeJenis = pdfJenis === "all"
       ? "semua"
       : pdfJenis.replace(/\s+/g, "-").toLowerCase();
+    const totalOngkir = filtered.reduce((s: number, p: any) => s + (Number(p.totalShipping) || 0), 0);
+    const totalAdditionalFee = filtered.reduce((s: number, p: any) => s + (Number(p.additionalFee) || 0), 0);
+    const grandTotal = totalOngkir + totalAdditionalFee;
+
     saveTabularPdf({
       filename: `laporan-paket_${safeBatch}_${safeJenis}.pdf`,
       title: "Jastip Anggun Jaya — Laporan Paket",
       filters,
       columns: PACKAGE_EXPORT_COLUMNS,
       rows: buildSharedPackageExportRows(filtered),
+      summaryRows: [[
+        "Total", "", "", "", "", "", "", "", "", "",
+        formatExportRp(totalOngkir),
+        formatExportRp(totalAdditionalFee),
+        "",
+        formatExportRp(grandTotal),
+        "",
+      ]],
       landscape: true,
       exportedBy: user?.name || "Pengguna aktif",
       columnStyles: {
         0: { halign: "center", cellWidth: 8 },
-        1: { cellWidth: 18 },
-        2: { cellWidth: 22 },
-        3: { cellWidth: 18 },
-        6: { cellWidth: 30, overflow: "linebreak" },
-        7: { halign: "right", cellWidth: 16 },
-        8: { halign: "right", cellWidth: 18 },
-        9: { halign: "right", cellWidth: 16 },
-        10: { halign: "right", cellWidth: 24 },
-        11: { halign: "center", cellWidth: 18 },
+        1: { cellWidth: 16 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 14 },
+        4: { cellWidth: 24 },
+        5: { cellWidth: 18 },
+        6: { cellWidth: 26, overflow: "linebreak" },
+        7: { halign: "right", cellWidth: 14 },
+        8: { halign: "right", cellWidth: 14 },
+        9: { halign: "right", cellWidth: 14 },
+        10: { halign: "right", cellWidth: 22 },
+        11: { halign: "right", cellWidth: 20 },
+        12: { cellWidth: 26, overflow: "linebreak" },
+        13: { halign: "right", cellWidth: 24 },
+        14: { halign: "center", cellWidth: 17 },
       },
     });
     setPdfOpen(false);
@@ -556,11 +598,17 @@ export default function AdminPackages() {
       filters,
       columns,
       rows,
-      columnWidths: [
-        { wch: 5 }, { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 24 },
-        { wch: 18 }, { wch: 32 }, { wch: 16 }, { wch: 20 }, { wch: 17 },
-        { wch: 20 }, { wch: 16 },
-      ],
+      columnWidths: isXlsxCargo
+        ? [
+            { wch: 5 }, { wch: 24 }, { wch: 14 }, { wch: 22 }, { wch: 12 },
+            { wch: 12 }, { wch: 28 }, { wch: 18 }, { wch: 14 }, { wch: 18 },
+            { wch: 20 }, { wch: 18 }, { wch: 26 }, { wch: 20 }, { wch: 16 },
+          ]
+        : [
+            { wch: 5 }, { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 24 },
+            { wch: 18 }, { wch: 28 }, { wch: 16 }, { wch: 18 }, { wch: 16 },
+            { wch: 20 }, { wch: 18 }, { wch: 26 }, { wch: 20 }, { wch: 16 },
+          ],
     });
     XLSX.utils.book_append_sheet(wb, sheet, "Paket");
     addExportInfoSheet(wb, "Laporan Paket — Jastip Anggun Jaya", filters);

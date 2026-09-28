@@ -75,9 +75,17 @@ function buildSinglePrintHtml(pkg: any, qrDataUrl: string, qrValue: string, batc
     ? new Date(pkg.packageDate).toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })
     : "-";
   const serviceType = pkg.serviceType ? pkg.serviceType.replace("jastip ", "Jastip ") : "-";
-  const ongkir = pkg.totalShipping != null ? "Rp " + Number(pkg.totalShipping).toLocaleString("id-ID") : "-";
+  const ongkirNum = Number(pkg.totalShipping) || 0;
+  const addFeeNum = Number(pkg.additionalFee) || 0;
+  const grandTotal = ongkirNum + addFeeNum;
+  const ongkir = pkg.totalShipping != null ? "Rp " + ongkirNum.toLocaleString("id-ID") : "-";
   const batchRow = batchLabel
     ? `<div class="field full"><div class="fl">Batch Pengiriman</div><div class="fv" style="color:#1d4ed8;">${batchLabel}</div></div>`
+    : "";
+  const feeRows = addFeeNum > 0
+    ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${addFeeNum.toLocaleString("id-ID")}</div></div>
+       ${pkg.additionalFeeReason ? `<div class="field full"><div class="fl">Ket. Biaya Tambahan</div><div class="fv">${pkg.additionalFeeReason}</div></div>` : ""}
+       <div class="field full"><div class="fl">Total Tagihan</div><div class="fv red" style="color:#15803d;font-size:13.5pt;">Rp ${grandTotal.toLocaleString("id-ID")}</div></div>`
     : "";
   const isKargo = (pkg.serviceType || "").toLowerCase() === "jastip kargo";
   const inner = `${qrSectionHtml(qrDataUrl, qrValue)}
@@ -93,6 +101,7 @@ function buildSinglePrintHtml(pkg: any, qrDataUrl: string, qrValue: string, batc
         <div class="field"><div class="fl">Berat Digunakan</div><div class="fv">${pkg.usedWeight != null ? pkg.usedWeight + " Kg" : "-"}</div></div>
         <div class="field"><div class="fl">Jenis Paking</div><div class="fv">${pkg.packagingType || "-"}</div></div>
         <div class="field"><div class="fl">Total Ongkir</div><div class="fv red">${ongkir}</div></div>
+        ${feeRows}
         ${batchRow}
       </div>
     </div>`;
@@ -102,9 +111,21 @@ function buildSinglePrintHtml(pkg: any, qrDataUrl: string, qrValue: string, batc
 function buildGroupedPrintHtml(pkgs: any[], qrDataUrl: string, qrValue: string, batchLabel?: string) {
   const first = pkgs[0];
   const totalWeight = pkgs.reduce((s, p) => s + (p.usedWeight ?? p.realWeight ?? 0), 0);
-  const totalShipping = pkgs.reduce((s, p) => s + (p.totalShipping ?? 0), 0);
+  const totalShipping = pkgs.reduce((s, p) => s + (Number(p.totalShipping) || 0), 0);
+  const totalAdditionalFee = pkgs.reduce((s, p) => s + (Number(p.additionalFee) || 0), 0);
+  const grandTotal = totalShipping + totalAdditionalFee;
   const batchRow = batchLabel
     ? `<div class="field full"><div class="fl">Batch Pengiriman</div><div class="fv" style="color:#1d4ed8;">${batchLabel}</div></div>`
+    : "";
+  const feeReasons = pkgs
+    .filter((p) => Number(p.additionalFee) > 0 && p.additionalFeeReason)
+    .map((p) => p.additionalFeeReason)
+    .filter(Boolean)
+    .join(", ");
+  const feeRows = totalAdditionalFee > 0
+    ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${totalAdditionalFee.toLocaleString("id-ID")}</div></div>
+       ${feeReasons ? `<div class="field full"><div class="fl">Ket. Biaya Tambahan</div><div class="fv">${feeReasons}</div></div>` : ""}
+       <div class="field full"><div class="fl">Total Tagihan</div><div class="fv red" style="color:#15803d;font-size:13.5pt;">Rp ${grandTotal.toLocaleString("id-ID")}</div></div>`
     : "";
   const inner = `${qrSectionHtml(qrDataUrl, qrValue)}
     <div class="info">
@@ -114,6 +135,7 @@ function buildGroupedPrintHtml(pkgs: any[], qrDataUrl: string, qrValue: string, 
         <div class="field"><div class="fl">Total Berat</div><div class="fv">${totalWeight.toFixed(3)} Kg</div></div>
         <div class="field"><div class="fl">Jenis Jastip</div><div class="fv">${first?.serviceType ? first.serviceType.replace("jastip ", "Jastip ") : "-"}</div></div>
         <div class="field"><div class="fl">Total Ongkir</div><div class="fv red">Rp ${totalShipping.toLocaleString("id-ID")}</div></div>
+        ${feeRows}
         <div class="field full"><div class="fl">Rute</div><div class="fv">${first?.deliveryRoute || "-"}</div></div>
         ${batchRow}
       </div>
@@ -196,6 +218,17 @@ function BarcodeItem({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 mb-2 text-xs text-muted-foreground">
           {pkg.usedWeight != null && <span>Berat: {pkg.usedWeight} Kg</span>}
           {pkg.totalShipping != null && <span>Ongkir: {formatRp(pkg.totalShipping)}</span>}
+          {Number(pkg.additionalFee) > 0 && (
+            <span className="text-amber-700 font-medium">
+              + Biaya Tambahan: {formatRp(pkg.additionalFee)}
+              {pkg.additionalFeeReason ? ` (${pkg.additionalFeeReason})` : ""}
+            </span>
+          )}
+          {Number(pkg.additionalFee) > 0 && (
+            <span className="font-bold text-green-700">
+              Total Tagihan: {formatRp((Number(pkg.totalShipping) || 0) + Number(pkg.additionalFee))}
+            </span>
+          )}
         </div>
         <div className="flex gap-1.5 mb-1.5">
           <Button size="sm" variant="outline" className="flex-1 min-w-0 px-2 text-xs" onClick={printBarcode}>
@@ -236,7 +269,9 @@ function GroupedBarcodeItem({
   const first = pkgs[0];
   const qrValue = groupQrValue(pkgs);
   const totalWeight = pkgs.reduce((s, p) => s + (p.usedWeight ?? p.realWeight ?? 0), 0);
-  const totalShipping = pkgs.reduce((s, p) => s + (p.totalShipping ?? 0), 0);
+  const totalShipping = pkgs.reduce((s, p) => s + (Number(p.totalShipping) || 0), 0);
+  const totalAdditionalFee = pkgs.reduce((s, p) => s + (Number(p.additionalFee) || 0), 0);
+  const grandTotal = totalShipping + totalAdditionalFee;
   const allPending = pkgs.every((p) => p.status !== "diserahkan");
   const allDone = pkgs.every((p) => p.status === "diserahkan");
 
@@ -294,15 +329,44 @@ function GroupedBarcodeItem({
         <div className="flex justify-center bg-white border rounded-lg p-2 mb-2">
           <canvas ref={canvasRef} />
         </div>
-        <div className="mb-2 space-y-0.5">
-          {pkgs.map((p, i) => (
-            <div key={p.id} className="flex items-center justify-between text-xs text-muted-foreground">
-              <span className="font-mono truncate max-w-[120px]">#{i + 1} {p.resiNumber || "-"}</span>
-              <span>{p.usedWeight != null ? p.usedWeight + " Kg" : "-"}</span>
-            </div>
-          ))}
+        <div className="mb-2 space-y-1">
+          {pkgs.map((p, i) => {
+            const addFee = Number(p.additionalFee) || 0;
+            return (
+              <div key={p.id} className="text-xs text-muted-foreground border-b border-dashed border-gray-100 pb-0.5 last:border-0">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono truncate max-w-[120px]">#{i + 1} {p.resiNumber || "-"}</span>
+                  <span>{p.usedWeight != null ? p.usedWeight + " Kg" : "-"}</span>
+                </div>
+                {addFee > 0 && (
+                  <div className="text-[11px] text-amber-700 font-medium">
+                    + Biaya Tambahan: {formatRp(addFee)}
+                    {p.additionalFeeReason ? ` (${p.additionalFeeReason})` : ""}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
-        <div className="text-xs font-semibold text-primary mb-2">Total Ongkir: {formatRp(totalShipping)}</div>
+        <div className="text-xs font-semibold text-primary mb-1">Total Ongkir: {formatRp(totalShipping)}</div>
+        {totalAdditionalFee > 0 && (
+          <div className="text-xs font-medium text-amber-700 mb-1">
+            + Biaya Tambahan: {formatRp(totalAdditionalFee)}
+            {(() => {
+              const reasons = pkgs
+                .filter((p) => Number(p.additionalFee) > 0 && p.additionalFeeReason)
+                .map((p) => p.additionalFeeReason)
+                .filter(Boolean)
+                .join(", ");
+              return reasons ? ` (${reasons})` : "";
+            })()}
+          </div>
+        )}
+        {totalAdditionalFee > 0 && (
+          <div className="text-xs font-bold text-green-700 mb-2">
+            Total Tagihan: {formatRp(grandTotal)}
+          </div>
+        )}
         <div className="flex gap-1.5 mb-1.5">
           <Button size="sm" variant="outline" className="flex-1 min-w-0 px-2 text-xs" onClick={printBarcode}>
             <Printer className="w-3 h-3 mr-1 shrink-0" /> <span className="truncate">Cetak</span>
@@ -419,6 +483,13 @@ function BatchBarcodeSection({
         qrDataUrl = await QRCode.toDataURL(qrValue, { width: 400, margin: 3, color: { dark: "#000000", light: "#ffffff" } });
       } catch { continue; }
       const isKargoPkg = (pkg.serviceType || "").toLowerCase() === "jastip kargo";
+      const addFee = Number(pkg.additionalFee) || 0;
+      const grandTotal = (Number(pkg.totalShipping) || 0) + addFee;
+      const feeRow = addFee > 0
+        ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${addFee.toLocaleString("id-ID")}</div></div>
+           ${pkg.additionalFeeReason ? `<div class="field full"><div class="fl">Ket. Biaya Tambahan</div><div class="fv">${pkg.additionalFeeReason}</div></div>` : ""}
+           <div class="field full"><div class="fl">Total Tagihan</div><div class="fv red" style="color:#15803d;font-size:13.5pt;">Rp ${grandTotal.toLocaleString("id-ID")}</div></div>`
+        : "";
       pages.push(labelPageHtml(`${qrSectionHtml(qrDataUrl, qrValue)}
         <div class="info${isKargoPkg ? " compact" : ""}">
           <div class="cust">${pkg.customerName || "-"}</div>
@@ -430,6 +501,7 @@ function BatchBarcodeSection({
             <div class="field full"><div class="fl">Rute</div><div class="fv">${pkg.deliveryRoute || "-"}</div></div>
             <div class="field"><div class="fl">Berat Digunakan</div><div class="fv">${pkg.usedWeight != null ? pkg.usedWeight + " Kg" : "-"}</div></div>
             <div class="field"><div class="fl">Total Ongkir</div><div class="fv red">${pkg.totalShipping != null ? "Rp " + Number(pkg.totalShipping).toLocaleString("id-ID") : "-"}</div></div>
+            ${feeRow}
             <div class="field full"><div class="fl">Batch Pengiriman</div><div class="fv" style="color:#1d4ed8;">${batchLabel}</div></div>
           </div>
         </div>`));
@@ -755,6 +827,13 @@ export default function AdminBarcode() {
         qrDataUrl = await QRCode.toDataURL(qrValue, { width: 400, margin: 3, color: { dark: "#000000", light: "#ffffff" } });
       } catch { continue; }
       const isKargoBulk = (pkg.serviceType || "").toLowerCase() === "jastip kargo";
+      const addFee = Number(pkg.additionalFee) || 0;
+      const grandTotal = (Number(pkg.totalShipping) || 0) + addFee;
+      const feeRow = addFee > 0
+        ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${addFee.toLocaleString("id-ID")}</div></div>
+           ${pkg.additionalFeeReason ? `<div class="field full"><div class="fl">Ket. Biaya Tambahan</div><div class="fv">${pkg.additionalFeeReason}</div></div>` : ""}
+           <div class="field full"><div class="fl">Total Tagihan</div><div class="fv red" style="color:#15803d;font-size:13.5pt;">Rp ${grandTotal.toLocaleString("id-ID")}</div></div>`
+        : "";
       pages.push(labelPageHtml(`${qrSectionHtml(qrDataUrl, qrValue)}
         <div class="info${isKargoBulk ? " compact" : ""}">
           <div class="cust">${pkg.customerName || "-"}</div>
@@ -767,6 +846,7 @@ export default function AdminBarcode() {
             <div class="field full"><div class="fl">Rute</div><div class="fv">${pkg.deliveryRoute || "-"}</div></div>
             <div class="field"><div class="fl">Berat Digunakan</div><div class="fv">${pkg.usedWeight != null ? pkg.usedWeight + " Kg" : "-"}</div></div>
             <div class="field"><div class="fl">Total Ongkir</div><div class="fv red">${pkg.totalShipping != null ? "Rp " + Number(pkg.totalShipping).toLocaleString("id-ID") : "-"}</div></div>
+            ${feeRow}
           </div>
         </div>`));
     }

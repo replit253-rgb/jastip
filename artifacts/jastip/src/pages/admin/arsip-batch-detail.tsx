@@ -66,8 +66,18 @@ function groupPkgsByCustomer(pkgs: any[]) {
 function buildGroupedArsipPrintHtml(pkgs: any[], qrDataUrl: string, qrValue: string, batchLabel?: string) {
   const first = pkgs[0];
   const totalWeight = pkgs.reduce((s, p) => s + (p.usedWeight ?? p.realWeight ?? 0), 0);
-  const totalShipping = pkgs.reduce((s, p) => s + (p.totalShipping ?? 0), 0);
-  const pkgRows = pkgs.map((p, i) => `
+  const totalShipping = pkgs.reduce((s, p) => s + (Number(p.totalShipping) || 0), 0);
+  const totalAdditionalFee = pkgs.reduce((s, p) => s + (Number(p.additionalFee) || 0), 0);
+  const grandTotal = totalShipping + totalAdditionalFee;
+  const feeReasons = pkgs
+    .filter((p) => Number(p.additionalFee) > 0 && p.additionalFeeReason)
+    .map((p) => p.additionalFeeReason)
+    .filter(Boolean)
+    .join(", ");
+  const pkgRows = pkgs.map((p, i) => {
+    const addFee = Number(p.additionalFee) || 0;
+    const tagihan = (Number(p.totalShipping) || 0) + addFee;
+    return `
     <tr style="border-bottom:1px solid #eee;">
       <td style="padding:5px 8px;font-size:11px;font-weight:700;">${i + 1}</td>
       <td style="padding:5px 8px;font-size:11px;font-family:monospace;">${p.resiNumber || "-"}</td>
@@ -75,7 +85,10 @@ function buildGroupedArsipPrintHtml(pkgs: any[], qrDataUrl: string, qrValue: str
       <td style="padding:5px 8px;font-size:11px;">${p.usedWeight != null ? p.usedWeight + " Kg" : "-"}</td>
       <td style="padding:5px 8px;font-size:11px;">${(p.statusPengambilan === "SUDAH_DIAMBIL" || p.status === "diserahkan") ? "Diserahkan" : "Pending"}</td>
       <td style="padding:5px 8px;font-size:11px;color:#16a34a;font-weight:700;">${p.totalShipping != null ? "Rp " + Number(p.totalShipping).toLocaleString("id-ID") : "-"}</td>
-    </tr>`).join("");
+      <td style="padding:5px 8px;font-size:11px;color:#b45309;">${addFee > 0 ? "Rp " + addFee.toLocaleString("id-ID") + (p.additionalFeeReason ? ` (${p.additionalFeeReason})` : "") : "-"}</td>
+      <td style="padding:5px 8px;font-size:11px;color:#15803d;font-weight:700;">Rp ${tagihan.toLocaleString("id-ID")}</td>
+    </tr>`;
+  }).join("");
 
   return `<!DOCTYPE html>
 <html>
@@ -135,6 +148,15 @@ function buildGroupedArsipPrintHtml(pkgs: any[], qrDataUrl: string, qrValue: str
             <span class="total-label">Total Ongkir</span>
             <span class="total-value">Rp ${totalShipping.toLocaleString("id-ID")}</span>
           </div>
+          ${totalAdditionalFee > 0 ? `
+          <div class="total-item">
+            <span class="total-label">Biaya Tambahan</span>
+            <span class="total-value" style="color:#b45309;">Rp ${totalAdditionalFee.toLocaleString("id-ID")}</span>
+          </div>
+          <div class="total-item">
+            <span class="total-label">Total Tagihan</span>
+            <span class="total-value" style="color:#15803d;">Rp ${grandTotal.toLocaleString("id-ID")}</span>
+          </div>` : ""}
         </div>
       </div>
     </div>
@@ -142,7 +164,7 @@ function buildGroupedArsipPrintHtml(pkgs: any[], qrDataUrl: string, qrValue: str
       <div class="pkgs-title">Daftar Paket (${pkgs.length} item)</div>
       <table>
         <thead><tr>
-          <th>#</th><th>No. Resi</th><th>No. Paket</th><th>Berat</th><th>Status</th><th>Ongkir</th>
+          <th>#</th><th>No. Resi</th><th>No. Paket</th><th>Berat</th><th>Status</th><th>Ongkir</th><th>Biaya Tambahan</th><th>Total Tagihan</th>
         </tr></thead>
         <tbody>${pkgRows}</tbody>
       </table>
@@ -163,7 +185,9 @@ function GroupedArsipCard({ pkgs, batchLabel, base }: { pkgs: any[]; batchLabel:
   const first = pkgs[0];
   const qrValue = first?.barcode || first?.resiNumber || String(first?.id ?? "");
   const totalWeight = pkgs.reduce((s, p) => s + (p.usedWeight ?? p.realWeight ?? 0), 0);
-  const totalShipping = pkgs.reduce((s, p) => s + (p.totalShipping ?? 0), 0);
+  const totalShipping = pkgs.reduce((s, p) => s + (Number(p.totalShipping) || 0), 0);
+  const totalAdditionalFee = pkgs.reduce((s, p) => s + (Number(p.additionalFee) || 0), 0);
+  const grandTotal = totalShipping + totalAdditionalFee;
   const isDone = (p: any) => p.statusPengambilan === "SUDAH_DIAMBIL" || p.status === "diserahkan";
   const allDone = pkgs.every(isDone);
   const allPending = pkgs.every((p) => !isDone(p));
@@ -222,16 +246,45 @@ function GroupedArsipCard({ pkgs, batchLabel, base }: { pkgs: any[]; batchLabel:
           <canvas ref={canvasRef} />
         </div>
 
-        <div className="mb-2 space-y-0.5">
-          {pkgs.map((p, i) => (
-            <div key={p.id} className="flex items-center justify-between text-xs text-muted-foreground">
-              <span className="font-mono truncate max-w-[110px]">#{i + 1} {p.resiNumber || "-"}</span>
-              <span className={isDone(p) ? "text-green-700 font-medium" : ""}>{isDone(p) ? "✓" : "⏳"} {p.usedWeight != null ? p.usedWeight + " Kg" : "-"}</span>
-            </div>
-          ))}
+        <div className="mb-2 space-y-1">
+          {pkgs.map((p, i) => {
+            const addFee = Number(p.additionalFee) || 0;
+            return (
+              <div key={p.id} className="text-xs text-muted-foreground border-b border-dashed border-gray-100 pb-0.5 last:border-0">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono truncate max-w-[110px]">#{i + 1} {p.resiNumber || "-"}</span>
+                  <span className={isDone(p) ? "text-green-700 font-medium" : ""}>{isDone(p) ? "✓" : "⏳"} {p.usedWeight != null ? p.usedWeight + " Kg" : "-"}</span>
+                </div>
+                {addFee > 0 && (
+                  <div className="text-[11px] text-amber-700 font-medium">
+                    + Biaya Tambahan: {formatRp(addFee)}
+                    {p.additionalFeeReason ? ` (${p.additionalFeeReason})` : ""}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
-        <div className="text-xs font-semibold text-green-700 mb-2">Total Ongkir: {formatRp(totalShipping)}</div>
+        <div className="text-xs font-semibold text-green-700 mb-1">Total Ongkir: {formatRp(totalShipping)}</div>
+        {totalAdditionalFee > 0 && (
+          <div className="text-xs font-medium text-amber-700 mb-1">
+            + Biaya Tambahan: {formatRp(totalAdditionalFee)}
+            {(() => {
+              const reasons = pkgs
+                .filter((p) => Number(p.additionalFee) > 0 && p.additionalFeeReason)
+                .map((p) => p.additionalFeeReason)
+                .filter(Boolean)
+                .join(", ");
+              return reasons ? ` (${reasons})` : "";
+            })()}
+          </div>
+        )}
+        {totalAdditionalFee > 0 && (
+          <div className="text-xs font-bold text-green-900 mb-2">
+            Total Tagihan: {formatRp(grandTotal)}
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-1.5">
           <Button
@@ -376,6 +429,9 @@ export default function ArsipBatchDetail({ params: propsParams }: { params?: { i
                   <div class="info-item"><span class="info-label">Berat Real</span><span class="info-value">${pkg.realWeight != null ? pkg.realWeight + " Kg" : "-"}</span></div>
                   <div class="info-item"><span class="info-label">Berat Digunakan</span><span class="info-value">${pkg.usedWeight != null ? pkg.usedWeight + " Kg" : "-"}</span></div>
                   <div class="info-item"><span class="info-label">Total Ongkir</span><span class="info-value green">${pkg.totalShipping != null ? "Rp " + Number(pkg.totalShipping).toLocaleString("id-ID") : "-"}</span></div>
+                  ${Number(pkg.additionalFee || 0) > 0 ? `
+                  <div class="info-item"><span class="info-label">Biaya Tambahan</span><span class="info-value" style="color:#b45309;">Rp ${Number(pkg.additionalFee).toLocaleString("id-ID")}${pkg.additionalFeeReason ? ` (${pkg.additionalFeeReason})` : ""}</span></div>
+                  <div class="info-item"><span class="info-label">Total Tagihan</span><span class="info-value green" style="color:#15803d;font-weight:900;">Rp ${(Number(pkg.totalShipping || 0) + Number(pkg.additionalFee || 0)).toLocaleString("id-ID")}</span></div>` : ""}
                 </div>
               </div>
             </div>

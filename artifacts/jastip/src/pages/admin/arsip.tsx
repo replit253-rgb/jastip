@@ -92,6 +92,24 @@ export default function AdminArsip() {
       filters,
       columns: ARSIP_EXPORT_COLUMNS,
       rows,
+      columnWidths: [
+        { wch: 5 },  // No
+        { wch: 14 }, // Tanggal Paket
+        { wch: 22 }, // Nama Penerima
+        { wch: 20 }, // No Resi
+        { wch: 12 }, // No Paket
+        { wch: 16 }, // Jenis Jastip
+        { wch: 24 }, // Jenis Barang
+        { wch: 20 }, // Rute Pengiriman
+        { wch: 14 }, // Berat Real (Kg)
+        { wch: 16 }, // Berat Digunakan (Kg)
+        { wch: 18 }, // Total Ongkir
+        { wch: 18 }, // Biaya Tambahan
+        { wch: 24 }, // Keterangan Biaya
+        { wch: 18 }, // Total Tagihan
+        { wch: 16 }, // Status Pembayaran
+        { wch: 16 }, // Tanggal Diambil
+      ],
     }), "Arsip Paket");
     addExportInfoSheet(wb, "Arsip Paket — Jastip Anggun Jaya", filters);
     XLSX.writeFile(wb, `arsip-paket-${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -106,14 +124,44 @@ export default function AdminArsip() {
       Kasir: "Semua",
       "Diekspor Oleh": user?.name || "Pengguna aktif",
     };
+    const totalOngkir = arsipPackages.reduce((s: number, p: any) => s + (Number(p.totalShipping) || 0), 0);
+    const totalAdditionalFee = arsipPackages.reduce((s: number, p: any) => s + (Number(p.additionalFee) || 0), 0);
+    const grandTotal = totalOngkir + totalAdditionalFee;
+
     saveTabularPdf({
       filename: `arsip-paket-${new Date().toISOString().slice(0, 10)}.pdf`,
       title: "Arsip Paket — Jastip Anggun Jaya",
       filters,
       columns: ARSIP_EXPORT_COLUMNS,
       rows: buildArsipExportRows(arsipPackages),
+      summaryRows: [[
+        "Total", "", "", "", "", "", "", "", "", "",
+        formatExportRp(totalOngkir),
+        formatExportRp(totalAdditionalFee),
+        "",
+        formatExportRp(grandTotal),
+        "", "",
+      ]],
       landscape: true,
       exportedBy: user?.name || "Pengguna aktif",
+      columnStyles: {
+        0: { halign: "center", cellWidth: 8 },
+        1: { cellWidth: 15 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 18 },
+        4: { cellWidth: 12 },
+        5: { cellWidth: 16 },
+        6: { cellWidth: 22, overflow: "linebreak" },
+        7: { cellWidth: 20 },
+        8: { halign: "right", cellWidth: 14 },
+        9: { halign: "right", cellWidth: 14 },
+        10: { halign: "right", cellWidth: 20 },
+        11: { halign: "right", cellWidth: 18 },
+        12: { cellWidth: 22, overflow: "linebreak" },
+        13: { halign: "right", cellWidth: 20 },
+        14: { halign: "center", cellWidth: 18 },
+        15: { halign: "center", cellWidth: 16 },
+      },
     });
   }
 

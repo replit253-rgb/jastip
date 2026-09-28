@@ -46,6 +46,11 @@ function groupPackages(pkgs: any[]): PkgGroup[] {
 
 type VerifyResult = "match" | "mismatch" | null;
 
+function formatRp(n: any) {
+  if (n == null) return "-";
+  return `Rp ${Number(n).toLocaleString("id-ID")}`;
+}
+
 function formatTgl(val: any) {
   if (!val) return "";
   try { return new Date(val).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }); }
@@ -692,6 +697,20 @@ export default function VerifyBatchDetail({ params: propsParams }: { params?: { 
                             <span>Berat: {resultPkg.realWeight != null ? resultPkg.realWeight + " Kg" : "-"}</span>
                             <span>Jastip: {resultPkg.serviceType || "-"}</span>
                             <span>Jenis Paking: <strong>{resultPkg.packagingType || "—"}</strong></span>
+                            <span>Ongkir: <strong>{formatRp(resultPkg.totalShipping)}</strong></span>
+                            {Number(resultPkg.additionalFee) > 0 ? (
+                              <span className="text-amber-800 font-medium">
+                                Biaya Tambahan: <strong>{formatRp(resultPkg.additionalFee)}</strong>
+                                {resultPkg.additionalFeeReason ? ` (${resultPkg.additionalFeeReason})` : ""}
+                              </span>
+                            ) : (
+                              <span>Biaya Tambahan: -</span>
+                            )}
+                            {Number(resultPkg.additionalFee) > 0 && (
+                              <span className="col-span-2 font-bold text-green-900 mt-0.5">
+                                Total Tagihan: {formatRp((Number(resultPkg.totalShipping) || 0) + Number(resultPkg.additionalFee))}
+                              </span>
+                            )}
                           </div>
                         )}
                       </>
@@ -833,10 +852,20 @@ export default function VerifyBatchDetail({ params: propsParams }: { params?: { 
                       : <Package className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5" />}
                     <div className="flex-1 min-w-0">
                       <span className="font-mono block truncate">{p.resiNumber || p.barcode}</span>
-                      {p.packagingType ? (
-                        <span className="text-muted-foreground">{p.packagingType}</span>
-                      ) : (
-                        <span className="text-muted-foreground/40 italic">Paking: —</span>
+                      <div className="flex items-center gap-1.5 text-muted-foreground mt-0.5">
+                        {p.packagingType ? (
+                          <span>{p.packagingType}</span>
+                        ) : (
+                          <span className="italic">Paking: —</span>
+                        )}
+                        <span>·</span>
+                        <span>{formatRp(p.totalShipping)}</span>
+                      </div>
+                      {Number(p.additionalFee) > 0 && (
+                        <div className="text-[11px] text-amber-700 font-medium">
+                          + Biaya Tambahan: {formatRp(p.additionalFee)}
+                          {p.additionalFeeReason ? ` (${p.additionalFeeReason})` : ""}
+                        </div>
                       )}
                     </div>
                     <Badge variant="outline" className={`text-xs shrink-0 ${isVerified ? "bg-green-100 text-green-800 border-green-300" : "bg-amber-100 text-amber-800 border-amber-300"}`}>

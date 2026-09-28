@@ -285,7 +285,7 @@ function PaketTable({ packages }: { packages: any[] }) {
       <table className="w-full text-sm min-w-[640px]">
         <thead>
           <tr className="bg-slate-700 text-white">
-            {["Nomor Resi", "Customer", "Ongkir", "Status Paket"].map((h) => (
+            {["Nomor Resi", "Customer", "Ongkir", "Biaya Tambahan", "Total Tagihan", "Status Paket"].map((h) => (
               <th
                 key={h}
                 className="py-2.5 px-3 text-left text-xs font-semibold whitespace-nowrap"
@@ -296,7 +296,10 @@ function PaketTable({ packages }: { packages: any[] }) {
           </tr>
         </thead>
         <tbody>
-          {paginatedPackages.map((p: any, i: number) => (
+          {paginatedPackages.map((p: any, i: number) => {
+            const addFee = Number(p.additionalFee || 0);
+            const totalTagihan = (Number(p.totalShipping) || 0) + addFee;
+            return (
             <tr
               key={p.id}
               className={`border-b ${i % 2 === 0 ? "bg-white" : "bg-slate-50"} hover:bg-blue-50 transition-colors`}
@@ -309,6 +312,19 @@ function PaketTable({ packages }: { packages: any[] }) {
               </td>
               <td className="py-2.5 px-3 whitespace-nowrap font-medium">
                 {formatRp(Number(p.totalShipping || 0))}
+              </td>
+              <td className="py-2.5 px-3 whitespace-nowrap text-xs text-amber-700 font-medium">
+                {addFee > 0 ? (
+                  <span>
+                    {formatRp(addFee)}
+                    {p.additionalFeeReason ? ` (${p.additionalFeeReason})` : ""}
+                  </span>
+                ) : (
+                  <span className="text-slate-400">-</span>
+                )}
+              </td>
+              <td className="py-2.5 px-3 whitespace-nowrap font-bold text-green-800">
+                {formatRp(totalTagihan)}
               </td>
               <td className="py-2.5 px-3 whitespace-nowrap">
                 <span
@@ -326,7 +342,7 @@ function PaketTable({ packages }: { packages: any[] }) {
                 </span>
               </td>
             </tr>
-          ))}
+          );})}
         </tbody>
       </table>
 
@@ -504,7 +520,7 @@ export default function OwnerFinanceDetail({ params }: Props) {
             p.statusPengambilan === "SUDAH_DIAMBIL" || p.status === "diserahkan"
           ),
       )
-      .reduce((s: number, p: any) => s + Number(p.totalShipping || 0), 0);
+      .reduce((s: number, p: any) => s + (Number(p.totalShipping || 0) + Number(p.additionalFee || 0)), 0);
     const totalTagihan = dibayar + belumDibayar;
     return { totalTagihan, dibayar, belumDibayar };
   }, [filteredPackages, filteredPayments]);

@@ -343,7 +343,8 @@ export default function BarcodeGroupDetail() {
             <div class="field"><div class="fl">Berat Real</div><div class="fv">${realW}</div></div>
             <div class="field"><div class="fl">Berat Digunakan</div><div class="fv">${usedW}</div></div>
             <div class="field"><div class="fl">Total Ongkir</div><div class="fv red">${ongkir}</div></div>
-            ${(p.additionalFee ?? 0) > 0 ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${Number(p.additionalFee).toLocaleString("id-ID")}${p.additionalFeeReason ? ` (${p.additionalFeeReason})` : ""}</div></div>` : ""}
+            ${(p.additionalFee ?? 0) > 0 ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${Number(p.additionalFee).toLocaleString("id-ID")}${p.additionalFeeReason ? ` (${p.additionalFeeReason})` : ""}</div></div>
+            <div class="field full"><div class="fl">Total Tagihan</div><div class="fv red" style="color:#15803d;font-size:13.5pt;">Rp ${(Number(p.totalShipping || 0) + Number(p.additionalFee || 0)).toLocaleString("id-ID")}</div></div>` : ""}
           </div>
         </div>`);
       })

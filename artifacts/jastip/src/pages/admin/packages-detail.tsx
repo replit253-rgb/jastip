@@ -79,7 +79,8 @@ function BarcodeDisplay({ value, pkg }: { value: string; pkg?: any }) {
               <div class="field"><div class="fl">Berat Digunakan</div><div class="fv">${usedWeight}</div></div>
               <div class="field"><div class="fl">Jenis Paking</div><div class="fv">${packaging}</div></div>
               <div class="field"><div class="fl">Total Ongkir</div><div class="fv red">${ongkir}</div></div>
-              ${(pkg?.additionalFee ?? 0) > 0 ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${Number(pkg.additionalFee).toLocaleString("id-ID")}${pkg.additionalFeeReason ? ` (${pkg.additionalFeeReason})` : ""}</div></div>` : ""}
+              ${(pkg?.additionalFee ?? 0) > 0 ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${Number(pkg.additionalFee).toLocaleString("id-ID")}${pkg.additionalFeeReason ? ` (${pkg.additionalFeeReason})` : ""}</div></div>
+              <div class="field full"><div class="fl">Total Tagihan</div><div class="fv red" style="color:#15803d;font-size:13.5pt;">Rp ${(Number(pkg.totalShipping || 0) + Number(pkg.additionalFee || 0)).toLocaleString("id-ID")}</div></div>` : ""}
             </div>
           </div>`;
         win.document.write(labelDocumentHtml(`Label - ${resiNumber}`, labelPageHtml(inner)));

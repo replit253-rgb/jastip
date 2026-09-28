@@ -17,6 +17,9 @@ export const PACKAGE_EXPORT_COLUMNS = [
   "Berat Digunakan (Kg)",
   "Total Berat (Kg)",
   "Total Ongkir",
+  "Biaya Tambahan",
+  "Keterangan Biaya",
+  "Total Tagihan",
   "Status",
 ];
 
@@ -32,6 +35,9 @@ export const CARGO_EXPORT_COLUMNS = [
   "Pakai (M³)",
   "Harga Kubikasi",
   "Ongkir Paket",
+  "Biaya Tambahan",
+  "Keterangan Biaya",
+  "Total Tagihan",
   "Status",
 ];
 
@@ -47,6 +53,9 @@ export const ARSIP_EXPORT_COLUMNS = [
   "Berat Real (Kg)",
   "Berat Digunakan (Kg)",
   "Total Ongkir",
+  "Biaya Tambahan",
+  "Keterangan Biaya",
+  "Total Tagihan",
   "Status Pembayaran",
   "Tanggal Diambil",
 ];
@@ -134,59 +143,83 @@ export function filterPackagesForExport(
 }
 
 export function buildPackageExportRows(packages: any[]): ExportCell[][] {
-  return packages.map((pkg, index) => [
-    index + 1,
-    packageDate(pkg.packageDate || pkg.createdAt),
-    pkg.resiNumber || "-",
-    pkg.packageNumber || "-",
-    pkg.customerName || "-",
-    serviceTypeLabel(pkg.serviceType),
-    pkg.itemName || "-",
-    formatNumber(pkg.realWeight, 2, "-"),
-    formatNumber(pkg.usedWeight, 2, "-"),
-    formatNumber(pkg.totalWeight ?? pkg.usedWeight, 2, "-"),
-    formatRp(pkg.totalShipping),
-    isPackagePickedUp(pkg) ? "Diserahkan" : "Pending",
-  ]);
+  return packages.map((pkg, index) => {
+    const totalOngkir = Number(pkg.totalShipping) || 0;
+    const additionalFee = Number(pkg.additionalFee) || 0;
+    const totalTagihan = totalOngkir + additionalFee;
+    return [
+      index + 1,
+      packageDate(pkg.packageDate || pkg.createdAt),
+      pkg.resiNumber || "-",
+      pkg.packageNumber || "-",
+      pkg.customerName || "-",
+      serviceTypeLabel(pkg.serviceType),
+      pkg.itemName || "-",
+      formatNumber(pkg.realWeight, 2, "-"),
+      formatNumber(pkg.usedWeight, 2, "-"),
+      formatNumber(pkg.totalWeight ?? pkg.usedWeight, 2, "-"),
+      formatRp(totalOngkir),
+      additionalFee > 0 ? formatRp(additionalFee) : "-",
+      pkg.additionalFeeReason || "-",
+      formatRp(totalTagihan),
+      isPackagePickedUp(pkg) ? "Diserahkan" : "Pending",
+    ];
+  });
 }
 
 export const buildSharedPackageExportRows = buildPackageExportRows;
 
 export function buildCargoExportRows(packages: any[]): ExportCell[][] {
-  return packages.map((pkg, index) => [
-    index + 1,
-    pkg.customerName || "-",
-    packageDate(pkg.packageDate || pkg.createdAt),
-    pkg.resiNumber || "-",
-    pkg.packageNumber || "-",
-    pkg.packagingType || "-",
-    pkg.itemName || "-",
-    pkg.length && pkg.width && pkg.height
-      ? `${pkg.length}×${pkg.width}×${pkg.height}`
-      : "-",
-    formatNumber(pkg.usedWeight, 2, "-"),
-    formatRp(pkg.shippingRate),
-    formatRp(pkg.totalShipping),
-    isPackagePickedUp(pkg) ? "Diserahkan" : "Pending",
-  ]);
+  return packages.map((pkg, index) => {
+    const totalOngkir = Number(pkg.totalShipping) || 0;
+    const additionalFee = Number(pkg.additionalFee) || 0;
+    const totalTagihan = totalOngkir + additionalFee;
+    return [
+      index + 1,
+      pkg.customerName || "-",
+      packageDate(pkg.packageDate || pkg.createdAt),
+      pkg.resiNumber || "-",
+      pkg.packageNumber || "-",
+      pkg.packagingType || "-",
+      pkg.itemName || "-",
+      pkg.length && pkg.width && pkg.height
+        ? `${pkg.length}×${pkg.width}×${pkg.height}`
+        : "-",
+      formatNumber(pkg.usedWeight, 2, "-"),
+      formatRp(pkg.shippingRate),
+      formatRp(totalOngkir),
+      additionalFee > 0 ? formatRp(additionalFee) : "-",
+      pkg.additionalFeeReason || "-",
+      formatRp(totalTagihan),
+      isPackagePickedUp(pkg) ? "Diserahkan" : "Pending",
+    ];
+  });
 }
 
 export function buildArsipExportRows(arsipPackages: any[]): ExportCell[][] {
-  return arsipPackages.map((p: any, i: number) => [
-    i + 1,
-    packageDate(p.packageDate || p.createdAt),
-    p.customerName || "-",
-    p.resiNumber || "-",
-    p.packageNumber || "-",
-    serviceTypeLabel(p.serviceType),
-    p.itemName || "-",
-    p.deliveryRoute || "-",
-    formatNumber(p.realWeight, 2, "-"),
-    formatNumber(p.usedWeight, 2, "-"),
-    formatRp(p.totalShipping),
-    p.statusPembayaran || "Lunas",
-    packageDate(p.pickedUpAt),
-  ]);
+  return arsipPackages.map((p: any, i: number) => {
+    const totalOngkir = Number(p.totalShipping) || 0;
+    const additionalFee = Number(p.additionalFee) || 0;
+    const totalTagihan = totalOngkir + additionalFee;
+    return [
+      i + 1,
+      packageDate(p.packageDate || p.createdAt),
+      p.customerName || "-",
+      p.resiNumber || "-",
+      p.packageNumber || "-",
+      serviceTypeLabel(p.serviceType),
+      p.itemName || "-",
+      p.deliveryRoute || "-",
+      formatNumber(p.realWeight, 2, "-"),
+      formatNumber(p.usedWeight, 2, "-"),
+      formatRp(totalOngkir),
+      additionalFee > 0 ? formatRp(additionalFee) : "-",
+      p.additionalFeeReason || "-",
+      formatRp(totalTagihan),
+      p.statusPembayaran || "Lunas",
+      packageDate(p.pickedUpAt),
+    ];
+  });
 }
 
 export function buildPengeluaranExportRows(items: any[], totalNominal?: number): ExportCell[][] {

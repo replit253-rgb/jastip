@@ -209,8 +209,15 @@ function buildGroupedPage(
   const pesawatRoundRow = isPesawat
     ? `<div class="field"><div class="fl">Berat Dibulatkan</div><div class="fv">${pesawatRoundedWeight.toFixed(3)} Kg</div></div>`
     : "";
+  const feeReasons = pkgs
+    .filter((p) => (Number(p.additionalFee) || 0) > 0 && p.additionalFeeReason)
+    .map((p) => p.additionalFeeReason)
+    .filter(Boolean)
+    .join(", ");
   const feeRow = totalAdditionalFee > 0
-    ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${totalAdditionalFee.toLocaleString("id-ID")}</div></div>`
+    ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${totalAdditionalFee.toLocaleString("id-ID")}</div></div>
+       ${feeReasons ? `<div class="field full"><div class="fl">Ket. Biaya Tambahan</div><div class="fv">${feeReasons}</div></div>` : ""}
+       <div class="field full"><div class="fl">Total Tagihan</div><div class="fv red" style="color:#15803d;font-size:13.5pt;">Rp ${(totalShipping + totalAdditionalFee).toLocaleString("id-ID")}</div></div>`
     : "";
 
   const inner = `${qrSectionHtml(qrDataUrl, qrValue)}
@@ -301,7 +308,8 @@ function SingleBarcodeCard({
             <div class="field full"><div class="fl">Jenis Barang</div><div class="fv">${pkg.itemName || "-"}</div></div>
             <div class="field full"><div class="fl">Rute</div><div class="fv">${pkg.deliveryRoute || "-"}</div></div>
             <div class="field"><div class="fl">Ongkir Paket</div><div class="fv red">${pkg.totalShipping != null ? "Rp " + Number(pkg.totalShipping).toLocaleString("id-ID") : "-"}</div></div>
-            ${(pkg.additionalFee ?? 0) > 0 ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${Number(pkg.additionalFee).toLocaleString("id-ID")}${pkg.additionalFeeReason ? ` (${pkg.additionalFeeReason})` : ""}</div></div>` : ""}
+            ${(pkg.additionalFee ?? 0) > 0 ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${Number(pkg.additionalFee).toLocaleString("id-ID")}${pkg.additionalFeeReason ? ` (${pkg.additionalFeeReason})` : ""}</div></div>
+            <div class="field full"><div class="fl">Total Tagihan</div><div class="fv red" style="color:#15803d;font-size:13.5pt;">Rp ${(Number(pkg.totalShipping || 0) + Number(pkg.additionalFee || 0)).toLocaleString("id-ID")}</div></div>` : ""}
             <div class="field full"><div class="fl">Batch Pengiriman</div><div class="fv" style="color:#1d4ed8;">${batchLabel || "-"}</div></div>
           </div>
         </div>`),
@@ -359,12 +367,23 @@ function SingleBarcodeCard({
         <div className="flex justify-center bg-white border rounded-lg p-2 mb-2">
           <canvas ref={canvasRef} />
         </div>
-        <div className="text-xs font-semibold text-primary mb-2">
+        <div className="text-xs font-semibold text-primary mb-1">
           Ongkir:{" "}
           {pkg.totalShipping != null
             ? `Rp ${Number(pkg.totalShipping).toLocaleString("id-ID")}`
             : "-"}
         </div>
+        {Number(pkg.additionalFee) > 0 && (
+          <div className="text-xs font-medium text-amber-700 mb-1">
+            + Biaya Tambahan: {formatRp(pkg.additionalFee)}
+            {pkg.additionalFeeReason ? ` (${pkg.additionalFeeReason})` : ""}
+          </div>
+        )}
+        {Number(pkg.additionalFee) > 0 && (
+          <div className="text-xs font-bold text-green-700 mb-2">
+            Total Tagihan: {formatRp((Number(pkg.totalShipping) || 0) + Number(pkg.additionalFee))}
+          </div>
+        )}
         <div className="flex gap-1.5 mb-1.5">
           <Button
             size="sm"
@@ -510,18 +529,29 @@ function GroupedBarcodeCard({
         <div className="flex justify-center bg-white border rounded-lg p-2 mb-2">
           <canvas ref={canvasRef} />
         </div>
-        <div className="mb-2 space-y-0.5">
-          {pkgs.map((p, i) => (
-            <div
-              key={p.id}
-              className="flex items-center justify-between text-xs text-muted-foreground"
-            >
-              <span className="font-mono truncate max-w-[120px]">
-                #{i + 1} {p.resiNumber || "-"}
-              </span>
-              <span>{p.usedWeight != null ? p.usedWeight + " Kg" : "-"}</span>
-            </div>
-          ))}
+        <div className="mb-2 space-y-1">
+          {pkgs.map((p, i) => {
+            const addFee = Number(p.additionalFee) || 0;
+            return (
+              <div
+                key={p.id}
+                className="text-xs text-muted-foreground border-b border-dashed border-gray-100 pb-0.5 last:border-0"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-mono truncate max-w-[120px]">
+                    #{i + 1} {p.resiNumber || "-"}
+                  </span>
+                  <span>{p.usedWeight != null ? p.usedWeight + " Kg" : "-"}</span>
+                </div>
+                {addFee > 0 && (
+                  <div className="text-[11px] text-amber-700 font-medium">
+                    + Biaya Tambahan: {formatRp(addFee)}
+                    {p.additionalFeeReason ? ` (${p.additionalFeeReason})` : ""}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
         {isPesawatCard && (
           <div className="text-xs text-blue-600 mb-0.5">
@@ -535,9 +565,27 @@ function GroupedBarcodeCard({
             {totalWeight.toFixed(3)} Kg
           </div>
         )}
-        <div className="text-xs font-semibold text-primary mb-2">
+        <div className="text-xs font-semibold text-primary mb-1">
           Total Ongkir: {formatRp(totalShipping)}
         </div>
+        {totalAdditionalFee > 0 && (
+          <div className="text-xs font-medium text-amber-700 mb-1">
+            + Biaya Tambahan: {formatRp(totalAdditionalFee)}
+            {(() => {
+              const reasons = pkgs
+                .filter((p) => (Number(p.additionalFee) || 0) > 0 && p.additionalFeeReason)
+                .map((p) => p.additionalFeeReason)
+                .filter(Boolean)
+                .join(", ");
+              return reasons ? ` (${reasons})` : "";
+            })()}
+          </div>
+        )}
+        {totalAdditionalFee > 0 && (
+          <div className="text-xs font-bold text-green-700 mb-2">
+            Total Tagihan: {formatRp(totalShipping + totalAdditionalFee)}
+          </div>
+        )}
         <div className="flex gap-1.5 mb-1.5">
           <Button
             size="sm"
@@ -976,6 +1024,8 @@ export default function BarcodeBatchDetail({
               <div class="field full"><div class="fl">Jenis Barang</div><div class="fv">${pkg.itemName || "-"}</div></div>
               <div class="field full"><div class="fl">Rute</div><div class="fv">${pkg.deliveryRoute || "-"}</div></div>
               <div class="field"><div class="fl">Ongkir Paket</div><div class="fv red">${pkg.totalShipping != null ? "Rp " + Number(pkg.totalShipping).toLocaleString("id-ID") : "-"}</div></div>
+              ${Number(pkg.additionalFee || 0) > 0 ? `<div class="field"><div class="fl">Biaya Tambahan</div><div class="fv" style="color:#b45309;">Rp ${Number(pkg.additionalFee).toLocaleString("id-ID")}${pkg.additionalFeeReason ? ` (${pkg.additionalFeeReason})` : ""}</div></div>
+              <div class="field full"><div class="fl">Total Tagihan</div><div class="fv red" style="color:#15803d;font-size:13.5pt;">Rp ${(Number(pkg.totalShipping || 0) + Number(pkg.additionalFee || 0)).toLocaleString("id-ID")}</div></div>` : ""}
               <div class="field full"><div class="fl">Batch Pengiriman</div><div class="fv" style="color:#1d4ed8;">${batchLabel}</div></div>
             </div>
           </div>`),

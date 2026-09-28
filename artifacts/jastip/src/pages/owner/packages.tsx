@@ -161,6 +161,10 @@ export default function OwnerPackages() {
     const rows = buildCargoExportRows(filtered).map((row) =>
       row.map((cell) => (cell == null ? "" : String(cell))),
     );
+    const totalOngkir = filtered.reduce((s: number, p: any) => s + (Number(p.totalShipping) || 0), 0);
+    const totalAdditionalFee = filtered.reduce((s: number, p: any) => s + (Number(p.additionalFee) || 0), 0);
+    const grandTotal = totalOngkir + totalAdditionalFee;
+
     autoTable(doc, {
       startY: 34, head, body: rows,
       didDrawPage: () => drawExportFooter(doc, user?.name || "Pengguna aktif"),
@@ -169,13 +173,29 @@ export default function OwnerPackages() {
       alternateRowStyles: { fillColor: [255,247,237] },
       rowPageBreak: "avoid",
       showHead: "everyPage",
-      columnStyles: { 0:{cellWidth:8,halign:"center"},1:{cellWidth:26},2:{cellWidth:16},3:{cellWidth:24},4:{cellWidth:12,halign:"center"},5:{cellWidth:12},6:{cellWidth:68, overflow:"linebreak"},7:{cellWidth:18,halign:"center"},8:{cellWidth:16,halign:"right"},9:{cellWidth:24,halign:"right"},10:{cellWidth:25,halign:"right"},11:{cellWidth:18,halign:"center"} },
+      columnStyles: {
+        0: { cellWidth: 8, halign: "center" },
+        1: { cellWidth: 26 },
+        2: { cellWidth: 16 },
+        3: { cellWidth: 24 },
+        4: { cellWidth: 12, halign: "center" },
+        5: { cellWidth: 12 },
+        6: { cellWidth: 32, overflow: "linebreak" },
+        7: { cellWidth: 18, halign: "center" },
+        8: { cellWidth: 16, halign: "right" },
+        9: { cellWidth: 22, halign: "right" },
+        10: { cellWidth: 24, halign: "right" },
+        11: { cellWidth: 22, halign: "right" },
+        12: { cellWidth: 24, overflow: "linebreak" },
+        13: { cellWidth: 24, halign: "right" },
+        14: { cellWidth: 17, halign: "center" },
+      },
       margin: { left: margin, right: margin },
     });
-    const totalOngkir = filtered.reduce((s: number, p: any) => s + (Number(p.totalShipping) || 0), 0);
     const finalY = (doc as any).lastAutoTable.finalY + 5;
     doc.setFontSize(8); doc.setFont("helvetica", "bold");
-    doc.text(`Total Ongkir Keseluruhan: Rp ${totalOngkir.toLocaleString("id-ID")}`, pageW - margin, finalY, { align: "right" });
+    const summaryText = `Total Ongkir: Rp ${totalOngkir.toLocaleString("id-ID")}${totalAdditionalFee > 0 ? ` · Biaya Tambahan: Rp ${totalAdditionalFee.toLocaleString("id-ID")} · Total Tagihan: Rp ${grandTotal.toLocaleString("id-ID")}` : ""}`;
+    doc.text(summaryText, pageW - margin, finalY, { align: "right" });
     applyExportFooters(doc, user?.name || "Pengguna aktif");
     const safeBatch = selectedPdfBatch ? `-${selectedPdfBatch.namaKapal.replace(/\s+/g, "-").toLowerCase()}` : "";
     doc.save(`laporan-kargo${safeBatch}.pdf`);
@@ -206,25 +226,67 @@ export default function OwnerPackages() {
       doc.text(lbl, 45, y); doc.text(val, 95, y); y += 4.2;
     }
     y += 3;
-    const tableHead = [["TANGGAL","NO RESI","SCAN PAKET","STATUS NO\nSCAN PAKET","NO\nPAKET","NAMA\nKONSUMEN","BERAT\nREAL","P","L","T","BERAT\nVOLUME","JENIS\nPAKING","BERAT YANG\nDI GUNAKAN","ONGKIR PER\nPAKET","TOTAL\nBERAT","HARGA","TOTAL ONGKIR\nJASTIP"]];
-    const colStyles: Record<number, object> = { 0:{cellWidth:15},1:{cellWidth:25},2:{cellWidth:25},3:{cellWidth:13,halign:"center"},4:{cellWidth:12,halign:"center"},5:{cellWidth:18},6:{cellWidth:9,halign:"right"},7:{cellWidth:7,halign:"right"},8:{cellWidth:7,halign:"right"},9:{cellWidth:7,halign:"right"},10:{cellWidth:10,halign:"right"},11:{cellWidth:13,halign:"center"},12:{cellWidth:14,halign:"right"},13:{cellWidth:18,halign:"right"},14:{cellWidth:13,halign:"right"},15:{cellWidth:16,halign:"right"},16:{cellWidth:20,halign:"right"} };
+    const tableHead = [[
+      "TANGGAL", "NO RESI", "SCAN PAKET",
+      "STATUS NO\nSCAN PAKET",
+      "NO\nPAKET",
+      "NAMA\nKONSUMEN",
+      "BERAT\nREAL", "P", "L", "T",
+      "BERAT\nVOLUME",
+      "JENIS\nPAKING",
+      "BERAT YANG\nDI GUNAKAN",
+      "ONGKIR PER\nPAKET",
+      "TOTAL\nBERAT",
+      "HARGA",
+      "TOTAL ONGKIR\nJASTIP",
+      "BIAYA\nTAMBAHAN",
+      "KET. BIAYA\nTAMBAHAN",
+      "TOTAL\nTAGIHAN",
+    ]];
+    const colStyles: Record<number, object> = {
+      0:  { cellWidth: 14 },
+      1:  { cellWidth: 20 },
+      2:  { cellWidth: 20 },
+      3:  { cellWidth: 12, halign: "center" },
+      4:  { cellWidth: 10, halign: "center" },
+      5:  { cellWidth: 16 },
+      6:  { cellWidth: 8,  halign: "right" },
+      7:  { cellWidth: 6,  halign: "right" },
+      8:  { cellWidth: 6,  halign: "right" },
+      9:  { cellWidth: 6,  halign: "right" },
+      10: { cellWidth: 9,  halign: "right" },
+      11: { cellWidth: 12, halign: "center" },
+      12: { cellWidth: 12, halign: "right" },
+      13: { cellWidth: 16, halign: "right" },
+      14: { cellWidth: 12, halign: "right" },
+      15: { cellWidth: 14, halign: "right" },
+      16: { cellWidth: 17, halign: "right" },
+      17: { cellWidth: 16, halign: "right" },
+      18: { cellWidth: 24, overflow: "linebreak" },
+      19: { cellWidth: 19, halign: "right" },
+    };
     for (const [customerName, pkgs] of groups) {
       const isPelni = pkgs.some((p: any) => (p.serviceType || "").toLowerCase() === "jastip pelni") || pdfJenis === "jastip pelni";
       const totalBeratGrup = pkgs.reduce((s: number, p: any) => s + (Number(p.usedWeight) || 0), 0);
       let rawTotalOngkirGrup = pkgs.reduce((s: number, p: any) => s + (Number(p.totalShipping) || 0), 0);
       const totalOngkirGrup = (isPelni && rawTotalOngkirGrup > 0 && rawTotalOngkirGrup < 20000) ? 20000 : rawTotalOngkirGrup;
+      const totalAddFeeGrup = pkgs.reduce((s: number, p: any) => s + (Number(p.additionalFee) || 0), 0);
+      const grandTotalGrup = totalOngkirGrup + totalAddFeeGrup;
       const hargaPerKg = pkgs.find((p: any) => p.shippingRate != null)?.shippingRate ?? (isPelni ? 20000 : null);
       if (210 - y < 22) { doc.addPage(); y = 10; }
       doc.setFontSize(8.5); doc.setFont("helvetica", "bold");
       doc.text(`NAMA KONSUMEN       ${customerName}`, margin, y + 3);
       doc.setFontSize(7.5); doc.setFont("helvetica", "normal");
-      doc.text(`  Jumlah Paket:     ${pkgs.length}.0`, margin, y + 7.5);
+      const summaryLine = `Jumlah Paket: ${pkgs.length} pkt · Total Ongkir: ${formatExportRp(totalOngkirGrup)}${totalAddFeeGrup > 0 ? ` · Biaya Tambahan: ${formatExportRp(totalAddFeeGrup)} · Total Tagihan: ${formatExportRp(grandTotalGrup)}` : ""}`;
+      doc.text(`  ${summaryLine}`, margin, y + 7.5);
       y += 12;
       const rows = pkgs.map((p: any, i: number) => {
         let ongkirPaket = Number(p.totalShipping) || 0;
         if (isPelni && rawTotalOngkirGrup > 0 && rawTotalOngkirGrup < 20000) {
           ongkirPaket = pkgs.length === 1 ? 20000 : Math.round((Number(p.usedWeight || 0) / (totalBeratGrup || 1)) * 20000);
         }
+        const addFee = Number(p.additionalFee) || 0;
+        const totalTagihanPaket = ongkirPaket + addFee;
         return [
           formatDate(p.packageDate || p.createdAt), p.resiNumber || "-", p.barcode || p.resiNumber || "-",
           p.statusVerifikasi === "SUDAH_DIVERIFIKASI" ? "SUDAH\nSCAN" : "BELUM\nSCAN",
@@ -236,13 +298,16 @@ export default function OwnerPackages() {
           i === 0 ? totalBeratGrup.toFixed(1) : "",
           i === 0 && hargaPerKg != null ? `Rp ${Number(hargaPerKg).toLocaleString("id-ID")}` : (i === 0 ? "-" : ""),
           i === 0 ? `Rp ${totalOngkirGrup.toLocaleString("id-ID")}` : "",
+          addFee > 0 ? formatExportRp(addFee) : "-",
+          p.additionalFeeReason || "-",
+          formatExportRp(totalTagihanPaket),
         ];
       });
       autoTable(doc, {
         startY: y, head: tableHead, body: rows,
         didDrawPage: () => drawExportFooter(doc, user?.name || "Pengguna aktif"),
-        styles: { fontSize: 5.8, cellPadding: 1.1, overflow: "linebreak", lineColor: [200,200,200], lineWidth: 0.1 },
-        headStyles: { fillColor: [185,28,28], textColor: 255, fontStyle: "bold", fontSize: 5.8, halign: "center", valign: "middle" },
+        styles: { fontSize: 5.6, cellPadding: 1.0, overflow: "linebreak", lineColor: [200,200,200], lineWidth: 0.1 },
+        headStyles: { fillColor: [185,28,28], textColor: 255, fontStyle: "bold", fontSize: 5.6, halign: "center", valign: "middle" },
         alternateRowStyles: { fillColor: [253,248,248] },
         columnStyles: colStyles, margin: { left: margin, right: margin },
         tableLineColor: [200,200,200], tableLineWidth: 0.1,
@@ -261,6 +326,10 @@ export default function OwnerPackages() {
     const filtered = getFilteredPackages();
     if (filtered.length === 0) { toast({ variant: "destructive", title: "Tidak ada data", description: "Tidak ada paket yang cocok dengan filter." }); return; }
     const batchLabel = selectedPdfBatch ? `${selectedPdfBatch.namaKapal} (${selectedPdfBatch.kotaAsal} → ${selectedPdfBatch.tujuan})` : "-";
+    const totalOngkir = filtered.reduce((s: number, p: any) => s + (Number(p.totalShipping) || 0), 0);
+    const totalAdditionalFee = filtered.reduce((s: number, p: any) => s + (Number(p.additionalFee) || 0), 0);
+    const grandTotal = totalOngkir + totalAdditionalFee;
+
     saveTabularPdf({
       filename: [
         "laporan-paket",
@@ -277,19 +346,32 @@ export default function OwnerPackages() {
       },
       columns: PACKAGE_EXPORT_COLUMNS,
       rows: buildSharedPackageExportRows(filtered),
+      summaryRows: [[
+        "Total", "", "", "", "", "", "", "", "", "",
+        formatExportRp(totalOngkir),
+        formatExportRp(totalAdditionalFee),
+        "",
+        formatExportRp(grandTotal),
+        "",
+      ]],
       landscape: true,
       exportedBy: user?.name || "Pengguna aktif",
       columnStyles: {
         0: { halign: "center", cellWidth: 8 },
-        1: { cellWidth: 18 },
-        2: { cellWidth: 22 },
-        3: { cellWidth: 18 },
-        6: { cellWidth: 46, overflow: "linebreak" },
-        7: { halign: "right", cellWidth: 16 },
-        8: { halign: "right", cellWidth: 18 },
-        9: { halign: "right", cellWidth: 16 },
-        10: { halign: "right", cellWidth: 24 },
-        11: { halign: "center", cellWidth: 18 },
+        1: { cellWidth: 16 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 14 },
+        4: { cellWidth: 24 },
+        5: { cellWidth: 18 },
+        6: { cellWidth: 26, overflow: "linebreak" },
+        7: { halign: "right", cellWidth: 14 },
+        8: { halign: "right", cellWidth: 14 },
+        9: { halign: "right", cellWidth: 14 },
+        10: { halign: "right", cellWidth: 22 },
+        11: { halign: "right", cellWidth: 20 },
+        12: { cellWidth: 26, overflow: "linebreak" },
+        13: { halign: "right", cellWidth: 24 },
+        14: { halign: "center", cellWidth: 17 },
       },
     });
     setPdfOpen(false);
@@ -309,8 +391,9 @@ export default function OwnerPackages() {
     const batchInfo = selectedXlsxBatch
       ? `${selectedXlsxBatch.namaKapal} (${selectedXlsxBatch.kotaAsal} → ${selectedXlsxBatch.tujuan})`
       : "Semua Batch";
-
-    const exportRows = buildSharedPackageExportRows(data);
+    const isXlsxCargo = (selectedPdfBatch?.namaKapal || "").toLowerCase().includes("kargo") || false;
+    const columns = isXlsxCargo ? CARGO_EXPORT_COLUMNS : PACKAGE_EXPORT_COLUMNS;
+    const exportRows = isXlsxCargo ? buildCargoExportRows(data) : buildSharedPackageExportRows(data);
     const ws = createExportSheet({
       title: "Monitor Paket — Jastip Anggun Jaya",
       filters: {
@@ -321,13 +404,19 @@ export default function OwnerPackages() {
         Kasir: "Semua",
         "Diekspor Oleh": user?.name || "Pengguna aktif",
       },
-      columns: PACKAGE_EXPORT_COLUMNS,
+      columns,
       rows: exportRows,
-      columnWidths: [
-        { wch: 5 }, { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 24 },
-        { wch: 18 }, { wch: 32 }, { wch: 16 }, { wch: 20 }, { wch: 17 },
-        { wch: 20 }, { wch: 16 },
-      ],
+      columnWidths: isXlsxCargo
+        ? [
+            { wch: 5 }, { wch: 24 }, { wch: 14 }, { wch: 22 }, { wch: 12 },
+            { wch: 12 }, { wch: 28 }, { wch: 18 }, { wch: 14 }, { wch: 18 },
+            { wch: 20 }, { wch: 18 }, { wch: 26 }, { wch: 20 }, { wch: 16 },
+          ]
+        : [
+            { wch: 5 }, { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 24 },
+            { wch: 18 }, { wch: 28 }, { wch: 16 }, { wch: 18 }, { wch: 16 },
+            { wch: 20 }, { wch: 18 }, { wch: 26 }, { wch: 20 }, { wch: 16 },
+          ],
     });
 
     const wb = XLSX.utils.book_new();
