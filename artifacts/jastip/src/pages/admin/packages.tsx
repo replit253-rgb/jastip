@@ -119,6 +119,7 @@ export default function AdminPackages() {
       setIsRecalculating(false);
     }
   }
+  const [pdfOpen, setPdfOpen] = useState(false);
   const [pdfBatchId, setPdfBatchId] = useState<string>("");
   const [pdfJenis, setPdfJenis] = useState<string>("all");
   const [pdfNamaKapal, setPdfNamaKapal] = useState("");
