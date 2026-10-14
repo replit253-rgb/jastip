@@ -7,7 +7,7 @@ import { Pagination } from "@/components/pagination";
 import { Label } from "@/components/ui/label";
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Search, Download, ScanLine, CheckCircle2, XCircle, AlertCircle, Hash, Trash2, AlertTriangle, FileDown, X, Printer } from "lucide-react";
+import { Search, Download, ScanLine, CheckCircle2, XCircle, AlertCircle, Hash, Trash2, AlertTriangle, FileDown, X, Filter, Printer } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -67,6 +67,9 @@ function fNum(n: any, decimals = 1) {
 export default function OwnerPackages() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("all");
+  const [filterJenis, setFilterJenis] = useState<string>("all");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
   const [page, setPage] = useState(1);
   const [, setLocation] = useLocation();
   const { user } = useAuth();
@@ -104,12 +107,36 @@ export default function OwnerPackages() {
   );
   const selectedPdfBatch = sortedBatches.find((b: any) => String(b.id) === pdfBatchId);
 
-  const total = packages?.length || 0;
+  function applyTableFilters(data: any[]): any[] {
+    let filtered = [...data];
+    if (filterJenis !== "all") {
+      filtered = filtered.filter((p) =>
+        (p.serviceType || "").toLowerCase() === filterJenis.toLowerCase()
+      );
+    }
+    if (filterDateFrom) {
+      const from = new Date(filterDateFrom);
+      from.setHours(0, 0, 0, 0);
+      filtered = filtered.filter((p) => new Date(p.packageDate || p.createdAt) >= from);
+    }
+    if (filterDateTo) {
+      const to = new Date(filterDateTo);
+      to.setHours(23, 59, 59, 999);
+      filtered = filtered.filter((p) => new Date(p.packageDate || p.createdAt) <= to);
+    }
+    return filtered;
+  }
+
+  const displayed = applyTableFilters(packages || []);
+  const total = displayed.length;
   const totalPages = Math.ceil(total / PAGE_SIZE);
-  const paginated = packages?.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const paginated = displayed.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const hasTableFilter = filterJenis !== "all" || filterDateFrom || filterDateTo;
 
   function handleSearch(v: string) { setSearch(v); setPage(1); }
   function handleStatus(v: string) { setStatus(v); setPage(1); }
+  function handleFilterJenis(v: string) { setFilterJenis(v); setPage(1); }
+  function resetTableFilters() { setFilterJenis("all"); setFilterDateFrom(""); setFilterDateTo(""); setPage(1); }
 
   function handlePdfOpenChange(open: boolean) {
     setPdfOpen(open);
@@ -527,10 +554,6 @@ export default function OwnerPackages() {
     setPdfOpen(false);
   }
 
-  const showGroupedFields = isGroupedExport();
-  const showNamaKapal = pdfJenis.toLowerCase() === "jastip pelni";
-  const canExport = !!pdfBatchId && !!packages && packages.length > 0;
-
   function exportExcel() {
     if (!packages || packages.length === 0) return;
     const data = getPackagesForExport(xlsxBatchId === XLSX_ALL ? "" : xlsxBatchId);
@@ -803,22 +826,75 @@ export default function OwnerPackages() {
       </Card>
 
       <Card>
-        <div className="p-4 border-b flex flex-col md:flex-row gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Cari resi, no paket, customer..." className="pl-9" value={search} onChange={(e) => handleSearch(e.target.value)} />
+        <div className="p-4 border-b space-y-3">
+          <div className="flex flex-col md:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Input placeholder="Cari resi, no paket, customer..." className="pl-9" value={search} onChange={(e) => handleSearch(e.target.value)} />
+            </div>
           </div>
-          <Select value={status} onValueChange={handleStatus}>
-            <SelectTrigger className="w-full md:w-[180px]">
-              <SelectValue placeholder="Filter Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Semua Status</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="diserahkan">Diserahkan</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex flex-wrap gap-3 items-end">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium shrink-0">
+              <Filter className="w-3.5 h-3.5" /> Filter:
+            </div>
+            <Select value={status} onValueChange={handleStatus}>
+              <SelectTrigger className="w-full sm:w-[150px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua Status</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="diserahkan">Diserahkan</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={filterJenis} onValueChange={handleFilterJenis}>
+              <SelectTrigger className="w-full sm:w-[170px]">
+                <SelectValue placeholder="Jenis Jastip" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua Jenis</SelectItem>
+                {JENIS_JASTIP.map((j) => (
+                  <SelectItem key={j} value={j}>{j}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-1.5 w-full sm:w-auto">
+              <span className="text-xs text-muted-foreground shrink-0">Tanggal:</span>
+              <div className="flex items-center gap-1.5 w-full sm:w-auto">
+                <Input
+                  type="date"
+                  className="w-full sm:w-[145px] text-sm"
+                  value={filterDateFrom}
+                  onChange={(e) => { setFilterDateFrom(e.target.value); setPage(1); }}
+                />
+                <span className="text-xs text-muted-foreground shrink-0">–</span>
+                <Input
+                  type="date"
+                  className="w-full sm:w-[145px] text-sm"
+                  value={filterDateTo}
+                  onChange={(e) => { setFilterDateTo(e.target.value); setPage(1); }}
+                />
+              </div>
+            </div>
+            {hasTableFilter && (
+              <button
+                className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground flex items-center gap-1"
+                onClick={resetTableFilters}
+              >
+                <X className="w-3 h-3" /> Reset filter
+              </button>
+            )}
+          </div>
+          {hasTableFilter && (
+            <p className="text-xs text-muted-foreground">
+              Menampilkan <span className="font-semibold text-foreground">{total}</span> paket
+              {filterJenis !== "all" && <> · Jenis: <span className="font-medium text-foreground">{filterJenis}</span></>}
+              {filterDateFrom && <> · Dari: <span className="font-medium text-foreground">{new Date(filterDateFrom).toLocaleDateString("id-ID")}</span></>}
+              {filterDateTo && <> · s/d: <span className="font-medium text-foreground">{new Date(filterDateTo).toLocaleDateString("id-ID")}</span></>}
+            </p>
+          )}
         </div>
+        
         {/* Mobile card view */}
         <CardContent className="p-0 md:hidden">
           {isLoading ? (
@@ -917,25 +993,19 @@ export default function OwnerPackages() {
                     <td className="py-3 px-3 whitespace-nowrap text-right">{(pkg as any).width ?? "-"}</td>
                     <td className="py-3 px-3 whitespace-nowrap text-right">{(pkg as any).height ?? "-"}</td>
                     <td className="py-3 px-3 whitespace-nowrap text-right">{(pkg as any).volumeWeight ?? "-"}</td>
-                    <td className="py-3 px-3 whitespace-nowrap">{packagingLabel((pkg as any).packagingType)}</td>
+                    <td className="py-3 px-3 whitespace-nowrap text-xs">{packagingLabel((pkg as any).packagingType)}</td>
                     <td className="py-3 px-3 whitespace-nowrap text-right font-medium">{(pkg as any).usedWeight ?? "-"}</td>
                     <td className="py-3 px-3 whitespace-nowrap text-right">{(pkg as any).shippingRate ? formatRp((pkg as any).shippingRate) : "-"}</td>
                     <td className="py-3 px-3 whitespace-nowrap text-right">{(pkg as any).totalWeight ?? "-"}</td>
                     <td className="py-3 px-3 whitespace-nowrap text-right font-semibold text-primary">{(pkg as any).totalShipping ? formatRp((pkg as any).totalShipping) : "-"}</td>
                     <td className="py-3 px-3 whitespace-nowrap"><StatusBadge status={pkg.status} /></td>
                     <td className="py-3 px-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-1.5">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setLocation(`/owner/packages/${pkg.id}`)}
-                        >
-                          Detail
-                        </Button>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => setLocation(`/owner/packages/${pkg.id}`)}>Detail</Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button size="sm" variant="outline" className="gap-1.5 border-red-300 text-red-600 hover:bg-red-50" disabled={deletingId === pkg.id}>
-                              <Trash2 className="w-3.5 h-3.5" /> {deletingId === pkg.id ? "..." : "Hapus"}
+                            <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50" disabled={deletingId === pkg.id}>
+                              <Trash2 className="w-4 h-4" />
                             </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
@@ -966,8 +1036,44 @@ export default function OwnerPackages() {
           </table>
         </CardContent>
         <Pagination page={page} totalPages={totalPages} total={total} pageSize={PAGE_SIZE} onPageChange={setPage} />
-      </Card>
-
+       </Card>
+      
+      {/* PDF Export Dialog */}
+      <Dialog open={pdfOpen} onOpenChange={handlePdfOpenChange}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileDown className="w-5 h-5 text-primary" />
+              Export PDF
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Batch Pengiriman</Label>
+              <Select value={pdfBatchId} onValueChange={setPdfBatchId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Pilih batch" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortedBatches.map((b: any) => (
+                    <SelectItem key={b.id} value={String(b.id)}>
+                      {b.namaKapal} · {b.kotaAsal} → {b.tujuan}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter className="gap-2 shrink-0">
+            <Button variant="outline" onClick={() => setPdfOpen(false)}>Batal</Button>
+            <Button onClick={exportPdf} disabled={!canExport}>
+              <FileDown className="w-4 h-4 mr-2" />
+              Download PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
       {/* Excel Export Dialog */}
       <Dialog open={xlsxOpen} onOpenChange={handleXlsxOpenChange}>
         <DialogContent className="sm:max-w-md">
@@ -981,163 +1087,27 @@ export default function OwnerPackages() {
             <div className="space-y-1.5">
               <Label>Batch Pengiriman</Label>
               <Select value={xlsxBatchId} onValueChange={setXlsxBatchId}>
-                <SelectTrigger className="w-full overflow-hidden">
-                  <span className="truncate block text-left">
-                    {xlsxBatchId !== XLSX_ALL
-                      ? (() => { const b = sortedBatches.find((b: any) => String(b.id) === xlsxBatchId); return b ? `${b.namaKapal} · ${b.kotaAsal} → ${b.tujuan}` : "Pilih batch"; })()
-                      : "Semua batch (tidak difilter)"}
-                  </span>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Pilih batch" />
                 </SelectTrigger>
-                <SelectContent className="max-h-[260px] overflow-y-auto max-w-[420px]">
+                <SelectContent>
                   <SelectItem value={XLSX_ALL}>Semua batch</SelectItem>
                   {sortedBatches.map((b: any) => (
                     <SelectItem key={b.id} value={String(b.id)}>
-                      <div className="flex flex-col w-full">
-                        <span className="font-medium text-sm truncate max-w-[360px]">{b.namaKapal}</span>
-                        <span className="text-xs text-muted-foreground truncate max-w-[360px]">
-                          {b.kotaAsal} → {b.tujuan}
-                          {b.statusBatch === "OPEN" ? " · Aktif" : b.statusBatch === "CLOSED" ? " · Ditutup" : " · Arsip"}
-                        </span>
-                      </div>
+                      {b.namaKapal} · {b.kotaAsal} → {b.tujuan}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">Kosongkan untuk ekspor semua paket tanpa filter batch.</p>
             </div>
-
-            {/* Preview counts */}
-            {packages && (
-              <div className="rounded-md bg-muted/40 border px-4 py-3 space-y-1.5 text-sm">
-                {(() => {
-                  const preview = xlsxBatchId !== XLSX_ALL
-                    ? packages.filter((p: any) => String(p.batchId) === xlsxBatchId)
-                    : packages;
-                  return (
-                    <>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Total paket</span>
-                        <span className="font-semibold">{preview.length}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Sudah generate barcode</span>
-                        <span className="font-semibold">{preview.filter((p: any) => !!(p as any).barcode).length}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Sudah diverifikasi</span>
-                        <span className="font-semibold">{preview.filter((p: any) => (p as any).statusVerifikasi === "SUDAH_DIVERIFIKASI").length}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Sudah diambil</span>
-                        <span className="font-semibold text-green-600">{preview.filter((p: any) => p.status === "diserahkan").length}</span>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-            )}
           </div>
-          <DialogFooter className="gap-2">
+          <DialogFooter>
             <Button variant="outline" onClick={() => setXlsxOpen(false)}>Batal</Button>
-            <Button onClick={exportExcel} disabled={!packages || packages.length === 0}>
-              <Download className="w-4 h-4 mr-2" />
-              Download Excel
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* PDF Export Dialog */}
-      <Dialog open={pdfOpen} onOpenChange={handlePdfOpenChange}>
-        <DialogContent className="sm:max-w-md flex flex-col max-h-[90vh]">
-          <DialogHeader className="shrink-0">
-            <DialogTitle className="flex items-center gap-2">
-              <FileDown className="w-5 h-5 text-primary" />
-              Export Laporan PDF
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2 overflow-y-auto flex-1 pr-1">
-            <div className="space-y-1.5">
-              <Label>Batch Pengiriman</Label>
-              <Select value={pdfBatchId} onValueChange={(v) => { setPdfBatchId(v); setPdfJenis("all"); }}>
-                <SelectTrigger className="w-full overflow-hidden">
-                  <span className="truncate block text-left">
-                    {pdfBatchId
-                      ? (() => { const b = sortedBatches.find((b: any) => String(b.id) === pdfBatchId); return b ? `${b.namaKapal} · ${b.kotaAsal} → ${b.tujuan}` : "Pilih batch pengiriman"; })()
-                      : "Pilih batch pengiriman"}
-                  </span>
-                </SelectTrigger>
-                <SelectContent className="max-h-[260px] overflow-y-auto max-w-[420px]">
-                  {sortedBatches.length === 0 && (
-                    <div className="px-3 py-2 text-xs text-muted-foreground">Belum ada batch pengiriman.</div>
-                  )}
-                  {sortedBatches.map((b: any) => (
-                    <SelectItem key={b.id} value={String(b.id)}>
-                      <div className="flex flex-col w-full">
-                        <span className="font-medium text-sm truncate max-w-[360px]">{b.namaKapal}</span>
-                        <span className="text-xs text-muted-foreground truncate max-w-[360px]">
-                          {b.kotaAsal} → {b.tujuan}
-                          {b.statusBatch === "OPEN" ? " · Aktif" : b.statusBatch === "CLOSED" ? " · Ditutup" : " · Arsip"}
-                        </span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">Pilih batch pengiriman terlebih dahulu untuk melanjutkan.</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Jenis Jastip</Label>
-              <Select value={pdfJenis} onValueChange={setPdfJenis} disabled={!pdfBatchId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Pilih jenis jastip" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Semua Jenis</SelectItem>
-                  {JENIS_JASTIP.map((j) => (
-                    <SelectItem key={j} value={j}>{j}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {showGroupedFields && showNamaKapal && (
-              <div className="space-y-1.5">
-                <Label>Nama Kapal <span className="text-muted-foreground font-normal text-xs">(Opsional)</span></Label>
-                <input
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  placeholder="Contoh: KM DEMPO"
-                  value={pdfNamaKapal}
-                  onChange={(e) => setPdfNamaKapal(e.target.value)}
-                />
-              </div>
-            )}
-
-            {(pdfBatchId || pdfJenis !== "all" || pdfNamaKapal) && (
-              <button
-                className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground flex items-center gap-1"
-                onClick={() => { setPdfBatchId(""); setPdfJenis("all"); setPdfNamaKapal(""); }}
-              >
-                <X className="w-3 h-3" /> Reset filter
-              </button>
-            )}
-          </div>
-          <DialogFooter className="gap-2 shrink-0">
-            <Button variant="outline" onClick={() => setPdfOpen(false)}>Batal</Button>
-            {isKargoExport() && (
-              <Button variant="secondary" onClick={printCargoHtml} disabled={!canExport}>
-                <Printer className="w-4 h-4 mr-2" />
-                Cetak Dokumen
-              </Button>
-            )}
-            <Button onClick={exportPdf} disabled={!canExport}>
-              <FileDown className="w-4 h-4 mr-2" />
-              Download PDF
-            </Button>
+            <Button onClick={exportExcel}>Download Excel</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
   );
 }
+
