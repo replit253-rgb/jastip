@@ -152,6 +152,8 @@ export default function OwnerPackages() {
     ? sortedBatches.find((b: any) => String(b.id) === xlsxBatchId)
     : undefined;
 
+  const canExport = !!pdfBatchId && !!packages && packages.length > 0;
+
   function getPackagesForExport(batchId = "", serviceType = "all") {
     return filterPackagesForExport(packages || [], { batchId, serviceType });
   }
