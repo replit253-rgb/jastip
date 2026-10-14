@@ -256,20 +256,48 @@ export default function AdminShift() {
                 Shift <strong>{shiftLabel(closingResult.shift.shiftType)}</strong> berhasil ditutup dengan status hasil kas: <strong className="text-green-900 underline">{closingResult.result}</strong>.
               </p>
               
-              <div className="grid gap-3 sm:grid-cols-3 bg-white p-4 rounded-lg border border-green-100 text-sm">
-                <div>
-                  <span className="text-xs text-muted-foreground block">Kas Sistem</span>
-                  <span className="font-semibold text-gray-900">{formatRp(closingResult.closing.systemCash)}</span>
+              <div className="space-y-3 bg-white p-4 rounded-lg border border-green-100 text-sm">
+                <div className="grid gap-3 sm:grid-cols-2 pb-3 border-b">
+                  <div>
+                    <span className="text-xs text-muted-foreground block">Total Omzet Sah</span>
+                    <span className="font-bold text-gray-900">{formatRp(closingResult.summary?.totalOmzet)}</span>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground block">Total Transaksi Sah</span>
+                    <span className="font-semibold text-gray-900">{closingResult.summary?.totalTransactions ?? closingResult.summary?.paymentCount} transaksi</span>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-xs text-muted-foreground block">Kas Fisik Aktual</span>
-                  <span className="font-semibold text-gray-900">{formatRp(closingResult.closing.actualCash)}</span>
+
+                <div className="grid gap-2 sm:grid-cols-3 text-xs pb-3 border-b">
+                  <div>
+                    <span className="text-muted-foreground block">Tunai:</span>
+                    <span className="font-medium">{formatRp(closingResult.summary?.cashOmzet)} ({closingResult.summary?.cashPaymentCount}x)</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block">Transfer:</span>
+                    <span className="font-medium">{formatRp(closingResult.summary?.transferOmzet)} ({closingResult.summary?.transferPaymentCount}x)</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block">QRIS / Lainnya:</span>
+                    <span className="font-medium">{formatRp(closingResult.summary?.qrisOmzet)} ({closingResult.summary?.qrisPaymentCount}x)</span>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-xs text-muted-foreground block">Selisih</span>
-                  <span className={`font-semibold ${closingResult.closing.selisih === 0 ? "text-green-600" : "text-red-600"}`}>
-                    {closingResult.closing.selisih >= 0 ? "+" : ""}{formatRp(closingResult.closing.selisih)}
-                  </span>
+
+                <div className="grid gap-3 sm:grid-cols-3 pt-1">
+                  <div>
+                    <span className="text-xs text-muted-foreground block">Kas Sistem</span>
+                    <span className="font-semibold text-gray-900">{formatRp(closingResult.closing.systemCash)}</span>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground block">Kas Fisik Aktual</span>
+                    <span className="font-semibold text-gray-900">{formatRp(closingResult.closing.actualCash)}</span>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground block">Selisih</span>
+                    <span className={`font-semibold ${closingResult.closing.selisih === 0 ? "text-green-600" : "text-red-600"}`}>
+                      {closingResult.closing.selisih >= 0 ? "+" : ""}{formatRp(closingResult.closing.selisih)}
+                    </span>
+                  </div>
                 </div>
               </div>
 

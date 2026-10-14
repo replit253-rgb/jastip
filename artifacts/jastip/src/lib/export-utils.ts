@@ -177,7 +177,7 @@ export function saveTabularPdf({
     format: "a4",
   });
   const pageWidth = doc.internal.pageSize.getWidth();
-  const margin = 12;
+  const margin = landscape ? 10 : 12;
   const generatedAt = suppliedGeneratedAt || exportTimestamp();
   const normalizedFilters = withExportContext(filters, exportedBy);
 

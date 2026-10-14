@@ -7,7 +7,7 @@ import {
   batchesTable,
   settingsShippingMinimumTable,
 } from "@workspace/db";
-import { eq, and, ne, inArray, ilike, sql, gte, lte, or } from "drizzle-orm";
+import { eq, and, ne, inArray, ilike, sql, gte, lte, or, desc } from "drizzle-orm";
 import { requireAuth, requireRole } from "../middlewares/auth";
 import {
   applyShippingMinimum,
@@ -595,8 +595,11 @@ router.get(
               .select()
               .from(packagesTable)
               .where(and(...conditions))
-              .orderBy(packagesTable.createdAt)
-          : db.select().from(packagesTable).orderBy(packagesTable.createdAt),
+              .orderBy(desc(packagesTable.createdAt), desc(packagesTable.id))
+          : db
+              .select()
+              .from(packagesTable)
+              .orderBy(desc(packagesTable.createdAt), desc(packagesTable.id)),
         db
           .select({ id: usersTable.id, name: usersTable.name })
           .from(usersTable)

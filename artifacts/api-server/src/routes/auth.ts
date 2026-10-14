@@ -28,7 +28,7 @@ router.post("/login", async (req, res) => {
       res.status(401).json({ error: "Nomor HP atau password salah" });
       return;
     }
-    if (!user.isActive) {
+    if (!user.isActive || user.isHidden || user.deletedAt) {
       res.status(401).json({ error: "Akun tidak aktif" });
       return;
     }

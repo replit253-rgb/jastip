@@ -2,6 +2,7 @@ import {
   db,
   pengeluaranTable,
   paymentsTable,
+  transactionsTable,
   shiftSessionsTable,
   type ShiftSession,
 } from "@workspace/db";
@@ -25,10 +26,17 @@ export async function calculateShiftCash(shift: ShiftSession) {
   const start = shift.actualStart ?? shift.createdAt;
   const end = shift.actualEnd ?? new Date();
 
-  const payments = await db
-    .select()
-    .from(paymentsTable)
-    .where(eq(paymentsTable.shiftSessionId, shift.id));
+  const [payments, transactions, pengeluaranList] = await Promise.all([
+    db
+      .select()
+      .from(paymentsTable)
+      .where(eq(paymentsTable.shiftSessionId, shift.id)),
+    db
+      .select()
+      .from(transactionsTable)
+      .where(eq(transactionsTable.shiftSessionId, shift.id)),
+    db.select().from(pengeluaranTable),
+  ]);
 
   const reversalPayments = payments.filter(
     (payment) => payment.paymentType === "VOID_REVERSAL",
@@ -47,21 +55,63 @@ export async function calculateShiftCash(shift: ShiftSession) {
         .where(inArray(paymentsTable.transactionId, reversedTransactionIds))
     : [];
 
+  // Sah / active transactions (not VOID)
+  const sahTransactions = transactions.filter(
+    (t) => t.transactionStatus !== "VOID",
+  );
+  const totalOmzet = sahTransactions.reduce(
+    (sum, t) => sum + toRupiahInteger(t.total),
+    0,
+  );
+  const totalTransactions = sahTransactions.length;
+
   const cashPayments = payments.filter(
     (payment) =>
-      payment.paymentMethod === "tunai" || payment.paymentType === "tunai",
+      (payment.paymentMethod === "tunai" || payment.paymentType === "tunai") &&
+      payment.paymentType !== "VOID_REVERSAL",
   );
   const transferPayments = payments.filter(
     (payment) =>
-      payment.paymentMethod === "transfer" || payment.paymentType === "transfer",
+      (payment.paymentMethod === "transfer" ||
+        payment.paymentType === "transfer") &&
+      payment.paymentType !== "VOID_REVERSAL",
   );
   const qrisPayments = payments.filter(
     (payment) =>
-      payment.paymentMethod === "qris" || payment.paymentType === "qris",
+      (payment.paymentMethod === "qris" || payment.paymentType === "qris") &&
+      payment.paymentType !== "VOID_REVERSAL",
   );
   const receivablePayments = payments.filter(
-    (payment) => payment.paymentType === "piutang",
+    (payment) => payment.paymentType === "PELUNASAN_PIUTANG",
   );
+
+  const cashOmzet = cashPayments.reduce(
+    (sum, p) => sum + toRupiahInteger(p.totalAmount),
+    0,
+  );
+  const transferOmzet = transferPayments.reduce(
+    (sum, p) => sum + toRupiahInteger(p.totalAmount),
+    0,
+  );
+  const qrisOmzet = qrisPayments.reduce(
+    (sum, p) => sum + toRupiahInteger(p.totalAmount),
+    0,
+  );
+  const receivableOmzet = receivablePayments.reduce(
+    (sum, p) => sum + toRupiahInteger(p.totalAmount),
+    0,
+  );
+
+  const totalPaymentsReceived =
+    cashOmzet + transferOmzet + qrisOmzet;
+
+  // New receivables created in this shift
+  const newReceivables = sahTransactions
+    .filter((t) => t.paymentStatus === "BELUM_BAYAR" || t.paymentStatus === "BAYAR_SEBAGIAN")
+    .reduce((sum, t) => {
+      if (t.paymentStatus === "BELUM_BAYAR") return sum + toRupiahInteger(t.total);
+      return sum + toRupiahInteger(t.sisaPiutang);
+    }, 0);
 
   const cashReceived = cashPayments.reduce(
     (sum, payment) =>
@@ -73,18 +123,25 @@ export async function calculateShiftCash(shift: ShiftSession) {
     0,
   );
 
-  const cashExpenses = (
-    await db
-      .select()
-      .from(pengeluaranTable)
-      .where(eq(pengeluaranTable.metodePembayaran, "cash"))
-  )
-    .filter((expense) => isWithinShift(expense.createdAt, start, end))
+  const shiftExpenses = pengeluaranList.filter((expense) =>
+    isWithinShift(expense.createdAt, start, end),
+  );
+  const cashExpenses = shiftExpenses
+    .filter(
+      (expense) =>
+        String(expense.metodePembayaran || "").toLowerCase() === "cash" ||
+        String(expense.metodePembayaran || "").toLowerCase() === "tunai",
+    )
     .reduce((sum, expense) => sum + toRupiahInteger(expense.nominal), 0);
 
-  // A VOID reversal is stored as one negative aggregate payment. Only the
-  // portion backed by original cash payments returned money to the drawer;
-  // transfer reversals never entered physical cash and must not reduce it.
+  const nonCashExpenses = shiftExpenses
+    .filter(
+      (expense) =>
+        String(expense.metodePembayaran || "").toLowerCase() !== "cash" &&
+        String(expense.metodePembayaran || "").toLowerCase() !== "tunai",
+    )
+    .reduce((sum, expense) => sum + toRupiahInteger(expense.nominal), 0);
+
   const refundCash = reversalPayments.reduce((sum, reversal) => {
     const originalCash = originalPayments
       .filter(
@@ -102,6 +159,7 @@ export async function calculateShiftCash(shift: ShiftSession) {
     const reversalAmount = Math.abs(toRupiahInteger(reversal.totalAmount));
     return sum + Math.min(reversalAmount, originalCash);
   }, 0);
+
   const cashDeposits = 0;
   const openingBalance = toRupiahInteger(shift.openingBalance);
   const systemCash =
@@ -114,14 +172,24 @@ export async function calculateShiftCash(shift: ShiftSession) {
 
   return {
     openingBalance,
-    paymentCount: payments.length,
+    paymentCount: payments.filter((p) => p.paymentType !== "VOID_REVERSAL").length,
     cashPaymentCount: cashPayments.length,
     transferPaymentCount: transferPayments.length,
     qrisPaymentCount: qrisPayments.length,
     receivablePaymentCount: receivablePayments.length,
+    totalOmzet,
+    totalTransactions,
+    cashOmzet,
+    transferOmzet,
+    qrisOmzet,
+    receivableOmzet,
+    totalPaymentsReceived,
+    newReceivables,
+    oldReceivablesReceived: receivableOmzet,
     cashReceived,
     changeGiven,
     cashExpenses,
+    nonCashExpenses,
     refundCash,
     cashDeposits,
     systemCash,

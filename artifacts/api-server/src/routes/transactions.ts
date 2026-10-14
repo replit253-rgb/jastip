@@ -4,9 +4,10 @@ import {
   packagesTable,
   paymentsTable,
   transactionsTable,
+  usersTable,
   voidsTable,
 } from "@workspace/db";
-import { and, desc, eq, gte, like, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, like, inArray, or, ilike, lte } from "drizzle-orm";
 import { requireActiveShift } from "../middlewares/shift";
 import { requireAuth, requireRole } from "../middlewares/auth";
 
@@ -94,10 +95,15 @@ router.get(
   requireRole("admin", "owner"),
   async (req, res) => {
     try {
-      const { paymentStatus, transactionStatus } = req.query as Record<
-        string,
-        string
-      >;
+      const {
+        paymentStatus,
+        transactionStatus,
+        q,
+        startDate,
+        endDate,
+        dateFrom,
+        dateTo,
+      } = req.query as Record<string, string>;
       const conditions = [];
       if (paymentStatus && paymentStatus !== "all") {
         conditions.push(eq(transactionsTable.paymentStatus, paymentStatus as any));
@@ -106,6 +112,42 @@ router.get(
         conditions.push(
           eq(transactionsTable.transactionStatus, transactionStatus as any),
         );
+      }
+      const fromDate = startDate || dateFrom;
+      if (fromDate) {
+        conditions.push(gte(transactionsTable.createdAt, new Date(fromDate)));
+      }
+      const toDate = endDate || dateTo;
+      if (toDate) {
+        conditions.push(lte(transactionsTable.createdAt, new Date(toDate + "T23:59:59.999Z")));
+      }
+      if (q && q.trim()) {
+        const pattern = `%${q.trim()}%`;
+        const matchingUsers = await db
+          .select({ id: usersTable.id })
+          .from(usersTable)
+          .where(ilike(usersTable.name, pattern));
+        const userIds = matchingUsers.map((u) => u.id);
+
+        const matchingPayments = await db
+          .select({ transactionId: paymentsTable.transactionId })
+          .from(paymentsTable)
+          .where(ilike(paymentsTable.adminName, pattern));
+        const paymentTrxIds = matchingPayments
+          .map((p) => p.transactionId)
+          .filter((id): id is number => id !== null);
+
+        const orClauses = [
+          ilike(transactionsTable.transactionNo, pattern),
+          ilike(transactionsTable.customerName, pattern),
+        ];
+        if (userIds.length > 0) {
+          orClauses.push(inArray(transactionsTable.cashierId, userIds));
+        }
+        if (paymentTrxIds.length > 0) {
+          orClauses.push(inArray(transactionsTable.id, paymentTrxIds));
+        }
+        conditions.push(or(...orClauses) as any);
       }
 
       const transactions = await db

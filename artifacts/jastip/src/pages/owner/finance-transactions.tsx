@@ -1,5 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { Ban, Banknote, CircleDollarSign, Clock3, CreditCard, ReceiptText, Printer, Download, RefreshCw } from "lucide-react";
+import {
+  Ban,
+  Banknote,
+  Check,
+  ChevronsUpDown,
+  CircleDollarSign,
+  Clock3,
+  CreditCard,
+  Download,
+  Printer,
+  ReceiptText,
+  RefreshCw,
+  Search,
+  X,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +23,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { buildReceiptDocument, downloadReceiptPdf, type ReceiptPrintPayload } from "@/lib/print-receipt";
 import { Pagination } from "@/components/pagination";
@@ -39,6 +63,16 @@ export default function OwnerFinanceTransactions() {
     activeReceivables: 0,
   });
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [allReceivables, setAllReceivables] = useState<any[]>([]);
+  const [openCombobox, setOpenCombobox] = useState(false);
+
+  // Search and filter state for "Riwayat multi-payment"
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterStartDate, setFilterStartDate] = useState("");
+  const [filterEndDate, setFilterEndDate] = useState("");
+
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
   const total = transactions.length;
@@ -56,19 +90,61 @@ export default function OwnerFinanceTransactions() {
   const [voidNotes, setVoidNotes] = useState("");
   const [voidSaving, setVoidSaving] = useState(false);
 
-  async function load() {
+  // Debounce search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  async function loadSummary() {
     const headers = authHeaders();
-    const [summaryResponse, transactionsResponse] = await Promise.all([
-      fetch("/api/dashboard/summary", { headers }),
-      fetch("/api/transactions", { headers }),
-    ]);
+    const summaryResponse = await fetch("/api/dashboard/summary", { headers });
     if (summaryResponse.ok) {
       const data = await summaryResponse.json();
       setSummary((current) => ({ ...current, ...(data.finance ?? {}) }));
     }
-    if (transactionsResponse.ok) {
-      setTransactions(await transactionsResponse.json());
+  }
+
+  async function loadReceivables() {
+    const headers = authHeaders();
+    const res = await fetch("/api/transactions?transactionStatus=AKTIF", { headers });
+    if (res.ok) {
+      const data = await res.json();
+      setAllReceivables(data.filter((t: any) => Number(t.sisaPiutang) > 0));
     }
+  }
+
+  async function loadTransactions() {
+    const headers = authHeaders();
+    const params = new URLSearchParams();
+    if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
+    if (filterStatus && filterStatus !== "all") params.set("paymentStatus", filterStatus);
+    if (filterStartDate) params.set("startDate", filterStartDate);
+    if (filterEndDate) params.set("endDate", filterEndDate);
+    const res = await fetch(`/api/transactions?${params.toString()}`, { headers });
+    if (res.ok) {
+      setTransactions(await res.json());
+    }
+  }
+
+  useEffect(() => {
+    loadSummary().catch(() => {});
+    loadReceivables().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    loadTransactions().catch(() => setMessage("Gagal memuat transaksi."));
+  }, [debouncedSearch, filterStatus, filterStartDate, filterEndDate]);
+
+  async function loadAll() {
+    await Promise.all([
+      loadSummary().catch(() => {}),
+      loadReceivables().catch(() => {}),
+      loadTransactions().catch(() => {}),
+    ]);
   }
 
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
@@ -118,20 +194,7 @@ export default function OwnerFinanceTransactions() {
     }
   }
 
-  useEffect(() => {
-    load().catch(() => setMessage("Gagal memuat transaksi dan ringkasan keuangan."));
-  }, []);
-
-  const receivables = useMemo(
-    () =>
-      transactions.filter(
-        (transaction) =>
-          transaction.transactionStatus === "AKTIF" &&
-          Number(transaction.sisaPiutang) > 0,
-      ),
-    [transactions],
-  );
-  const selected = receivables.find((transaction) => String(transaction.id) === selectedId);
+  const selected = allReceivables.find((transaction) => String(transaction.id) === selectedId);
 
   async function submitPayment() {
     if (!selected || Number(amount) <= 0) {
@@ -155,7 +218,7 @@ export default function OwnerFinanceTransactions() {
       setAmount("");
       setSelectedId("");
       setMessage("Pelunasan berhasil dicatat pada transaksi asal.");
-      await load();
+      await loadAll();
     } catch (error: any) {
       setMessage(error.message || "Gagal mencatat pelunasan.");
     } finally {
@@ -182,7 +245,7 @@ export default function OwnerFinanceTransactions() {
       setVoidReason("");
       setVoidNotes("");
       setMessage("Pengajuan VOID tersimpan dan menunggu approval Owner.");
-      await load();
+      await loadAll();
     } catch (error: any) {
       setMessage(error.message || "Gagal mengajukan VOID.");
     } finally {
@@ -224,18 +287,55 @@ export default function OwnerFinanceTransactions() {
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-3 md:grid-cols-[1fr_180px_180px_auto]">
-            <Select value={selectedId} onValueChange={setSelectedId}>
-              <SelectTrigger aria-label="Pilih transaksi piutang">
-                <SelectValue placeholder="Pilih transaksi asal" />
-              </SelectTrigger>
-              <SelectContent>
-                {receivables.map((transaction) => (
-                  <SelectItem key={transaction.id} value={String(transaction.id)}>
-                    {transaction.transactionNo} · {transaction.customerName} · sisa {formatRp(transaction.sisaPiutang)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Popover open={openCombobox} onOpenChange={setOpenCombobox}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={openCombobox}
+                  aria-label="Pilih transaksi piutang"
+                  className="w-full justify-between font-normal text-left truncate h-10"
+                >
+                  <span className="truncate">
+                    {selected
+                      ? `${selected.transactionNo} · ${selected.customerName} · sisa ${formatRp(selected.sisaPiutang)}`
+                      : "Pilih transaksi asal"}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] min-w-[320px] max-w-[500px] p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="Cari nama customer atau No TRX..." />
+                  <CommandList className="max-h-60 overflow-y-auto">
+                    <CommandEmpty>Tidak ada transaksi piutang ditemukan.</CommandEmpty>
+                    <CommandGroup>
+                      {allReceivables.map((transaction) => (
+                        <CommandItem
+                          key={transaction.id}
+                          value={`${transaction.transactionNo} ${transaction.customerName}`}
+                          onSelect={() => {
+                            setSelectedId(String(transaction.id));
+                            setOpenCombobox(false);
+                          }}
+                          className="cursor-pointer"
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4 shrink-0",
+                              selectedId === String(transaction.id) ? "opacity-100" : "opacity-0"
+                            )}
+                          />
+                          <span className="truncate">
+                            {transaction.transactionNo} · {transaction.customerName} · sisa {formatRp(transaction.sisaPiutang)}
+                          </span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
             <Input
               inputMode="numeric"
               type="number"
@@ -269,6 +369,86 @@ export default function OwnerFinanceTransactions() {
           <CardTitle className="text-base">Riwayat multi-payment</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
+          {/* Search & Filter Bar */}
+          <div className="flex flex-col gap-2 rounded-lg bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Cari No TRX, nama customer, atau kasir..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 h-9 text-sm"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={filterStatus}
+                onValueChange={(val) => {
+                  setFilterStatus(val);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="w-[140px] h-9 text-xs">
+                  <SelectValue placeholder="Status Bayar" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua Status</SelectItem>
+                  <SelectItem value="LUNAS">Lunas</SelectItem>
+                  <SelectItem value="BAYAR_SEBAGIAN">Sebagian</SelectItem>
+                  <SelectItem value="BELUM_BAYAR">Belum Bayar</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="flex items-center gap-1 text-xs">
+                <Input
+                  type="date"
+                  value={filterStartDate}
+                  onChange={(e) => {
+                    setFilterStartDate(e.target.value);
+                    setPage(1);
+                  }}
+                  className="h-9 w-[130px] text-xs px-2"
+                  title="Dari Tanggal"
+                />
+                <span className="text-muted-foreground">-</span>
+                <Input
+                  type="date"
+                  value={filterEndDate}
+                  onChange={(e) => {
+                    setFilterEndDate(e.target.value);
+                    setPage(1);
+                  }}
+                  className="h-9 w-[130px] text-xs px-2"
+                  title="Sampai Tanggal"
+                />
+              </div>
+              {(debouncedSearch || filterStatus !== "all" || filterStartDate || filterEndDate) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setFilterStatus("all");
+                    setFilterStartDate("");
+                    setFilterEndDate("");
+                    setPage(1);
+                  }}
+                  className="h-9 text-xs px-2 text-muted-foreground hover:text-foreground"
+                >
+                  Reset
+                </Button>
+              )}
+            </div>
+          </div>
+
           <div className="space-y-2">
             {pagedTransactions.map((transaction) => (
               <div key={transaction.id} className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">

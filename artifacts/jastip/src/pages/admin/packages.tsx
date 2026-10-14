@@ -8,7 +8,7 @@ import { Pagination } from "@/components/pagination";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { Search, FileDown, Download, X, Filter, Calculator, RefreshCw } from "lucide-react";
+import { Search, FileDown, Download, X, Filter, Calculator, RefreshCw, Printer } from "lucide-react";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -256,8 +256,21 @@ export default function AdminPackages() {
       Kasir: "Semua",
       "Diekspor Oleh": user?.name || "Pengguna aktif",
     };
-    const cargoColumns = CARGO_EXPORT_COLUMNS;
-    const cargoRows = buildCargoExportRows(sorted);
+
+    const hasCustomerName = sorted.some(
+      (p: any) => p.customerName && p.customerName.trim() !== "" && p.customerName.trim() !== "-",
+    );
+    const cargoColumns = hasCustomerName
+      ? CARGO_EXPORT_COLUMNS
+      : [
+          "No", "Tgl Masuk", "No Resi / Kurir", "Total Koli", "Koli",
+          "Jenis Barang", "Ukuran (cm)", "Pakai (M³)", "Harga Kubikasi",
+          "Ongkir Paket", "Biaya Tambahan", "Keterangan Biaya", "Total Tagihan", "Status"
+        ];
+    const fullRows = buildCargoExportRows(sorted);
+    const cargoRows = hasCustomerName
+      ? fullRows
+      : fullRows.map((r) => [r[0], ...r.slice(2)]);
     const totalOngkir = sorted.reduce(
       (sum: number, p: any) => sum + (Number(p.totalShipping) || 0),
       0,
@@ -268,42 +281,189 @@ export default function AdminPackages() {
     );
     const grandTotal = totalOngkir + totalAdditionalFee;
 
+    const summaryRows = hasCustomerName
+      ? [[
+          "Total", "", "", "", "", "", "", "", "", "",
+          formatExportRp(totalOngkir),
+          formatExportRp(totalAdditionalFee),
+          "",
+          formatExportRp(grandTotal),
+          "",
+        ]]
+      : [[
+          "Total", "", "", "", "", "", "", "", "",
+          formatExportRp(totalOngkir),
+          formatExportRp(totalAdditionalFee),
+          "",
+          formatExportRp(grandTotal),
+          "",
+        ]];
+
+    const columnStyles = hasCustomerName
+      ? {
+          0: { cellWidth: 7, halign: "center" },
+          1: { cellWidth: 22, overflow: "linebreak" },
+          2: { cellWidth: 14, halign: "center" },
+          3: { cellWidth: 22 },
+          4: { cellWidth: 10, halign: "center" },
+          5: { cellWidth: 10, halign: "center" },
+          6: { cellWidth: 24, overflow: "linebreak" },
+          7: { cellWidth: 16, halign: "center" },
+          8: { cellWidth: 15, halign: "right" },
+          9: { cellWidth: 20, halign: "right" },
+          10: { cellWidth: 22, halign: "right" },
+          11: { cellWidth: 20, halign: "right" },
+          12: { cellWidth: 22, overflow: "linebreak" },
+          13: { cellWidth: 22, halign: "right" },
+          14: { cellWidth: 17, halign: "center" },
+        }
+      : {
+          0: { cellWidth: 8, halign: "center" },
+          1: { cellWidth: 16, halign: "center" },
+          2: { cellWidth: 24 },
+          3: { cellWidth: 12, halign: "center" },
+          4: { cellWidth: 12, halign: "center" },
+          5: { cellWidth: 32, overflow: "linebreak" },
+          6: { cellWidth: 18, halign: "center" },
+          7: { cellWidth: 16, halign: "right" },
+          8: { cellWidth: 22, halign: "right" },
+          9: { cellWidth: 24, halign: "right" },
+          10: { cellWidth: 22, halign: "right" },
+          11: { cellWidth: 26, overflow: "linebreak" },
+          12: { cellWidth: 24, halign: "right" },
+          13: { cellWidth: 18, halign: "center" },
+        };
+
     saveTabularPdf({
       filename: `laporan-kargo${selectedPdfBatch ? `-${selectedPdfBatch.namaKapal.replace(/\s+/g, "-").toLowerCase()}` : ""}.pdf`,
       title: "JASTIP CARGO — JASTIP ANGGUN JAYA",
       filters,
       columns: cargoColumns,
       rows: cargoRows,
-      summaryRows: [[
-        "Total", "", "", "", "", "", "", "", "", "",
-        formatExportRp(totalOngkir),
-        formatExportRp(totalAdditionalFee),
-        "",
-        formatExportRp(grandTotal),
-        "",
-      ]],
+      summaryRows,
       landscape: true,
       exportedBy: user?.name || "Pengguna aktif",
       fontSize: 6.5,
-      columnStyles: {
-        0: { cellWidth: 8, halign: "center" },
-        1: { cellWidth: 26 },
-        2: { cellWidth: 16 },
-        3: { cellWidth: 24 },
-        4: { cellWidth: 12, halign: "center" },
-        5: { cellWidth: 12 },
-        6: { cellWidth: 32, overflow: "linebreak" },
-        7: { cellWidth: 18, halign: "center" },
-        8: { cellWidth: 16, halign: "right" },
-        9: { cellWidth: 22, halign: "right" },
-        10: { cellWidth: 24, halign: "right" },
-        11: { cellWidth: 22, halign: "right" },
-        12: { cellWidth: 24, overflow: "linebreak" },
-        13: { cellWidth: 24, halign: "right" },
-        14: { cellWidth: 17, halign: "center" },
-      },
+      columnStyles,
     });
     setPdfOpen(false);
+  }
+
+  function printCargoHtml() {
+    const filtered = getFilteredPackages();
+    if (filtered.length === 0) {
+      toast({ variant: "destructive", title: "Tidak ada data", description: "Tidak ada paket yang cocok dengan filter yang dipilih." });
+      return;
+    }
+    const sorted = [...filtered].sort((a: any, b: any) =>
+      (a.customerName || "").localeCompare(b.customerName || "", "id"),
+    );
+    const batchLabel = selectedPdfBatch
+      ? `${selectedPdfBatch.namaKapal} (${selectedPdfBatch.kotaAsal} → ${selectedPdfBatch.tujuan})`
+      : "-";
+    const hasCustomerName = sorted.some(
+      (p: any) => p.customerName && p.customerName.trim() !== "" && p.customerName.trim() !== "-",
+    );
+    const cargoColumns = hasCustomerName
+      ? CARGO_EXPORT_COLUMNS
+      : [
+          "No", "Tgl Masuk", "No Resi / Kurir", "Total Koli", "Koli",
+          "Jenis Barang", "Ukuran (cm)", "Pakai (M³)", "Harga Kubikasi",
+          "Ongkir Paket", "Biaya Tambahan", "Keterangan Biaya", "Total Tagihan", "Status"
+        ];
+    const fullRows = buildCargoExportRows(sorted);
+    const rows = hasCustomerName
+      ? fullRows
+      : fullRows.map((r) => [r[0], ...r.slice(2)]);
+    const totalOngkir = sorted.reduce(
+      (sum: number, p: any) => sum + (Number(p.totalShipping) || 0),
+      0,
+    );
+    const totalAdditionalFee = sorted.reduce(
+      (sum: number, p: any) => sum + (Number(p.additionalFee) || 0),
+      0,
+    );
+    const grandTotal = totalOngkir + totalAdditionalFee;
+
+    const colWidths = hasCustomerName
+      ? ["3%", "9%", "5%", "10%", "4%", "3.5%", "10.5%", "6%", "5%", "7%", "8%", "6%", "8%", "8%", "7%"]
+      : ["3%", "6%", "11%", "5%", "4%", "12%", "7%", "6%", "8%", "9%", "6%", "8%", "8%", "7%"];
+
+    const printWin = window.open("", "_blank");
+    if (!printWin) {
+      toast({ variant: "destructive", title: "Popup diblokir", description: "Izinkan popup untuk mencetak laporan." });
+      return;
+    }
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Laporan Jastip Cargo — ${batchLabel}</title>
+  <style>
+    @page { size: A4 landscape; margin: 6mm 8mm; }
+    @media print {
+      thead { display: table-header-group; }
+      tfoot { display: table-footer-group; }
+      tr { page-break-inside: avoid; }
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; font-size: 7.5pt; margin: 0; color: #111; line-height: 1.25; }
+    .header { text-align: center; margin-bottom: 6px; }
+    .header h1 { font-size: 13pt; margin: 0 0 3px 0; font-weight: 800; color: #ea580c; }
+    .meta { font-size: 8pt; color: #444; margin-bottom: 8px; display: flex; justify-content: space-between; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    th, td { border: 0.5pt solid #bbb; padding: 2.5pt 2.5pt; font-size: 6.5pt; word-break: break-word; overflow-wrap: break-word; }
+    th { background-color: #ea580c; color: #fff; font-weight: bold; text-align: center; }
+    tr:nth-child(even) td { background-color: #fff7ed; }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+    .text-left { text-align: left; }
+    .summary { margin-top: 8px; text-align: right; font-size: 8pt; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>JASTIP CARGO — JASTIP ANGGUN JAYA</h1>
+  </div>
+  <div class="meta">
+    <div>
+      <div><strong>Batch:</strong> ${batchLabel}</div>
+      <div><strong>Total Paket:</strong> ${sorted.length} paket</div>
+    </div>
+    <div style="text-align: right;">
+      <div><strong>Dicetak:</strong> ${new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })}</div>
+      <div><strong>Diekspor Oleh:</strong> ${user?.name || "Pengguna aktif"}</div>
+    </div>
+  </div>
+  <table>
+    <colgroup>
+      ${colWidths.map((w) => `<col style="width: ${w};" />`).join("")}
+    </colgroup>
+    <thead>
+      <tr>${cargoColumns.map((c, i) => `<th style="width: ${colWidths[i]};">${c}</th>`).join("")}</tr>
+    </thead>
+    <tbody>
+      ${rows.map((r) => `<tr>${r.map((cell, idx) => {
+        let cls = "text-left";
+        if (idx === 0 || idx === 1 || idx === 3 || idx === 4 || idx === 6 || idx === cargoColumns.length - 1) cls = "text-center";
+        if ([7, 8, 9, 10, 12].includes(idx)) cls = "text-right";
+        return `<td class="${cls}">${cell == null ? "-" : cell}</td>`;
+      }).join("")}</tr>`).join("")}
+    </tbody>
+  </table>
+  <div class="summary">
+    Total Ongkir: Rp ${totalOngkir.toLocaleString("id-ID")}${totalAdditionalFee > 0 ? ` · Biaya Tambahan: Rp ${totalAdditionalFee.toLocaleString("id-ID")} · Total Tagihan: Rp ${grandTotal.toLocaleString("id-ID")}` : ""}
+  </div>
+</body>
+</html>`;
+    printWin.document.open();
+    printWin.document.write(html);
+    printWin.document.close();
+    printWin.focus();
+    setTimeout(() => {
+      printWin.print();
+    }, 250);
   }
 
   function exportPdfGrouped() {
@@ -1006,6 +1166,12 @@ export default function AdminPackages() {
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setPdfOpen(false)}>Batal</Button>
+            {isKargoExport() && (
+              <Button variant="secondary" onClick={printCargoHtml} disabled={!canExport}>
+                <Printer className="w-4 h-4 mr-2" />
+                Cetak Dokumen
+              </Button>
+            )}
             <Button onClick={exportPdf} disabled={!canExport}>
               <FileDown className="w-4 h-4 mr-2" />
               Download PDF
