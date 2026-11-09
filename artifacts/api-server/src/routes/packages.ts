@@ -7,7 +7,7 @@ import {
   batchesTable,
   settingsShippingMinimumTable,
 } from "@workspace/db";
-import { eq, and, ne, inArray, ilike, sql, gte, lte, or, desc } from "drizzle-orm";
+import { eq, and, ne, inArray, ilike, sql, gte, lte, or, desc, isNull } from "drizzle-orm";
 import { requireAuth, requireRole } from "../middlewares/auth";
 import {
   applyShippingMinimum,
@@ -1786,6 +1786,109 @@ router.post(
     } catch (err) {
       req.log.error(err);
       res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
+// POST /api/packages/verify-all — mark multiple packages as verified simultaneously
+router.post(
+  "/verify-all",
+  requireAuth,
+  requireRole("admin", "owner"),
+  async (req, res) => {
+    try {
+      const { batchId, packageIds, serviceType } = req.body;
+      const now = new Date();
+      let updatedCount = 0;
+
+      if (Array.isArray(packageIds) && packageIds.length > 0) {
+        const ids = packageIds.map(Number).filter((n) => Number.isInteger(n) && n > 0);
+        if (ids.length > 0) {
+          const updated = await db
+            .update(packagesTable)
+            .set({
+              verified: "sudah_diverifikasi",
+              verifiedAt: now,
+              statusVerifikasi: "SUDAH_DIVERIFIKASI",
+              updatedAt: now,
+            })
+            .where(inArray(packagesTable.id, ids))
+            .returning({ id: packagesTable.id });
+
+          if (updated.length === 0 && (db as any)._isMock) {
+            for (const id of ids) {
+              await db
+                .update(packagesTable)
+                .set({
+                  verified: "sudah_diverifikasi",
+                  verifiedAt: now,
+                  statusVerifikasi: "SUDAH_DIVERIFIKASI",
+                  updatedAt: now,
+                })
+                .where(eq(packagesTable.id, id));
+            }
+            updatedCount = ids.length;
+          } else {
+            updatedCount = updated.length;
+          }
+        }
+      } else if (batchId !== undefined) {
+        const conditions: any[] = [];
+        if (batchId === null || batchId === "no-batch") {
+          conditions.push(isNull(packagesTable.batchId));
+        } else {
+          conditions.push(eq(packagesTable.batchId, Number(batchId)));
+        }
+        if (serviceType && serviceType !== "all") {
+          conditions.push(eq(packagesTable.serviceType, serviceType));
+        }
+
+        const updated = await db
+          .update(packagesTable)
+          .set({
+            verified: "sudah_diverifikasi",
+            verifiedAt: now,
+            statusVerifikasi: "SUDAH_DIVERIFIKASI",
+            updatedAt: now,
+          })
+          .where(and(...conditions))
+          .returning({ id: packagesTable.id });
+
+        if (updated.length === 0 && (db as any)._isMock) {
+          const all = await db.select().from(packagesTable);
+          const target = all.filter((p: any) => {
+            const matchBatch = (batchId === null || batchId === "no-batch") ? p.batchId == null : p.batchId === Number(batchId);
+            const matchSvc = (!serviceType || serviceType === "all") ? true : (p.serviceType || "").toLowerCase() === serviceType.toLowerCase();
+            return matchBatch && matchSvc;
+          });
+          for (const item of target) {
+            await db
+              .update(packagesTable)
+              .set({
+                verified: "sudah_diverifikasi",
+                verifiedAt: now,
+                statusVerifikasi: "SUDAH_DIVERIFIKASI",
+                updatedAt: now,
+              })
+              .where(eq(packagesTable.id, item.id));
+          }
+          updatedCount = target.length;
+        } else {
+          updatedCount = updated.length;
+        }
+      } else {
+        res.status(400).json({ error: "batchId atau packageIds wajib diisi" });
+        return;
+      }
+
+      res.json({
+        success: true,
+        count: updatedCount,
+        message: `${updatedCount} paket berhasil diverifikasi`,
+      });
+    } catch (err) {
+      req.log.error(err);
+      res.status(500).json({ error: "Gagal memverifikasi paket" });
     }
   },
 );

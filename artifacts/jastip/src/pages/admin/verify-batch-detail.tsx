@@ -8,11 +8,21 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Pagination } from "@/components/pagination";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft, Camera, Upload, ScanLine, X, CheckCircle2, XCircle,
   Users, Package, Hash, ShieldCheck, RotateCcw, Ship, Lock, Archive,
-  Search, Clock,
+  Search, Clock, CheckCheck, Loader2,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
@@ -104,6 +114,10 @@ export default function VerifyBatchDetail({ params: propsParams }: { params?: { 
   const [resultPkg, setResultPkg] = useState<any | null>(null);
   const [manualInput, setManualInput] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const [isVerifyingAll, setIsVerifyingAll] = useState(false);
+  const [verifyAllBatchDialogOpen, setVerifyAllBatchDialogOpen] = useState(false);
+  const [verifyAllServiceDialogOpen, setVerifyAllServiceDialogOpen] = useState(false);
+  const [verifyGroupDialogOpen, setVerifyGroupDialogOpen] = useState(false);
   const [scanHistory, setScanHistory] = useState<{ barcode: string; result: VerifyResult; pkg: any | null }[]>([]);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
@@ -413,51 +427,172 @@ export default function VerifyBatchDetail({ params: propsParams }: { params?: { 
   const matchCount = scanHistory.filter((h) => h.result === "match").length;
   const mismatchCount = scanHistory.filter((h) => h.result === "mismatch").length;
 
+  async function handleVerifyAll(targetScope: "batch" | "service" = "batch") {
+    try {
+      setIsVerifyingAll(true);
+      const token = localStorage.getItem("jaj_token");
+
+      let targetPkgs = batchPkgs.filter((p: any) => p.statusVerifikasi !== "SUDAH_DIVERIFIKASI");
+      if (targetScope === "service" && selectedServiceType && selectedServiceType !== "all") {
+        targetPkgs = targetPkgs.filter(
+          (p: any) => (p.serviceType || "").toLowerCase() === selectedServiceType.toLowerCase()
+        );
+      }
+
+      if (!targetPkgs.length) {
+        toast({ title: "Informasi", description: "Semua paket pada target ini sudah terverifikasi." });
+        setVerifyAllBatchDialogOpen(false);
+        setVerifyAllServiceDialogOpen(false);
+        return;
+      }
+
+      const res = await fetch("/api/packages/verify-all", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          batchId: isNoBatch ? null : batchId,
+          packageIds: targetPkgs.map((p: any) => p.id),
+          serviceType: targetScope === "service" && selectedServiceType ? selectedServiceType : undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Gagal memverifikasi semua paket");
+      }
+
+      await refetchPackages();
+      toast({
+        title: "✓ Verifikasi Berhasil",
+        description: data.message || `${targetPkgs.length} paket berhasil diverifikasi sekaligus`,
+      });
+      setVerifyAllBatchDialogOpen(false);
+      setVerifyAllServiceDialogOpen(false);
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Gagal Verifikasi",
+        description: err?.message || "Terjadi kesalahan",
+      });
+    } finally {
+      setIsVerifyingAll(false);
+    }
+  }
+
+  async function handleVerifyGroup(group: PkgGroup) {
+    const unverified = group.packages.filter((p: any) => p.statusVerifikasi !== "SUDAH_DIVERIFIKASI");
+    if (!unverified.length) {
+      toast({ title: "Informasi", description: "Semua paket untuk penerima ini sudah terverifikasi." });
+      setVerifyGroupDialogOpen(false);
+      return;
+    }
+    try {
+      setIsVerifyingAll(true);
+      const token = localStorage.getItem("jaj_token");
+      const res = await fetch("/api/packages/verify-all", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          packageIds: unverified.map((p: any) => p.id),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Gagal");
+      await refetchPackages();
+      toast({
+        title: "✓ Verifikasi Berhasil",
+        description: `${unverified.length} paket milik ${group.customerName} berhasil diverifikasi sekaligus`,
+      });
+      setVerifyGroupDialogOpen(false);
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Gagal Verifikasi",
+        description: err?.message || "Terjadi kesalahan",
+      });
+    } finally {
+      setIsVerifyingAll(false);
+    }
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start gap-4">
-        <Button variant="outline" size="icon" onClick={() => { if (selectedGroup) { changeGroup(); } else { setLocation(`${base}/verify`); } }}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3 flex-wrap">
-            {isNoBatch ? (
-              <div className="p-1.5 rounded-lg bg-gray-100">
-                <Package className="w-5 h-5 text-gray-500" />
-              </div>
-            ) : (
-              <div className={`p-1.5 rounded-lg ${batch?.statusBatch === "OPEN" ? "bg-blue-100" : "bg-gray-100"}`}>
-                <Ship className={`w-5 h-5 ${batch?.statusBatch === "OPEN" ? "text-blue-700" : "text-gray-500"}`} />
-              </div>
-            )}
-            <h1 className="text-2xl font-bold tracking-tight">{batchLabel}</h1>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start gap-4 flex-1 min-w-0">
+          <Button variant="outline" size="icon" onClick={() => { if (selectedGroup) { changeGroup(); } else { setLocation(`${base}/verify`); } }}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3 flex-wrap">
+              {isNoBatch ? (
+                <div className="p-1.5 rounded-lg bg-gray-100">
+                  <Package className="w-5 h-5 text-gray-500" />
+                </div>
+              ) : (
+                <div className={`p-1.5 rounded-lg ${batch?.statusBatch === "OPEN" ? "bg-blue-100" : "bg-gray-100"}`}>
+                  <Ship className={`w-5 h-5 ${batch?.statusBatch === "OPEN" ? "text-blue-700" : "text-gray-500"}`} />
+                </div>
+              )}
+              <h1 className="text-2xl font-bold tracking-tight">{batchLabel}</h1>
+              {batch && (
+                <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium ${batchStatusColor(batch.statusBatch)}`}>
+                  {batchStatusIcon(batch.statusBatch)}
+                  {batchStatusLabel(batch.statusBatch)}
+                </span>
+              )}
+            </div>
             {batch && (
-              <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium ${batchStatusColor(batch.statusBatch)}`}>
-                {batchStatusIcon(batch.statusBatch)}
-                {batchStatusLabel(batch.statusBatch)}
-              </span>
+              <p className="text-sm text-muted-foreground mt-1">
+                {batch.kotaAsal} → {batch.tujuan}
+                &nbsp;·&nbsp; ETD: {formatTgl(batch.etd)}
+                &nbsp;·&nbsp; Closing: {formatTgl(batch.periodeClosingMulai)} – {formatTgl(batch.periodeClosingSelesai)}
+              </p>
             )}
+            <div className="flex items-center gap-3 mt-1 flex-wrap">
+              <span className="inline-flex items-center gap-1 text-sm font-semibold text-green-700">
+                <CheckCircle2 className="w-4 h-4" /> {totalVerified} terverifikasi
+              </span>
+              <span className="text-muted-foreground">·</span>
+              <span className="inline-flex items-center gap-1 text-sm font-semibold text-amber-700">
+                <Clock className="w-4 h-4" /> {totalPkgs - totalVerified} belum
+              </span>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-sm text-muted-foreground">{allGroups.length} penerima</span>
+            </div>
           </div>
-          {batch && (
-            <p className="text-sm text-muted-foreground mt-1">
-              {batch.kotaAsal} → {batch.tujuan}
-              &nbsp;·&nbsp; ETD: {formatTgl(batch.etd)}
-              &nbsp;·&nbsp; Closing: {formatTgl(batch.periodeClosingMulai)} – {formatTgl(batch.periodeClosingSelesai)}
-            </p>
-          )}
-          <div className="flex items-center gap-3 mt-1 flex-wrap">
-            <span className="inline-flex items-center gap-1 text-sm font-semibold text-green-700">
-              <CheckCircle2 className="w-4 h-4" /> {totalVerified} terverifikasi
-            </span>
-            <span className="text-muted-foreground">·</span>
-            <span className="inline-flex items-center gap-1 text-sm font-semibold text-amber-700">
-              <Clock className="w-4 h-4" /> {totalPkgs - totalVerified} belum
-            </span>
-            <span className="text-muted-foreground">·</span>
-            <span className="text-sm text-muted-foreground">{allGroups.length} penerima</span>
-          </div>
+        </div>
+
+        {/* Action Button: Verifikasi Semua Paket Batch */}
+        <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+          <Button
+            variant={totalPkgs > 0 && totalVerified === totalPkgs ? "outline" : "default"}
+            className={
+              totalPkgs > 0 && totalVerified === totalPkgs
+                ? "border-green-300 text-green-700 bg-green-50 hover:bg-green-100 font-medium"
+                : "bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm"
+            }
+            disabled={totalPkgs === 0 || totalVerified === totalPkgs || isVerifyingAll}
+            onClick={() => setVerifyAllBatchDialogOpen(true)}
+          >
+            {isVerifyingAll ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <CheckCheck className="w-4 h-4 mr-2" />
+            )}
+            {totalPkgs === 0
+              ? "Tidak Ada Paket"
+              : totalVerified === totalPkgs
+              ? "Semua Paket Terverifikasi ✓"
+              : `Verifikasi Semua Paket (${totalPkgs - totalVerified})`}
+          </Button>
         </div>
       </div>
 
@@ -514,11 +649,35 @@ export default function VerifyBatchDetail({ params: propsParams }: { params?: { 
       /* ── STEP 1 + 2 (setelah jenis jastip dipilih) ───────────────────────── */
       <>
         {/* Breadcrumb back */}
-        <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={() => { changeGroup(); setSelectedServiceType(null); setFilterServiceType("all"); }}>
-            <ArrowLeft className="w-3.5 h-3.5 mr-1" /> Jenis Jastip
-          </Button>
-          <span className="text-base font-bold">{selectedSvcEmoji} {selectedSvcLabel}</span>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" onClick={() => { changeGroup(); setSelectedServiceType(null); setFilterServiceType("all"); }}>
+              <ArrowLeft className="w-3.5 h-3.5 mr-1" /> Jenis Jastip
+            </Button>
+            <span className="text-base font-bold">{selectedSvcEmoji} {selectedSvcLabel}</span>
+          </div>
+          {selectedServiceType && (
+            (() => {
+              const svcUnverified = batchPkgs.filter(
+                (p: any) =>
+                  (p.serviceType || "").toLowerCase() === selectedServiceType.toLowerCase() &&
+                  p.statusVerifikasi !== "SUDAH_DIVERIFIKASI"
+              ).length;
+              if (svcUnverified === 0) return null;
+              return (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 text-xs font-semibold"
+                  disabled={isVerifyingAll}
+                  onClick={() => setVerifyAllServiceDialogOpen(true)}
+                >
+                  <CheckCheck className="w-3.5 h-3.5 mr-1.5" />
+                  Verifikasi Semua {selectedSvcLabel} ({svcUnverified})
+                </Button>
+              );
+            })()
+          )}
         </div>
 
       {/* ── STEP 1: pilih penerima ─────────────────────────────────────────────── */}
@@ -663,13 +822,32 @@ export default function VerifyBatchDetail({ params: propsParams }: { params?: { 
                     {" · "}Scan barcode untuk verifikasi
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {scanHistory.length > 0 && (
                     <>
                       <Badge className="bg-green-600 text-white text-xs">{matchCount} ✓</Badge>
                       {mismatchCount > 0 && <Badge variant="destructive" className="text-xs">{mismatchCount} ✗</Badge>}
                     </>
                   )}
+                  {(() => {
+                    const groupBelum = selectedGroup.packages.filter(
+                      (p: any) => p.statusVerifikasi !== "SUDAH_DIVERIFIKASI"
+                    ).length;
+                    if (groupBelum > 0) {
+                      return (
+                        <Button
+                          size="sm"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
+                          disabled={isVerifyingAll}
+                          onClick={() => setVerifyGroupDialogOpen(true)}
+                        >
+                          <CheckCheck className="w-3.5 h-3.5 mr-1" />
+                          Verifikasi Penerima Ini ({groupBelum})
+                        </Button>
+                      );
+                    }
+                    return null;
+                  })()}
                   <Button variant="outline" size="sm" onClick={changeGroup}>← Ganti</Button>
                 </div>
               </div>
@@ -880,6 +1058,116 @@ export default function VerifyBatchDetail({ params: propsParams }: { params?: { 
       )}
       </>
       )}
+      {/* Confirmation Dialog: Verifikasi Semua Paket Batch */}
+      <AlertDialog open={verifyAllBatchDialogOpen} onOpenChange={setVerifyAllBatchDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-emerald-600" />
+              Verifikasi Semua Paket di Batch Ini?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-sm text-foreground/80">
+              <p>
+                Tindakan ini akan menandai sekaligus <strong>{totalPkgs - totalVerified} paket</strong> yang belum diverifikasi dalam <strong>{batchLabel}</strong> menjadi <strong>Sudah Diverifikasi (✓)</strong>.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Semua admin dan kasir akan melihat status verifikasi paket ini telah selesai tanpa perlu scan barcode satu per satu.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isVerifyingAll}>Batal</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+              disabled={isVerifyingAll}
+              onClick={(e) => {
+                e.preventDefault();
+                handleVerifyAll("batch");
+              }}
+            >
+              {isVerifyingAll ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Memproses...
+                </>
+              ) : (
+                "Ya, Verifikasi Semua"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirmation Dialog: Verifikasi Semua Paket Service Type */}
+      <AlertDialog open={verifyAllServiceDialogOpen} onOpenChange={setVerifyAllServiceDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-emerald-600" />
+              Verifikasi Semua Paket {selectedSvcLabel}?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-sm text-foreground/80">
+              <p>
+                Tindakan ini akan memverifikasi sekaligus semua paket dengan jenis layanan <strong>{selectedSvcLabel}</strong> dalam batch ini.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isVerifyingAll}>Batal</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+              disabled={isVerifyingAll}
+              onClick={(e) => {
+                e.preventDefault();
+                handleVerifyAll("service");
+              }}
+            >
+              {isVerifyingAll ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Memproses...
+                </>
+              ) : (
+                "Ya, Verifikasi Layanan Ini"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirmation Dialog: Verifikasi Semua Paket Milik Customer Group */}
+      <AlertDialog open={verifyGroupDialogOpen} onOpenChange={setVerifyGroupDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-emerald-600" />
+              Verifikasi Semua Paket Penerima Ini?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-sm text-foreground/80">
+              <p>
+                Tindakan ini akan memverifikasi sekaligus semua paket yang belum diverifikasi milik <strong>{selectedGroup?.customerName}</strong>.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isVerifyingAll}>Batal</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+              disabled={isVerifyingAll}
+              onClick={(e) => {
+                e.preventDefault();
+                if (selectedGroup) handleVerifyGroup(selectedGroup);
+              }}
+            >
+              {isVerifyingAll ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Memproses...
+                </>
+              ) : (
+                "Ya, Verifikasi Penerima Ini"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
