@@ -779,18 +779,27 @@ export default function BarcodeBatchDetail({
   >([]);
   const [syncing, setSyncing] = useState(false);
 
-  // ── Hapus Data Hasil Impor (Owner only) ────────────────────────────────────
+  // ── Hapus Data Hasil Impor & Hapus Card (Owner only) ──────────────────────
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importSummary, setImportSummary] = useState<any | null>(null);
   const [loadingImports, setLoadingImports] = useState(false);
   const [includeLegacyImports, setIncludeLegacyImports] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<
     | { mode: "single"; importId: number; fileName: string; deletableCount: number; lockedCount: number }
+    | { mode: "service-card"; serviceKey: string; serviceLabel: string; deletableCount: number; lockedCount: number }
     | { mode: "batch"; deletableCount: number; includeLegacy: boolean }
     | null
   >(null);
   const [isDeletingImports, setIsDeletingImports] = useState(false);
   const [lastDeleteResult, setLastDeleteResult] = useState<any | null>(null);
+
+  // Hapus langsung dari salah satu Card Jenis Jastip
+  const [cardDeleteTarget, setCardDeleteTarget] = useState<{
+    serviceKey: string;
+    serviceLabel: string;
+    activeCount: number;
+  } | null>(null);
+  const [includeManualInCardDelete, setIncludeManualInCardDelete] = useState(false);
 
   async function fetchImportSummary() {
     if (!isOwner || !batchId) return;
@@ -822,6 +831,55 @@ export default function BarcodeBatchDetail({
     fetchImportSummary();
   }
 
+  function openServiceCardDeleteConfirm(svc: { key: string; label: string; count: number }) {
+    if (!isOwner) return;
+    setIncludeManualInCardDelete(false);
+    setCardDeleteTarget({
+      serviceKey: svc.key,
+      serviceLabel: svc.label,
+      activeCount: svc.count,
+    });
+    fetchImportSummary();
+  }
+
+  async function handleConfirmDeleteServiceCard() {
+    if (!cardDeleteTarget || !isOwner) return;
+    setIsDeletingImports(true);
+    try {
+      const token = localStorage.getItem("jaj_token");
+      const res = await fetch(`/api/packages/batch/${batchId}/service-card`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          serviceKey: cardDeleteTarget.serviceKey,
+          includeLegacy: true,
+          includeManual: includeManualInCardDelete,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Gagal menghapus paket pada card ini");
+
+      setCardDeleteTarget(null);
+      await queryClient.invalidateQueries({ queryKey: getListPackagesQueryKey() });
+      if (importModalOpen) await fetchImportSummary();
+      toast({
+        title: json.deletedCount > 0 ? "Card & Paket Dihapus" : "Tidak Ada Paket Dihapus",
+        description: json.message,
+      });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Gagal menghapus card",
+        description: err.message || "Terjadi kesalahan",
+      });
+    } finally {
+      setIsDeletingImports(false);
+    }
+  }
+
   async function handleConfirmDeleteImport() {
     if (!deleteTarget || !isOwner) return;
     setIsDeletingImports(true);
@@ -830,7 +888,9 @@ export default function BarcodeBatchDetail({
       const url =
         deleteTarget.mode === "single"
           ? `/api/packages/imports/${deleteTarget.importId}`
-          : `/api/packages/imports/batch/${batchId}?includeLegacy=${deleteTarget.includeLegacy ? "true" : "false"}`;
+          : deleteTarget.mode === "service-card"
+            ? `/api/packages/imports/batch/${batchId}?includeLegacy=true&serviceKey=${encodeURIComponent(deleteTarget.serviceKey)}`
+            : `/api/packages/imports/batch/${batchId}?includeLegacy=${deleteTarget.includeLegacy ? "true" : "false"}`;
       const res = await fetch(url, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
@@ -1277,9 +1337,27 @@ export default function BarcodeBatchDetail({
                 }}
               >
                 <CardContent className="pt-5 pb-4">
-                  <p className={`text-sm font-bold leading-snug ${svc.num}`}>
-                    {svc.label}
-                  </p>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className={`text-sm font-bold leading-snug ${svc.num}`}>
+                      {svc.label}
+                    </p>
+                    {isOwner && batch?.statusBatch !== "ARSIP" && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        title={`Hapus semua paket di card ${svc.label}`}
+                        className="h-7 px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-100/70 -mr-1.5 -mt-1 shrink-0 gap-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openServiceCardDeleteConfirm(svc);
+                        }}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Hapus</span>
+                      </Button>
+                    )}
+                  </div>
                   <div className="mt-3 space-y-1">
                     <div>
                       <span className={`text-3xl font-black ${svc.num}`}>
@@ -1696,6 +1774,55 @@ export default function BarcodeBatchDetail({
                   )}
                 </div>
 
+                {/* Hapus data impor per card (jenis layanan) */}
+                {Array.isArray(importSummary.serviceCards) && importSummary.serviceCards.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Hapus Data Impor Per Card Layanan ({importSummary.serviceCards.length})
+                    </p>
+                    <div className="space-y-2">
+                      {importSummary.serviceCards.map((card: any) => (
+                        <div
+                          key={card.serviceKey}
+                          className="rounded-lg border p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card"
+                        >
+                          <div className="min-w-0 space-y-0.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold text-sm">{card.serviceLabel}</span>
+                              <Badge variant="outline" className="text-[11px]">
+                                {card.activeCardCount} paket aktif
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Impor terlacak: {card.deletableTrackedCount} · Data lama (tanpa tag):{" "}
+                              {card.deletableLegacyCount}
+                              {card.manualCount > 0 ? ` · Manual (aman): ${card.manualCount}` : ""}
+                              {card.lockedCount > 0 ? ` · Terkunci: ${card.lockedCount}` : ""}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            disabled={isDeletingImports || card.deletableImportCount === 0}
+                            onClick={() =>
+                              setDeleteTarget({
+                                mode: "service-card",
+                                serviceKey: card.serviceKey,
+                                serviceLabel: card.serviceLabel,
+                                deletableCount: card.deletableImportCount,
+                                lockedCount: card.lockedCount + card.manualCount,
+                              })
+                            }
+                            className="shrink-0 gap-1.5"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> Hapus Card Ini ({card.deletableImportCount})
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Hapus semua data impor batch */}
                 <div className="rounded-lg border border-red-200 bg-red-50/50 p-3.5 space-y-3">
                   <div className="flex items-start gap-2">
@@ -1764,7 +1891,7 @@ export default function BarcodeBatchDetail({
         </DialogContent>
       </Dialog>
 
-      {/* Konfirmasi AlertDialog hapus data impor */}
+      {/* Konfirmasi AlertDialog hapus data impor (per sesi / per card / batch) */}
       <AlertDialog
         open={Boolean(deleteTarget)}
         onOpenChange={(open) => {
@@ -1781,6 +1908,13 @@ export default function BarcodeBatchDetail({
                   <strong className="text-foreground">{deleteTarget.fileName}</strong> ({" "}
                   <strong className="text-foreground">{deleteTarget.deletableCount} paket</strong> akan dihapus
                   {deleteTarget.lockedCount > 0 ? `, ${deleteTarget.lockedCount} paket terkunci akan dilewati` : ""}).
+                </>
+              ) : deleteTarget?.mode === "service-card" ? (
+                <>
+                  Anda akan menghapus secara permanen paket hasil impor / data lama pada card{" "}
+                  <strong className="text-foreground">{deleteTarget.serviceLabel}</strong> ({" "}
+                  <strong className="text-foreground">{deleteTarget.deletableCount} paket</strong> akan dihapus
+                  {deleteTarget.lockedCount > 0 ? `, ${deleteTarget.lockedCount} paket terkunci/manual akan dilewati` : ""}).
                 </>
               ) : (
                 <>
@@ -1806,6 +1940,112 @@ export default function BarcodeBatchDetail({
             >
               {isDeletingImports ? "Menghapus..." : "Ya, Hapus Permanen"}
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Konfirmasi AlertDialog hapus langsung 1 Card Jenis Jastip beserta paketnya (Owner only) */}
+      <AlertDialog
+        open={Boolean(cardDeleteTarget)}
+        onOpenChange={(open) => {
+          if (!open && !isDeletingImports) setCardDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Hapus Card &ldquo;{cardDeleteTarget?.serviceLabel}&rdquo;?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              {(() => {
+                const cardInfo = importSummary?.serviceCards?.find(
+                  (c: any) => c.serviceKey === cardDeleteTarget?.serviceKey,
+                );
+                if (loadingImports && !cardInfo) {
+                  return (
+                    <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Memeriksa data paket pada card ini...
+                    </div>
+                  );
+                }
+                const deletableImport = cardInfo?.deletableImportCount ?? 0;
+                const deletableManual = cardInfo?.deletableManualCount ?? 0;
+                const locked = cardInfo?.lockedCount ?? 0;
+                const willDelete =
+                  deletableImport + (includeManualInCardDelete ? deletableManual : 0);
+
+                return (
+                  <div className="text-sm text-muted-foreground space-y-3">
+                    <p>
+                      Card <strong className="text-foreground">{cardDeleteTarget?.serviceLabel}</strong> memiliki{" "}
+                      <strong className="text-foreground">{cardDeleteTarget?.activeCount ?? 0} paket aktif</strong> pada batch ini (hanya card ini yang terdampak, card lainnya tetap aman).
+                    </p>
+                    <div className="rounded-lg border bg-muted/30 p-3 text-xs space-y-1">
+                      <p>
+                        Paket hasil impor / data lama siap dihapus:{" "}
+                        <strong className="text-foreground">{deletableImport} paket</strong>
+                      </p>
+                      {deletableManual > 0 && (
+                        <p>
+                          Paket input manual di card ini:{" "}
+                          <strong className="text-foreground">{deletableManual} paket</strong>
+                        </p>
+                      )}
+                      {locked > 0 && (
+                        <p className="text-amber-700">
+                          Paket terkunci (sudah diverifikasi / diambil / masuk transaksi / invoice):{" "}
+                          <strong>{locked} paket</strong> (tetap aman, tidak dihapus)
+                        </p>
+                      )}
+                    </div>
+
+                    {deletableManual > 0 && (
+                      <div className="flex items-start space-x-2 rounded border border-amber-200 bg-amber-50/70 p-2.5">
+                        <Checkbox
+                          id="include-manual-card-delete"
+                          checked={includeManualInCardDelete}
+                          onCheckedChange={(v) => setIncludeManualInCardDelete(Boolean(v))}
+                        />
+                        <Label
+                          htmlFor="include-manual-card-delete"
+                          className="text-xs leading-snug text-amber-950 cursor-pointer"
+                        >
+                          Sertakan <strong>{deletableManual} paket input manual</strong> di dalam card{" "}
+                          <strong>{cardDeleteTarget?.serviceLabel}</strong> agar seluruh paket pada card ini ikut terhapus.
+                        </Label>
+                      </div>
+                    )}
+
+                    <p className="text-xs text-red-700 font-medium">
+                      Total yang akan dihapus permanen: <strong>{willDelete} paket</strong>. Tindakan ini tidak dapat dibatalkan.
+                    </p>
+                  </div>
+                );
+              })()}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingImports}>Batal</AlertDialogCancel>
+            {(() => {
+              const cardInfo = importSummary?.serviceCards?.find(
+                (c: any) => c.serviceKey === cardDeleteTarget?.serviceKey,
+              );
+              const willDelete =
+                (cardInfo?.deletableImportCount ?? 0) +
+                (includeManualInCardDelete ? (cardInfo?.deletableManualCount ?? 0) : 0);
+              return (
+                <AlertDialogAction
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleConfirmDeleteServiceCard();
+                  }}
+                  disabled={isDeletingImports || loadingImports || willDelete === 0}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                >
+                  {isDeletingImports ? "Menghapus..." : `Ya, Hapus Card (${willDelete} paket)`}
+                </AlertDialogAction>
+              );
+            })()}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

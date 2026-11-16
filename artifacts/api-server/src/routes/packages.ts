@@ -1504,6 +1504,25 @@ router.post(
 
 type ImportLockReason = "manual" | "verified" | "pickedUp" | "inTransaction" | "inInvoice";
 
+const KNOWN_SERVICE_CARDS = [
+  { key: "jastip pesawat", label: "Jastip Pesawat" },
+  { key: "jastip hemat+", label: "Jastip Hemat+" },
+  { key: "jastip kargo", label: "Jastip Kargo" },
+  { key: "jastip pelni", label: "Jastip Pelni" },
+] as const;
+
+const ALLOWED_SERVICE_CARD_KEYS = new Set<string>([
+  ...KNOWN_SERVICE_CARDS.map((c) => c.key),
+  "lainnya",
+]);
+
+function getServiceCardMeta(serviceType: string | null | undefined): { key: string; label: string } {
+  const norm = String(serviceType || "").toLowerCase();
+  const matched = KNOWN_SERVICE_CARDS.find((c) => c.key === norm);
+  if (matched) return matched;
+  return { key: "lainnya", label: "Lainnya" };
+}
+
 async function collectLockedPackageSets(executor: any) {
   const allTxs = await executor.select().from(transactionsTable);
   const txPkgIds = new Set<number>();
@@ -1530,8 +1549,9 @@ function getPackageImportDeleteLock(
   pkg: any,
   txPkgIds: Set<number>,
   invPkgIds: Set<number>,
+  options?: { includeManual?: boolean },
 ): { deletable: boolean; reason?: ImportLockReason } {
-  if (pkg.inputSource === "manual") {
+  if (!options?.includeManual && pkg.inputSource === "manual") {
     return { deletable: false, reason: "manual" };
   }
   if (
@@ -1602,6 +1622,7 @@ async function executeSafeImportDelete(
   executor: any,
   batchId: number,
   candidates: any[],
+  options?: { includeManual?: boolean },
 ) {
   const { txPkgIds, invPkgIds } = await collectLockedPackageSets(executor);
 
@@ -1616,7 +1637,7 @@ async function executeSafeImportDelete(
   const skippedDetails: Array<{ id: number; resiNumber: string; customerName: string; reason: ImportLockReason }> = [];
 
   for (const pkg of candidates) {
-    const lock = getPackageImportDeleteLock(pkg, txPkgIds, invPkgIds);
+    const lock = getPackageImportDeleteLock(pkg, txPkgIds, invPkgIds, options);
     if (lock.deletable) {
       deletablePkgs.push(pkg);
     } else if (lock.reason) {
@@ -1770,6 +1791,71 @@ router.get(
         }
       }
 
+      const cardOrder = ["jastip pesawat", "jastip hemat+", "jastip kargo", "jastip pelni", "lainnya"];
+      const cardBuckets = new Map<string, { serviceKey: string; serviceLabel: string; pkgs: any[] }>();
+      for (const p of batchPkgs) {
+        const meta = getServiceCardMeta(p.serviceType);
+        if (!cardBuckets.has(meta.key)) {
+          cardBuckets.set(meta.key, { serviceKey: meta.key, serviceLabel: meta.label, pkgs: [] });
+        }
+        cardBuckets.get(meta.key)!.pkgs.push(p);
+      }
+
+      const serviceCards = cardOrder
+        .filter((k) => cardBuckets.has(k))
+        .map((k) => {
+          const bucket = cardBuckets.get(k)!;
+          let activeCardCount = 0;
+          let trackedCount = 0;
+          let legacyCount = 0;
+          let manualCountCard = 0;
+          let deletableTrackedCard = 0;
+          let deletableLegacyCard = 0;
+          let deletableManualCard = 0;
+          let lockedCount = 0;
+          const lockedReasons = { verified: 0, pickedUp: 0, inTransaction: 0, inInvoice: 0 };
+
+          for (const p of bucket.pkgs) {
+            const isPickedUp =
+              p.statusPengambilan === "SUDAH_DIAMBIL" || p.status === "diserahkan";
+            if (!isPickedUp) activeCardCount++;
+
+            const isManual = p.inputSource === "manual";
+            const isTracked = p.importId != null || p.inputSource === "import";
+            if (isManual) manualCountCard++;
+            else if (isTracked) trackedCount++;
+            else legacyCount++;
+
+            const lockWithManual = getPackageImportDeleteLock(p, txPkgIds, invPkgIds, { includeManual: true });
+            if (lockWithManual.deletable) {
+              if (isManual) deletableManualCard++;
+              else if (isTracked) deletableTrackedCard++;
+              else deletableLegacyCard++;
+            } else {
+              lockedCount++;
+              if (lockWithManual.reason && lockWithManual.reason in lockedReasons) {
+                lockedReasons[lockWithManual.reason as keyof typeof lockedReasons] += 1;
+              }
+            }
+          }
+
+          return {
+            serviceKey: bucket.serviceKey,
+            serviceLabel: bucket.serviceLabel,
+            activeCardCount,
+            totalDbCount: bucket.pkgs.length,
+            trackedCount,
+            legacyCount,
+            manualCount: manualCountCard,
+            deletableTrackedCount: deletableTrackedCard,
+            deletableLegacyCount: deletableLegacyCard,
+            deletableImportCount: deletableTrackedCard + deletableLegacyCard,
+            deletableManualCount: deletableManualCard,
+            lockedCount,
+            lockedReasons,
+          };
+        });
+
       res.json({
         batchId,
         statusBatch: batch.statusBatch,
@@ -1779,6 +1865,7 @@ router.get(
         legacyUnlinkedCount: legacyUnlinkedPkgs.length,
         deletableLegacyCount,
         manualCount: manualPkgs.length,
+        serviceCards,
       });
     } catch (err) {
       req.log.error(err);
@@ -1787,7 +1874,7 @@ router.get(
   },
 );
 
-// DELETE /api/packages/imports/batch/:batchId — Delete all imported packages in a batch (Owner only)
+// DELETE /api/packages/imports/batch/:batchId — Delete all imported packages in a batch (optional ?serviceKey=..., Owner only)
 router.delete(
   "/imports/batch/:batchId",
   requireAuth,
@@ -1802,6 +1889,15 @@ router.delete(
 
       const includeLegacy =
         req.query.includeLegacy === "true" || req.body?.includeLegacy === true;
+      const rawServiceKey = req.query.serviceKey ?? req.body?.serviceKey;
+      const serviceKey =
+        typeof rawServiceKey === "string" && rawServiceKey.trim()
+          ? rawServiceKey.trim().toLowerCase()
+          : null;
+      if (serviceKey && !ALLOWED_SERVICE_CARD_KEYS.has(serviceKey)) {
+        res.status(400).json({ error: "serviceKey tidak valid" });
+        return;
+      }
 
       const [batch] = await db
         .select()
@@ -1826,6 +1922,9 @@ router.delete(
           .where(eq(packagesTable.batchId, batchId));
 
         const candidates = batchPkgs.filter((p: any) => {
+          if (serviceKey && getServiceCardMeta(p.serviceType).key !== serviceKey) {
+            return false;
+          }
           if (p.inputSource === "manual") return false;
           const isTrackedImport = p.importId != null || p.inputSource === "import";
           const isLegacyUnlinked = p.importId == null && (p.inputSource == null || p.inputSource === "");
@@ -1842,6 +1941,7 @@ router.delete(
       res.json({
         success: true,
         batchId,
+        serviceKey,
         includeLegacy,
         deletedCount: result.deletedCount,
         skippedCount: result.skippedCount,
@@ -1857,6 +1957,98 @@ router.delete(
     } catch (err) {
       req.log.error(err);
       res.status(500).json({ error: "Gagal menghapus data impor batch" });
+    }
+  },
+);
+
+// DELETE /api/packages/batch/:batchId/service-card — Delete one service card and its deletable packages (Owner only)
+router.delete(
+  "/batch/:batchId/service-card",
+  requireAuth,
+  requireRole("owner"),
+  async (req, res) => {
+    try {
+      const batchId = Number(req.params.batchId);
+      if (!Number.isInteger(batchId) || batchId <= 0) {
+        res.status(400).json({ error: "batchId tidak valid" });
+        return;
+      }
+
+      const rawServiceKey = req.body?.serviceKey ?? req.query.serviceKey;
+      const serviceKey =
+        typeof rawServiceKey === "string" ? rawServiceKey.trim().toLowerCase() : "";
+      if (!serviceKey || !ALLOWED_SERVICE_CARD_KEYS.has(serviceKey)) {
+        res.status(400).json({ error: "serviceKey card tidak valid" });
+        return;
+      }
+
+      const includeLegacy =
+        req.body?.includeLegacy !== false && req.query.includeLegacy !== "false";
+      const includeManual =
+        req.body?.includeManual === true || req.query.includeManual === "true";
+
+      const [batch] = await db
+        .select()
+        .from(batchesTable)
+        .where(eq(batchesTable.id, batchId))
+        .limit(1);
+      if (!batch) {
+        res.status(404).json({ error: "Batch tidak ditemukan" });
+        return;
+      }
+      if (batch.statusBatch === "ARSIP") {
+        res.status(400).json({
+          error: "Batch sudah diarsipkan sehingga data paket tidak dapat dihapus.",
+        });
+        return;
+      }
+
+      const serviceLabel =
+        KNOWN_SERVICE_CARDS.find((c) => c.key === serviceKey)?.label ?? "Lainnya";
+
+      const result = await db.transaction(async (tx) => {
+        const batchPkgs = await tx
+          .select()
+          .from(packagesTable)
+          .where(eq(packagesTable.batchId, batchId));
+
+        const cardPkgs = batchPkgs.filter((p: any) => {
+          if (getServiceCardMeta(p.serviceType).key !== serviceKey) return false;
+          const isTrackedImport = p.importId != null || p.inputSource === "import";
+          const isManual = p.inputSource === "manual";
+          const isLegacy = !isTrackedImport && !isManual;
+          if (isLegacy && !includeLegacy) return false;
+          return true;
+        });
+
+        return executeSafeImportDelete(tx, batchId, cardPkgs, { includeManual });
+      });
+
+      if (result.deletedPackages.length > 0) {
+        await recalcAffectedGroupsAfterImportDelete(batchId, result.deletedPackages);
+      }
+
+      res.json({
+        success: true,
+        batchId,
+        serviceKey,
+        serviceLabel,
+        includeLegacy,
+        includeManual,
+        deletedCount: result.deletedCount,
+        skippedCount: result.skippedCount,
+        skippedReasons: result.skippedReasons,
+        skippedDetails: result.skippedDetails,
+        message:
+          result.deletedCount > 0
+            ? `Card ${serviceLabel}: ${result.deletedCount} paket berhasil dihapus.${result.skippedCount > 0 ? ` ${result.skippedCount} paket dilewati karena terkunci.` : ""}`
+            : result.skippedCount > 0
+              ? `Tidak ada paket di card ${serviceLabel} yang dapat dihapus (${result.skippedCount} paket terkunci / input manual).`
+              : `Tidak ada paket yang dapat dihapus pada card ${serviceLabel}.`,
+      });
+    } catch (err) {
+      req.log.error(err);
+      res.status(500).json({ error: "Gagal menghapus paket pada card layanan" });
     }
   },
 );
