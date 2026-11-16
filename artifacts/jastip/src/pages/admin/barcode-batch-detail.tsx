@@ -1803,19 +1803,19 @@ export default function BarcodeBatchDetail({
                           <Button
                             size="sm"
                             variant="destructive"
-                            disabled={isDeletingImports || card.deletableImportCount === 0}
+                            disabled={isDeletingImports || card.deletableCount === 0}
                             onClick={() =>
                               setDeleteTarget({
                                 mode: "service-card",
                                 serviceKey: card.serviceKey,
                                 serviceLabel: card.serviceLabel,
-                                deletableCount: card.deletableImportCount,
-                                lockedCount: card.lockedCount + card.manualCount,
+                                deletableCount: card.deletableCount,
+                                lockedCount: card.lockedCount,
                               })
                             }
                             className="shrink-0 gap-1.5"
                           >
-                            <Trash2 className="w-3.5 h-3.5" /> Hapus Card Ini ({card.deletableImportCount})
+                            <Trash2 className="w-3.5 h-3.5" /> Hapus Card Ini ({card.deletableCount})
                           </Button>
                         </div>
                       ))}

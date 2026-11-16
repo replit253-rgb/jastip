@@ -1851,6 +1851,7 @@ router.get(
             deletableLegacyCount: deletableLegacyCard,
             deletableImportCount: deletableTrackedCard + deletableLegacyCard,
             deletableManualCount: deletableManualCard,
+            deletableCount: deletableTrackedCard + deletableLegacyCard + deletableManualCard,
             lockedCount,
             lockedReasons,
           };
