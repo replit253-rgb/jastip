@@ -4,7 +4,7 @@ import {
   useListBatches,
   getListPackagesQueryKey,
 } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import QRCode from "qrcode";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,20 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft,
@@ -33,6 +46,10 @@ import {
   Eye,
   RefreshCw,
   Save,
+  Trash2,
+  FileSpreadsheet,
+  AlertTriangle,
+  Loader2,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Pagination } from "@/components/pagination";
@@ -110,33 +127,71 @@ function roundPesawatGroupWeight(totalRealWeight: number): number {
   return totalRealWeight;
 }
 
+interface PelniTierConfig {
+  maxKg: number | null;
+  rate: number;
+}
+
+interface BaseRatesConfig {
+  pesawatRate: number;
+  hematRate: number;
+  kargoRate: number;
+  pelniTiersJakarta: PelniTierConfig[];
+  pelniTiersSurabaya: PelniTierConfig[];
+}
+
+const DEFAULT_BASE_RATES: BaseRatesConfig = {
+  pesawatRate: 77000,
+  hematRate: 10000,
+  kargoRate: 1900000,
+  pelniTiersJakarta: [
+    { maxKg: 10.1, rate: 20000 },
+    { maxKg: 20.1, rate: 19000 },
+    { maxKg: 40.1, rate: 18000 },
+    { maxKg: 80.1, rate: 17000 },
+    { maxKg: null, rate: 16000 },
+  ],
+  pelniTiersSurabaya: [
+    { maxKg: 10, rate: 18000 },
+    { maxKg: 20, rate: 17000 },
+    { maxKg: 40, rate: 16000 },
+    { maxKg: null, rate: 15500 },
+  ],
+};
+
 // Pelni: tarif bertingkat berdasarkan total berat gabungan konsumen dalam batch
 function getPelniRateByTotalWeight(
   totalWeight: number,
   deliveryRoute: string,
+  baseRates: BaseRatesConfig = DEFAULT_BASE_RATES,
 ): number | null {
   if (!deliveryRoute || !totalWeight || totalWeight <= 0) return null;
-  if (deliveryRoute === "Jakarta → Manokwari") {
-    if (totalWeight <= 10.1) return 20000;
-    if (totalWeight <= 20.1) return 19000;
-    if (totalWeight <= 40.1) return 18000;
-    if (totalWeight <= 80.1) return 17000;
-    return 16000;
+  const routeNorm = deliveryRoute.trim().toLowerCase();
+  const tiers =
+    routeNorm.startsWith("jakarta") && !routeNorm.includes("surabaya")
+      ? baseRates.pelniTiersJakarta
+      : routeNorm.startsWith("surabaya") && !routeNorm.includes("jakarta")
+        ? baseRates.pelniTiersSurabaya
+        : null;
+  if (!tiers || tiers.length === 0) return null;
+
+  for (const tier of tiers) {
+    const maxVal = tier.maxKg;
+    if (maxVal === null || maxVal === undefined || maxVal >= 999999 || totalWeight <= maxVal) {
+      return Number(tier.rate);
+    }
   }
-  if (deliveryRoute === "Surabaya → Manokwari") {
-    if (totalWeight <= 10) return 18000;
-    if (totalWeight <= 20) return 17000;
-    if (totalWeight <= 40) return 16000;
-    return 15500;
-  }
-  return null;
+  return Number(tiers[tiers.length - 1].rate);
 }
 
-// Hitung total ongkir grup sesuai aturan masing-masing layanan:
-// - Pesawat: sum realWeight → bulatkan → × 77000
+// Hitung estimasi total ongkir grup sesuai aturan & tarif aktif dari settings:
+// - Pesawat: sum realWeight → bulatkan → × baseRates.pesawatRate
 // - Pelni  : sum usedWeight → tarif bertingkat → × rate
 // - Lain   : sum totalShipping per paket
-function calcGroupTotalShipping(pkgs: any[]): number {
+function calcGroupTotalShipping(
+  pkgs: any[],
+  baseRates: BaseRatesConfig = DEFAULT_BASE_RATES,
+): number {
   const first = pkgs[0];
   const svc = (first?.serviceType || "").toLowerCase();
 
@@ -146,7 +201,7 @@ function calcGroupTotalShipping(pkgs: any[]): number {
       0,
     );
     const rounded = roundPesawatGroupWeight(totalRealWeight);
-    return Math.round(rounded * 77000);
+    return Math.round(rounded * baseRates.pesawatRate);
   }
 
   if (svc === "jastip pelni") {
@@ -154,14 +209,18 @@ function calcGroupTotalShipping(pkgs: any[]): number {
       (s, p) => s + (Number(p.usedWeight) || Number(p.realWeight) || 0),
       0,
     );
-    const rate = getPelniRateByTotalWeight(
-      totalWeight,
-      first?.deliveryRoute || "",
-    ) || 20000;
+    const route = first?.deliveryRoute || "";
+    const fallbackFirst = route.toLowerCase().includes("surabaya")
+      ? baseRates.pelniTiersSurabaya[0]?.rate
+      : baseRates.pelniTiersJakarta[0]?.rate;
+    const rate =
+      getPelniRateByTotalWeight(totalWeight, route, baseRates) ??
+      fallbackFirst ??
+      20000;
     const calc = rate
       ? Math.round(totalWeight * rate)
       : pkgs.reduce((s, p) => s + (Number(p.totalShipping) || 0), 0);
-    return Math.max(20000, calc);
+    return Math.max(fallbackFirst ?? 20000, calc);
   }
 
   return pkgs.reduce((s, p) => s + (Number(p.totalShipping) || 0), 0);
@@ -173,6 +232,7 @@ function buildGroupedPage(
   qrDataUrl: string,
   qrValue: string,
   batchLabel?: string,
+  baseRates: BaseRatesConfig = DEFAULT_BASE_RATES,
 ): string {
   const first = pkgs[0];
   const svc = (first?.serviceType || "").toLowerCase();
@@ -186,9 +246,9 @@ function buildGroupedPage(
     (s, p) => s + (Number(p.additionalFee) || 0),
     0,
   );
-  const totalShipping = calcGroupTotalShipping(pkgs);
+  const totalShipping = calcGroupTotalShipping(pkgs, baseRates);
   const pelniRate = isPelni
-    ? getPelniRateByTotalWeight(totalWeight, first?.deliveryRoute || "")
+    ? getPelniRateByTotalWeight(totalWeight, first?.deliveryRoute || "", baseRates)
     : null;
 
   // Pesawat: tampilkan total berat real dan berat dibulatkan
@@ -243,11 +303,12 @@ function buildGroupedPrintHtml(
   qrDataUrl: string,
   qrValue: string,
   batchLabel?: string,
+  baseRates: BaseRatesConfig = DEFAULT_BASE_RATES,
 ) {
   const first = pkgs[0];
   return labelDocumentHtml(
     `Label Grup - ${first?.customerName}`,
-    buildGroupedPage(pkgs, qrDataUrl, qrValue, batchLabel),
+    buildGroupedPage(pkgs, qrDataUrl, qrValue, batchLabel, baseRates),
   );
 }
 
@@ -430,9 +491,11 @@ function SingleBarcodeCard({
 function GroupedBarcodeCard({
   pkgs,
   batchLabel,
+  baseRates,
 }: {
   pkgs: any[];
   batchLabel?: string;
+  baseRates: BaseRatesConfig;
 }) {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
@@ -447,13 +510,13 @@ function GroupedBarcodeCard({
     (s, p) => s + (Number(p.usedWeight) || Number(p.realWeight) || 0),
     0,
   );
-  const totalShipping = calcGroupTotalShipping(pkgs);
+  const totalShipping = calcGroupTotalShipping(pkgs, baseRates);
   const totalAdditionalFee = pkgs.reduce(
     (s, p) => s + (Number(p.additionalFee) || 0),
     0,
   );
   const pelniRate = isPelniCard
-    ? getPelniRateByTotalWeight(totalWeight, first?.deliveryRoute || "")
+    ? getPelniRateByTotalWeight(totalWeight, first?.deliveryRoute || "", baseRates)
     : null;
   // Pesawat: sum realWeight → bulatkan (untuk ditampilkan di kartu)
   const pesawatTotalReal = isPesawatCard
@@ -489,7 +552,7 @@ function GroupedBarcodeCard({
     const win = window.open("", "_blank");
     if (!win) return;
     win.document.write(
-      buildGroupedPrintHtml(pkgs, qrDataUrl, qrValue, batchLabel),
+      buildGroupedPrintHtml(pkgs, qrDataUrl, qrValue, batchLabel, baseRates),
     );
     win.document.close();
   }
@@ -560,7 +623,7 @@ function GroupedBarcodeCard({
         {isPesawatCard && (
           <div className="text-xs text-blue-600 mb-0.5">
             ✈️ Real: {pesawatTotalReal.toFixed(3)} Kg → Dibulatkan:{" "}
-            {pesawatRounded.toFixed(3)} Kg × Rp77.000
+            {pesawatRounded.toFixed(3)} Kg × {formatRp(baseRates.pesawatRate)}
           </div>
         )}
         {isPelniCard && pelniRate && (
@@ -652,7 +715,8 @@ export default function BarcodeBatchDetail({
   const batchId = Number(rawId);
   const [location, setLocation] = useLocation();
   const { user } = useAuth();
-  const base = user?.role === "owner" ? "/owner" : "/admin";
+  const isOwner = user?.role === "owner";
+  const base = isOwner ? "/owner" : "/admin";
 
   const rawQueryFromWouter = location.split("?")[1] || "";
   const rawQueryFromWindow =
@@ -683,8 +747,22 @@ export default function BarcodeBatchDetail({
     setPage(1);
   }, [location]);
 
+  // ── Tarif dasar dari /api/settings/base-rates ──────────────────────────────
+  const { data: baseRates = DEFAULT_BASE_RATES } = useQuery<BaseRatesConfig>({
+    queryKey: ["settings", "base-rates"],
+    queryFn: async () => {
+      const token = localStorage.getItem("jaj_token");
+      const res = await fetch("/api/settings/base-rates", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return DEFAULT_BASE_RATES;
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+
   // ── Sinkronisasi ongkir Kargo ─────────────────────────────────────────────
-  const KARGO_RATE = 7000;
+  const kargoRate = baseRates.kargoRate;
   const [syncOpen, setSyncOpen] = useState(false);
   const [syncRows, setSyncRows] = useState<
     {
@@ -694,47 +772,88 @@ export default function BarcodeBatchDetail({
       packageNumber: string;
       itemName: string;
       usedWeight: number | null;
-      calcOngkir: number | null; // berat × 7.000
+      calcOngkir: number | null; // berat/kubikasi × kargoRate (settings)
       currentOngkir: string;
       newOngkir: string;
     }[]
   >([]);
   const [syncing, setSyncing] = useState(false);
 
-  const [isRecalculatingBatch, setIsRecalculatingBatch] = useState(false);
+  // ── Hapus Data Hasil Impor (Owner only) ────────────────────────────────────
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importSummary, setImportSummary] = useState<any | null>(null);
+  const [loadingImports, setLoadingImports] = useState(false);
+  const [includeLegacyImports, setIncludeLegacyImports] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<
+    | { mode: "single"; importId: number; fileName: string; deletableCount: number; lockedCount: number }
+    | { mode: "batch"; deletableCount: number; includeLegacy: boolean }
+    | null
+  >(null);
+  const [isDeletingImports, setIsDeletingImports] = useState(false);
+  const [lastDeleteResult, setLastDeleteResult] = useState<any | null>(null);
 
-  async function handleRecalculateThisBatch() {
-    setIsRecalculatingBatch(true);
+  async function fetchImportSummary() {
+    if (!isOwner || !batchId) return;
+    setLoadingImports(true);
     try {
       const token = localStorage.getItem("jaj_token");
-      const res = await fetch("/api/packages/recalculate-batch", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ batchId }),
+      const res = await fetch(`/api/packages/imports?batchId=${batchId}`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Gagal menghitung ulang ongkir batch");
-      await queryClient.invalidateQueries({
-        queryKey: getListPackagesQueryKey({ batchId }),
-      });
-      await queryClient.invalidateQueries({
-        queryKey: getListPackagesQueryKey(),
-      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Gagal memuat data impor");
+      setImportSummary(json);
+    } catch (err: any) {
       toast({
-        title: "Hitung Ulang Selesai",
-        description: data.message || `Berhasil memperbarui paket pada Batch #${batchId}.`,
+        variant: "destructive",
+        title: "Gagal memuat daftar impor",
+        description: err.message || "Terjadi kesalahan",
+      });
+    } finally {
+      setLoadingImports(false);
+    }
+  }
+
+  function openImportDeleteModal() {
+    if (!isOwner) return;
+    setLastDeleteResult(null);
+    setIncludeLegacyImports(false);
+    setImportModalOpen(true);
+    fetchImportSummary();
+  }
+
+  async function handleConfirmDeleteImport() {
+    if (!deleteTarget || !isOwner) return;
+    setIsDeletingImports(true);
+    try {
+      const token = localStorage.getItem("jaj_token");
+      const url =
+        deleteTarget.mode === "single"
+          ? `/api/packages/imports/${deleteTarget.importId}`
+          : `/api/packages/imports/batch/${batchId}?includeLegacy=${deleteTarget.includeLegacy ? "true" : "false"}`;
+      const res = await fetch(url, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Gagal menghapus data impor");
+
+      setLastDeleteResult(json);
+      setDeleteTarget(null);
+      await queryClient.invalidateQueries({ queryKey: getListPackagesQueryKey() });
+      await fetchImportSummary();
+      toast({
+        title: json.deletedCount > 0 ? "Data Impor Dihapus" : "Tidak Ada Paket Dihapus",
+        description: json.message,
       });
     } catch (err: any) {
       toast({
         variant: "destructive",
-        title: "Gagal",
-        description: err.message,
+        title: "Gagal menghapus data impor",
+        description: err.message || "Terjadi kesalahan",
       });
     } finally {
-      setIsRecalculatingBatch(false);
+      setIsDeletingImports(false);
     }
   }
 
@@ -893,7 +1012,7 @@ export default function BarcodeBatchDetail({
   // ── Sinkronisasi ongkir Kargo ─────────────────────────────────────────────
   function calcKargoOngkir(berat: number | null): number | null {
     if (!berat || berat <= 0) return null;
-    return Math.round(berat * KARGO_RATE);
+    return Math.round(berat * kargoRate);
   }
 
   function openSync() {
@@ -1047,7 +1166,7 @@ export default function BarcodeBatchDetail({
         } catch {
           continue;
         }
-        pages.push(buildGroupedPage(pkgs, qrDataUrl, qrValue, batchLabel));
+        pages.push(buildGroupedPage(pkgs, qrDataUrl, qrValue, batchLabel, baseRates));
       }
     }
     if (!pages.length) return;
@@ -1111,16 +1230,15 @@ export default function BarcodeBatchDetail({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <Button
-            variant="outline"
-            onClick={handleRecalculateThisBatch}
-            disabled={isRecalculatingBatch || batchPkgs.length === 0}
-            className="gap-2 border-orange-300 text-orange-700 hover:bg-orange-50"
-            title="Hitung ulang seluruh ongkir paket khusus pada batch ini"
-          >
-            <RefreshCw className={`h-4 w-4 ${isRecalculatingBatch ? "animate-spin" : ""}`} />
-            {isRecalculatingBatch ? "Menghitung..." : "Hitung Ulang Batch Ini"}
-          </Button>
+          {isOwner && batch?.statusBatch !== "ARSIP" && (
+            <Button
+              variant="outline"
+              onClick={openImportDeleteModal}
+              className="gap-2 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+            >
+              <Trash2 className="h-4 w-4" /> Hapus Data Impor
+            </Button>
+          )}
           <Button
             onClick={printAll}
             disabled={batchPkgs.length === 0}
@@ -1255,6 +1373,7 @@ export default function BarcodeBatchDetail({
                       key={`${pkgs[0]?.customerName}|${pkgs[0]?.serviceType}|${pkgs[0]?.batchId}`}
                       pkgs={pkgs}
                       batchLabel={batchLabel}
+                      baseRates={baseRates}
                     />
                   ),
                 )}
@@ -1280,7 +1399,7 @@ export default function BarcodeBatchDetail({
               Sinkronisasi Ongkir — Jastip Kargo
             </DialogTitle>
             <div className="mt-2 rounded-md bg-orange-50 border border-orange-200 px-3 py-2 text-xs text-orange-800 space-y-0.5">
-              <p className="font-semibold">Rumus: Berat Paket × Rp 7.000</p>
+              <p className="font-semibold">Rumus: Berat/Kubikasi Paket × {formatRp(kargoRate)}</p>
               <p className="text-orange-600">
                 Kolom <b>Ongkir Baru</b> sudah dihitung otomatis. Edit manual
                 jika ada perbedaan, lalu klik <b>Simpan Semua</b>.
@@ -1297,8 +1416,7 @@ export default function BarcodeBatchDetail({
                 className="text-xs border-orange-300 text-orange-700 hover:bg-orange-50 gap-1"
                 onClick={recalcAll}
               >
-                <RefreshCw className="w-3 h-3" /> Hitung Ulang Semua (Berat × Rp
-                7.000)
+                <RefreshCw className="w-3 h-3" /> Hitung Ulang Semua (Berat × {formatRp(kargoRate)})
               </Button>
               <span className="text-xs text-muted-foreground">
                 {syncRows.filter((r) => r.usedWeight == null).length > 0 &&
@@ -1324,7 +1442,7 @@ export default function BarcodeBatchDetail({
                     Berat (Kg)
                   </th>
                   <th className="text-right py-2 px-2 font-medium text-xs text-blue-600 uppercase">
-                    Hitung (×7rb)
+                    Hitung ({formatRp(kargoRate)})
                   </th>
                   <th className="text-right py-2 px-2 font-medium text-xs text-muted-foreground uppercase">
                     Saat Ini
@@ -1462,6 +1580,235 @@ export default function BarcodeBatchDetail({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog: Kelola & Hapus Data Hasil Impor (Owner only) */}
+      <Dialog open={importModalOpen} onOpenChange={setImportModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[88vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="w-5 h-5 text-red-600" />
+              Hapus Data Hasil Impor — {batch?.namaKapal || batchLabel}
+            </DialogTitle>
+            <DialogDescription>
+              Bersihkan paket hasil impor Excel yang salah/dobel pada batch ini. Paket input manual dan paket yang sudah diverifikasi/diambil/masuk transaksi tidak akan dihapus.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+            {lastDeleteResult && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50/70 p-3 text-xs space-y-1">
+                <p className="font-semibold text-blue-900">{lastDeleteResult.message}</p>
+                {lastDeleteResult.skippedCount > 0 && lastDeleteResult.skippedReasons && (
+                  <p className="text-blue-800">
+                    Rincian dilewati — Diverifikasi: {lastDeleteResult.skippedReasons.verified || 0}, Sudah diambil:{" "}
+                    {lastDeleteResult.skippedReasons.pickedUp || 0}, Masuk transaksi:{" "}
+                    {lastDeleteResult.skippedReasons.inTransaction || 0}, Masuk invoice:{" "}
+                    {lastDeleteResult.skippedReasons.inInvoice || 0}, Input manual:{" "}
+                    {lastDeleteResult.skippedReasons.manual || 0}.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {loadingImports ? (
+              <div className="flex items-center justify-center py-10 text-muted-foreground gap-2 text-sm">
+                <Loader2 className="w-4 h-4 animate-spin" /> Memuat daftar sesi impor...
+              </div>
+            ) : !importSummary ? null : (
+              <>
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="rounded-lg border p-2.5 bg-muted/20">
+                    <p className="text-muted-foreground">Hasil Impor Terlacak</p>
+                    <p className="text-lg font-bold">{importSummary.trackedPackageCount ?? 0} paket</p>
+                  </div>
+                  <div className="rounded-lg border p-2.5 bg-muted/20">
+                    <p className="text-muted-foreground">Input Manual (Aman)</p>
+                    <p className="text-lg font-bold text-emerald-700">{importSummary.manualCount ?? 0} paket</p>
+                  </div>
+                  <div className="rounded-lg border p-2.5 bg-muted/20">
+                    <p className="text-muted-foreground">Data Lama (Tanpa Tag)</p>
+                    <p className="text-lg font-bold text-amber-700">{importSummary.legacyUnlinkedCount ?? 0} paket</p>
+                  </div>
+                </div>
+
+                {/* Daftar sesi impor */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Daftar Sesi Impor Excel ({importSummary.imports?.length ?? 0})
+                  </p>
+                  {!importSummary.imports?.length ? (
+                    <div className="rounded-lg border border-dashed p-5 text-center text-xs text-muted-foreground">
+                      Belum ada sesi impor Excel terlacak di batch ini.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {importSummary.imports.map((imp: any) => (
+                        <div
+                          key={imp.importId}
+                          className="rounded-lg border p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card"
+                        >
+                          <div className="min-w-0 space-y-0.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold text-sm truncate">{imp.fileName}</span>
+                              <Badge variant="outline" className="text-[11px]">
+                                ID #{imp.importId}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(imp.createdAt).toLocaleString("id-ID", {
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                              {imp.importedByName ? ` · oleh ${imp.importedByName}` : ""}
+                            </p>
+                            <p className="text-xs">
+                              Tersisa <strong>{imp.currentPackageCount}</strong> dari {imp.packageCount} paket{" "}
+                              <span className="text-emerald-700">({imp.deletableCount} bisa dihapus</span>
+                              {imp.lockedCount > 0 ? (
+                                <span className="text-amber-700">, {imp.lockedCount} terkunci</span>
+                              ) : null}
+                              )
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            disabled={isDeletingImports || imp.deletableCount === 0}
+                            onClick={() =>
+                              setDeleteTarget({
+                                mode: "single",
+                                importId: imp.importId,
+                                fileName: imp.fileName,
+                                deletableCount: imp.deletableCount,
+                                lockedCount: imp.lockedCount,
+                              })
+                            }
+                            className="shrink-0 gap-1.5"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> Hapus Sesi Ini
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Hapus semua data impor batch */}
+                <div className="rounded-lg border border-red-200 bg-red-50/50 p-3.5 space-y-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    <div className="text-xs space-y-1">
+                      <p className="font-semibold text-red-900">Hapus Semua Data Hasil Impor Batch Ini</p>
+                      <p className="text-red-800/90">
+                        Menghapus seluruh paket hasil impor pada batch ini yang masih aman dihapus (belum diverifikasi, belum diambil, dan belum masuk transaksi/invoice). Paket input manual tidak akan disentuh.
+                      </p>
+                    </div>
+                  </div>
+
+                  {(importSummary.legacyUnlinkedCount ?? 0) > 0 && (
+                    <div className="flex items-start space-x-2 rounded border border-amber-200 bg-amber-50/70 p-2.5">
+                      <Checkbox
+                        id="include-legacy-imports"
+                        checked={includeLegacyImports}
+                        onCheckedChange={(v) => setIncludeLegacyImports(Boolean(v))}
+                      />
+                      <Label
+                        htmlFor="include-legacy-imports"
+                        className="text-xs leading-snug text-amber-950 cursor-pointer"
+                      >
+                        Sertakan <strong>{importSummary.legacyUnlinkedCount} paket data lama</strong> (diimpor sebelum fitur pelacakan impor; {importSummary.deletableLegacyCount} memenuhi syarat aman dihapus). Paket input manual baru tetap tidak tersentuh.
+                      </Label>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={
+                        isDeletingImports ||
+                        ((importSummary.deletableTrackedCount ?? 0) === 0 &&
+                          (!includeLegacyImports || (importSummary.deletableLegacyCount ?? 0) === 0))
+                      }
+                      onClick={() =>
+                        setDeleteTarget({
+                          mode: "batch",
+                          deletableCount:
+                            (importSummary.deletableTrackedCount ?? 0) +
+                            (includeLegacyImports ? (importSummary.deletableLegacyCount ?? 0) : 0),
+                          includeLegacy: includeLegacyImports,
+                        })
+                      }
+                      className="gap-1.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Hapus Semua Impor (
+                      {(importSummary.deletableTrackedCount ?? 0) +
+                        (includeLegacyImports ? (importSummary.deletableLegacyCount ?? 0) : 0)}{" "}
+                      paket)
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportModalOpen(false)}>
+              Tutup
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Konfirmasi AlertDialog hapus data impor */}
+      <AlertDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open && !isDeletingImports) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Konfirmasi Hapus Data Impor</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.mode === "single" ? (
+                <>
+                  Anda akan menghapus secara permanen paket dari sesi impor{" "}
+                  <strong className="text-foreground">{deleteTarget.fileName}</strong> ({" "}
+                  <strong className="text-foreground">{deleteTarget.deletableCount} paket</strong> akan dihapus
+                  {deleteTarget.lockedCount > 0 ? `, ${deleteTarget.lockedCount} paket terkunci akan dilewati` : ""}).
+                </>
+              ) : (
+                <>
+                  Anda akan menghapus secara permanen seluruh paket hasil impor pada batch ini ({" "}
+                  <strong className="text-foreground">{deleteTarget?.deletableCount ?? 0} paket</strong> akan dihapus
+                  {deleteTarget?.includeLegacy ? ", termasuk data lama tanpa tag impor" : ""}).
+                </>
+              )}
+              <br />
+              <br />
+              Tindakan ini tidak dapat dibatalkan. Paket input manual, paket sudah diverifikasi, sudah diambil, atau sudah masuk transaksi/invoice tetap aman.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingImports}>Batal</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleConfirmDeleteImport();
+              }}
+              disabled={isDeletingImports}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {isDeletingImports ? "Menghapus..." : "Ya, Hapus Permanen"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

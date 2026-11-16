@@ -12,6 +12,7 @@ import {
 import { and, desc, eq } from "drizzle-orm";
 import { requireAuth, requireRole } from "../middlewares/auth";
 import { safeIsoString } from "../lib/dates";
+import { getBaseRates } from "../lib/base-rates";
 
 const router = Router();
 
@@ -56,6 +57,17 @@ router.get("/", requireAuth, requireRole("admin", "owner"), async (req, res) => 
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/settings/base-rates — normalized tariff rates + fallback defaults (admin + owner)
+router.get("/base-rates", requireAuth, requireRole("admin", "owner"), async (req, res) => {
+  try {
+    const rates = await getBaseRates();
+    res.json(rates);
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Gagal memuat tarif dasar" });
   }
 });
 
@@ -198,44 +210,107 @@ router.post(
   },
 );
 
-// GET /api/settings/shipping-minimum — Owner configuration for Phase 4.
+const DEFAULT_SHIPPING_MINIMUM_SEED = [
+  { serviceName: "jastip pelni", originCity: "Jakarta", enabled: true, minimumAmount: "20000" },
+  { serviceName: "jastip pelni", originCity: "Surabaya", enabled: true, minimumAmount: "20000" },
+  { serviceName: "jastip hemat+", originCity: "Surabaya", enabled: true, minimumAmount: "10000" },
+  { serviceName: "jastip hemat+", originCity: "Jakarta", enabled: false, minimumAmount: "10000" },
+  { serviceName: "jastip kargo", originCity: "Jakarta", enabled: false, minimumAmount: "0" },
+  { serviceName: "jastip kargo", originCity: "Surabaya", enabled: false, minimumAmount: "0" },
+  { serviceName: "jastip pesawat", originCity: "Jakarta", enabled: true, minimumAmount: "15400" },
+  { serviceName: "jastip pesawat", originCity: "Surabaya", enabled: false, minimumAmount: "15400" },
+];
+
+async function getEnrichedShippingMinimumRows() {
+  let services = await db.select().from(serviceTypesTable);
+  if (services.length === 0) {
+    await db
+      .insert(serviceTypesTable)
+      .values([
+        { name: "jastip pelni", label: "Jastip Pelni", description: "Layanan kapal Pelni", divisor: 4000, isActive: true },
+        { name: "jastip hemat+", label: "Jastip Hemat+", description: "Layanan hemat Surabaya-Manokwari", divisor: 4000, isActive: true },
+        { name: "jastip kargo", label: "Jastip Kargo", description: "Layanan kargo pelabuhan", divisor: 1000000, isActive: true },
+        { name: "jastip pesawat", label: "Jastip Pesawat", description: "Layanan kilat udara", divisor: 5000, isActive: true },
+      ])
+      .onConflictDoNothing();
+    services = await db.select().from(serviceTypesTable);
+  }
+
+  const serviceById = new Map<number, any>(services.map((s: any) => [s.id, s]));
+  const serviceByName = new Map<string, any>(
+    services.map((s: any) => [String(s.name || "").toLowerCase(), s]),
+  );
+
+  let rows = await db.select().from(settingsShippingMinimumTable);
+  const existingKeys = new Set(
+    rows.map((r: any) => `${r.serviceId}|${String(r.originCity || "").trim().toLowerCase()}`),
+  );
+
+  for (const seed of DEFAULT_SHIPPING_MINIMUM_SEED) {
+    const svc = serviceByName.get(seed.serviceName);
+    if (!svc) continue;
+    const key = `${svc.id}|${seed.originCity.toLowerCase()}`;
+    if (!existingKeys.has(key)) {
+      await db
+        .insert(settingsShippingMinimumTable)
+        .values({
+          serviceId: svc.id,
+          originCity: seed.originCity,
+          enabled: seed.enabled,
+          minimumAmount: seed.minimumAmount,
+        })
+        .onConflictDoNothing();
+      existingKeys.add(key);
+    }
+  }
+
+  rows = await db.select().from(settingsShippingMinimumTable);
+  return rows
+    .map((row: any) => {
+      const svc = serviceById.get(row.serviceId);
+      return {
+        id: row.id,
+        serviceId: row.serviceId,
+        serviceName:
+          svc?.name ||
+          (row.serviceId === 1
+            ? "jastip pelni"
+            : row.serviceId === 2
+              ? "jastip hemat+"
+              : row.serviceId === 3
+                ? "jastip kargo"
+                : "jastip pesawat"),
+        serviceLabel:
+          svc?.label ||
+          (row.serviceId === 1
+            ? "Jastip Pelni"
+            : row.serviceId === 2
+              ? "Jastip Hemat+"
+              : row.serviceId === 3
+                ? "Jastip Kargo"
+                : "Jastip Pesawat"),
+        originCity: row.originCity,
+        enabled: Boolean(row.enabled),
+        minimumAmount: Number(row.minimumAmount) || 0,
+        updatedBy: row.updatedBy ?? null,
+        updatedAt: safeIsoString(row.updatedAt),
+      };
+    })
+    .sort((a: any, b: any) => {
+      const lbl = String(a.serviceLabel).localeCompare(String(b.serviceLabel), "id");
+      if (lbl !== 0) return lbl;
+      return String(a.originCity).localeCompare(String(b.originCity), "id");
+    });
+}
+
+// GET /api/settings/shipping-minimum (or /shipping-minimums) — Owner only
 router.get(
-  "/shipping-minimum",
+  ["/shipping-minimum", "/shipping-minimums"],
   requireAuth,
   requireRole("owner"),
   async (req, res) => {
     try {
-      const services = await db.select().from(serviceTypesTable);
-      const serviceMap = new Map(services.map((s: any) => [s.id, s]));
-
-      const rows = await db
-        .select({
-          id: settingsShippingMinimumTable.id,
-          serviceId: settingsShippingMinimumTable.serviceId,
-          serviceName: serviceTypesTable.name,
-          serviceLabel: serviceTypesTable.label,
-          originCity: settingsShippingMinimumTable.originCity,
-          enabled: settingsShippingMinimumTable.enabled,
-          minimumAmount: settingsShippingMinimumTable.minimumAmount,
-          updatedBy: settingsShippingMinimumTable.updatedBy,
-          updatedAt: settingsShippingMinimumTable.updatedAt,
-        })
-        .from(settingsShippingMinimumTable)
-        .leftJoin(
-          serviceTypesTable,
-          eq(settingsShippingMinimumTable.serviceId, serviceTypesTable.id),
-        );
-
-      const enrichedRows = rows.map((row: any) => {
-        const svc = serviceMap.get(row.serviceId);
-        return {
-          ...row,
-          serviceName: row.serviceName || svc?.name || (row.serviceId === 1 ? "jastip pelni" : row.serviceId === 2 ? "jastip hemat+" : row.serviceId === 3 ? "jastip kargo" : "jastip pesawat"),
-          serviceLabel: row.serviceLabel || svc?.label || (row.serviceId === 1 ? "Jastip Pelni" : row.serviceId === 2 ? "Jastip Hemat+" : row.serviceId === 3 ? "Jastip Kargo" : "Jastip Pesawat"),
-          minimumAmount: Number(row.minimumAmount) || 0,
-          updatedAt: safeIsoString(row.updatedAt),
-        };
-      });
+      const enrichedRows = await getEnrichedShippingMinimumRows();
       res.json(enrichedRows);
     } catch (err) {
       req.log.error(err);
@@ -244,9 +319,9 @@ router.get(
   },
 );
 
-// PATCH /api/settings/shipping-minimum — Owner only, with tarif_history audit.
+// PATCH /api/settings/shipping-minimum (or /shipping-minimums) — Owner only, with tarif_history audit.
 router.patch(
-  "/shipping-minimum",
+  ["/shipping-minimum", "/shipping-minimums"],
   requireAuth,
   requireRole("owner"),
   async (req, res) => {
@@ -256,6 +331,7 @@ router.patch(
         _alasan?: string;
         settings?: Array<{
           serviceId?: number;
+          serviceName?: string;
           originCity?: string;
           enabled?: boolean;
           minimumAmount?: number;
@@ -267,13 +343,25 @@ router.patch(
         return;
       }
 
+      const allServices = await db.select().from(serviceTypesTable);
+
       await db.transaction(async (tx) => {
         for (const input of settings) {
-          const serviceId = Number(input.serviceId);
+          let service: any = null;
+          if (input.serviceId !== undefined && input.serviceId !== null) {
+            const sid = Number(input.serviceId);
+            if (!Number.isInteger(sid) || sid <= 0) {
+              throw new Error("Format pengaturan harga minimum tidak valid");
+            }
+            service = allServices.find((s: any) => Number(s.id) === sid) || null;
+          } else if (input.serviceName) {
+            const sname = String(input.serviceName).trim().toLowerCase();
+            service = allServices.find((s: any) => String(s.name || "").toLowerCase() === sname) || null;
+          }
+
           const originCity = String(input.originCity || "").trim();
           const minimumAmount = Number(input.minimumAmount);
           if (
-            !Number.isInteger(serviceId) ||
             !originCity ||
             typeof input.enabled !== "boolean" ||
             !Number.isInteger(minimumAmount) ||
@@ -281,20 +369,14 @@ router.patch(
           ) {
             throw new Error("Format pengaturan harga minimum tidak valid");
           }
-
-          const service = await tx
-            .select({ id: serviceTypesTable.id, label: serviceTypesTable.label })
-            .from(serviceTypesTable)
-            .where(eq(serviceTypesTable.id, serviceId))
-            .limit(1);
-          if (!service[0]) throw new Error("Layanan tidak ditemukan");
+          if (!service) throw new Error("Layanan tidak ditemukan");
 
           const existing = await tx
             .select()
             .from(settingsShippingMinimumTable)
             .where(
               and(
-                eq(settingsShippingMinimumTable.serviceId, serviceId),
+                eq(settingsShippingMinimumTable.serviceId, service.id),
                 eq(settingsShippingMinimumTable.originCity, originCity),
               ),
             )
@@ -314,7 +396,7 @@ router.patch(
               .where(eq(settingsShippingMinimumTable.id, previous.id));
           } else {
             await tx.insert(settingsShippingMinimumTable).values({
-              serviceId,
+              serviceId: service.id,
               originCity,
               enabled: next.enabled,
               minimumAmount: String(next.minimumAmount),
@@ -323,7 +405,7 @@ router.patch(
           }
 
           await tx.insert(tarifHistoryTable).values({
-            jenisJastip: `${service[0].label} — Harga Minimum ${originCity}`,
+            jenisJastip: `${service.label} — Harga Minimum ${originCity}`,
             tarifLama: previous
               ? JSON.stringify({
                   enabled: previous.enabled,
@@ -338,31 +420,8 @@ router.patch(
         }
       });
 
-      const rows = await db
-        .select({
-          id: settingsShippingMinimumTable.id,
-          serviceId: settingsShippingMinimumTable.serviceId,
-          serviceName: serviceTypesTable.name,
-          serviceLabel: serviceTypesTable.label,
-          originCity: settingsShippingMinimumTable.originCity,
-          enabled: settingsShippingMinimumTable.enabled,
-          minimumAmount: settingsShippingMinimumTable.minimumAmount,
-          updatedBy: settingsShippingMinimumTable.updatedBy,
-          updatedAt: settingsShippingMinimumTable.updatedAt,
-        })
-        .from(settingsShippingMinimumTable)
-        .innerJoin(
-          serviceTypesTable,
-          eq(settingsShippingMinimumTable.serviceId, serviceTypesTable.id),
-        )
-        .orderBy(serviceTypesTable.label, settingsShippingMinimumTable.originCity);
-      res.json(
-        rows.map((row) => ({
-          ...row,
-          minimumAmount: Number(row.minimumAmount) || 0,
-          updatedAt: safeIsoString(row.updatedAt),
-        })),
-      );
+      const enrichedRows = await getEnrichedShippingMinimumRows();
+      res.json(enrichedRows);
     } catch (err) {
       req.log.error(err);
       const message = err instanceof Error ? err.message : "Server error";

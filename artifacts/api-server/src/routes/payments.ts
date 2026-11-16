@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, paymentsTable } from "@workspace/db";
+import { db, paymentsTable, transactionsTable } from "@workspace/db";
 import { desc, eq } from "drizzle-orm";
 import { requireAuth, requireRole } from "../middlewares/auth";
 import { requireActiveShift } from "../middlewares/shift";
@@ -13,10 +13,36 @@ router.get(
   async (req, res) => {
     try {
       const { paymentType } = req.query as Record<string, string>;
-      let rows = await db
-        .select()
-        .from(paymentsTable)
-        .orderBy(desc(paymentsTable.createdAt));
+      const [paymentRows, transactionRows] = await Promise.all([
+        db
+          .select()
+          .from(paymentsTable)
+          .orderBy(desc(paymentsTable.createdAt)),
+        db
+          .select({
+            id: transactionsTable.id,
+            transactionNo: transactionsTable.transactionNo,
+            transactionStatus: transactionsTable.transactionStatus,
+          })
+          .from(transactionsTable),
+      ]);
+
+      const trxMap = new Map<number, { transactionNo: string; transactionStatus: string }>();
+      for (const trx of transactionRows as any[]) {
+        trxMap.set(trx.id, {
+          transactionNo: trx.transactionNo,
+          transactionStatus: trx.transactionStatus,
+        });
+      }
+
+      let rows = paymentRows.map((row: any) => {
+        const trx = row.transactionId ? trxMap.get(row.transactionId) : undefined;
+        return {
+          ...row,
+          transactionNo: trx?.transactionNo ?? null,
+          transactionStatus: trx?.transactionStatus ?? null,
+        };
+      });
 
       if (paymentType && paymentType !== "all") {
         rows = rows.filter((r) => r.paymentType === paymentType);
@@ -116,6 +142,7 @@ router.patch(
         .update(paymentsTable)
         .set({
           paymentType,
+          paymentMethod: paymentType,
           paidAmount: paidAmount != null ? String(paidAmount) : String(existing[0].totalAmount),
           changeAmount: changeAmount != null ? String(changeAmount) : "0",
           shiftSessionId: (req as any).activeShift.id,

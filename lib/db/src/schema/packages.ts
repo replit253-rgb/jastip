@@ -12,6 +12,7 @@ import { z } from "zod/v4";
 import { usersTable } from "./users";
 import { batchesTable } from "./batches";
 import { serviceTypesTable } from "./service-types";
+import { packageImportsTable } from "./package-imports";
 
 export const packagesTable = pgTable("packages", {
   id: serial("id").primaryKey(),
@@ -80,6 +81,9 @@ export const packagesTable = pgTable("packages", {
   // nullable initially; will be backfilled by migration, then constrained
   batchId: integer("batch_id").references(() => batchesTable.id),
   serviceTypeId: integer("service_type_id").references(() => serviceTypesTable.id),
+  importId: integer("import_id").references(() => packageImportsTable.id),
+  importedAt: timestamp("imported_at", { withTimezone: true }),
+  inputSource: text("input_source"),
   customerName: text("customer_name").notNull(),
   customerId: integer("customer_id").references(() => usersTable.id),
   adminId: integer("admin_id").references(() => usersTable.id),
@@ -101,6 +105,7 @@ export const packagesTable = pgTable("packages", {
   index("idx_packages_created_at").on(t.createdAt),
   index("idx_packages_customer_name").on(t.customerName),
   index("idx_packages_service_type").on(t.serviceType),
+  index("idx_packages_import_id").on(t.importId),
 ]);
 
 export const insertPackageSchema = createInsertSchema(packagesTable).omit({

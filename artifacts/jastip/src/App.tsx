@@ -317,6 +317,15 @@ function Router() {
       <Route path="/owner/verify/batch/:id">
         {(params) => <ProtectedRoute role="owner" component={VerifyBatchDetail} params={params} />}
       </Route>
+      <Route path="/owner/riwayat-pembayaran">
+        {(params) => <ProtectedRoute role="owner" component={AdminRiwayatPembayaran} params={params} />}
+      </Route>
+      <Route path="/owner/riwayat-pembayaran/batch/:id/detail">
+        {(params) => <ProtectedRoute role="owner" component={RiwayatPembayaranDetail} params={params} />}
+      </Route>
+      <Route path="/owner/riwayat-pembayaran/batch/:id">
+        {(params) => <ProtectedRoute role="owner" component={RiwayatPembayaranBatch} params={params} />}
+      </Route>
       <Route path="/owner/arsip">
         {(params) => <ProtectedRoute role="owner" component={AdminArsip} params={params} />}
       </Route>

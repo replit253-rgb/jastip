@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import {
   Settings, Save, Loader2, Plane, Ship, Package, Truck, History, Plus, Trash2, RefreshCw, CheckCircle2, Info, ArrowRight,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { useAuth } from "@/lib/auth";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface PelniTier {
@@ -84,8 +86,31 @@ function formatDate(d: string) {
 }
 
 function parseTiers(raw: any, defaults: PelniTier[]): PelniTier[] {
-  if (Array.isArray(raw) && raw.length > 0) {
-    return raw.map((t: any) => ({ maxKg: Number(t.maxKg), rate: Number(t.rate) }));
+  let list = raw;
+  if (typeof raw === "string") {
+    try {
+      list = JSON.parse(raw);
+    } catch {
+      list = null;
+    }
+  }
+  if (Array.isArray(list) && list.length > 0) {
+    const mapped = list
+      .map((t: any) => {
+        const rawMax = t?.maxKg ?? t?.maxWeight;
+        const maxNum =
+          rawMax === null || rawMax === undefined || rawMax === ""
+            ? 999999
+            : Number(rawMax);
+        const rateNum = Number(t?.rate ?? t?.ratePerKg);
+        if (!Number.isFinite(rateNum) || rateNum <= 0) return null;
+        return {
+          maxKg: !Number.isFinite(maxNum) || maxNum <= 0 || maxNum >= 999999 ? 999999 : maxNum,
+          rate: rateNum,
+        } satisfies PelniTier;
+      })
+      .filter((t): t is PelniTier => t !== null);
+    if (mapped.length > 0) return mapped;
   }
   return defaults;
 }
@@ -327,6 +352,9 @@ function HistoryModal({ open, onClose }: { open: boolean; onClose: () => void })
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function OwnerTarif() {
+  const { user } = useAuth();
+  const isOwner = user?.role === "owner";
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -386,19 +414,23 @@ export default function OwnerTarif() {
   }
 
   useEffect(() => {
-    fetchSettings();
-  }, []);
+    if (user) {
+      fetchSettings();
+    }
+  }, [user?.role]);
 
   async function fetchSettings() {
     setIsLoading(true);
     try {
       const [settingsRes, minimumRes] = await Promise.all([
         fetch("/api/settings", { headers: authHeaders() }),
-        fetch("/api/settings/shipping-minimum", { headers: authHeaders() }),
+        isOwner
+          ? fetch("/api/settings/shipping-minimum", { headers: authHeaders() })
+          : Promise.resolve(null),
       ]);
-      if (!settingsRes.ok || !minimumRes.ok) throw new Error("Gagal memuat");
+      if (!settingsRes.ok || (minimumRes && !minimumRes.ok)) throw new Error("Gagal memuat");
       const d: TarifData = await settingsRes.json();
-      const minimumRows: ShippingMinimumRow[] = await minimumRes.json();
+      const minimumRows: ShippingMinimumRow[] = minimumRes ? await minimumRes.json() : [];
 
       if (d.pesawatRate) {
         setPesawatRate(String(d.pesawatRate));
@@ -469,25 +501,28 @@ export default function OwnerTarif() {
       });
       if (!resRates.ok) throw new Error("Gagal menyimpan tarif utama");
 
-      // 2. Save shipping minimums
-      const resMin = await fetch("/api/settings/shipping-minimum", {
-        method: "PATCH",
-        headers: authHeaders(),
-        body: JSON.stringify({
-          _alasan: alasan,
-          settings: shippingMinimums.map((row) => ({
-            serviceId: row.serviceId,
-            originCity: row.originCity,
-            enabled: row.enabled,
-            minimumAmount: Number(row.minimumAmount),
-          })),
-        }),
-      });
-      if (!resMin.ok) throw new Error("Gagal menyimpan pembulatan otomatis");
+      // 2. Save shipping minimums (Owner only)
+      if (isOwner) {
+        const resMin = await fetch("/api/settings/shipping-minimum", {
+          method: "PATCH",
+          headers: authHeaders(),
+          body: JSON.stringify({
+            _alasan: alasan,
+            settings: shippingMinimums.map((row) => ({
+              serviceId: row.serviceId,
+              originCity: row.originCity,
+              enabled: row.enabled,
+              minimumAmount: Number(row.minimumAmount),
+            })),
+          }),
+        });
+        if (!resMin.ok) throw new Error("Gagal menyimpan pembulatan otomatis");
+      }
 
+      await queryClient.invalidateQueries({ queryKey: ["settings"] });
       toast({
         title: "✓ Tarif & Pembulatan Otomatis Berhasil Disimpan",
-        description: "Perubahan berlaku untuk paket baru yang diinput setelah ini.",
+        description: "Perubahan berlaku untuk paket baru yang diinput setelah ini, serta paket lama setelah Owner menjalankan Hitung Ulang Ongkir.",
       });
       setAlasan("");
       fetchSettings();
@@ -535,6 +570,13 @@ export default function OwnerTarif() {
         </Button>
       </div>
 
+      <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 p-3.5 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
+        <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+        <p>
+          <strong>Catatan Berlakunya Tarif:</strong> Perubahan tarif berlaku untuk <strong>paket baru</strong> (input manual/impor) serta <strong>paket lama setelah Owner menjalankan Hitung Ulang Ongkir</strong> di menu Pengaturan Kas. Paket lama tidak berubah secara otomatis sebelum dihitung ulang.
+        </p>
+      </div>
+
       {/* ── CARD 1: Jastip Pesawat ────────────────────────────────────────── */}
       <Card className="border-blue-200/80 shadow-xs">
         <CardHeader className="pb-3 border-b bg-blue-50/50 dark:bg-blue-950/20">
@@ -578,12 +620,14 @@ export default function OwnerTarif() {
             </div>
           </div>
 
-          {/* Section Pembulatan Otomatis */}
-          <MinimumRoundingControl
-            row={pesawatMinRow}
-            onUpdate={handleUpdateMinimum}
-            exampleNote="Contoh: Jika total kalkulasi ongkir paket pesawat dibawah batas minimal (misal Rp 10.000), harganya otomatis dibulatkan ke batas minimal yang diaktifkan."
-          />
+          {/* Section Pembulatan Otomatis (Owner only) */}
+          {isOwner && (
+            <MinimumRoundingControl
+              row={pesawatMinRow}
+              onUpdate={handleUpdateMinimum}
+              exampleNote="Contoh: Jika total kalkulasi ongkir paket pesawat dibawah batas minimal (misal Rp 10.000), harganya otomatis dibulatkan ke batas minimal yang diaktifkan."
+            />
+          )}
         </CardContent>
       </Card>
 
@@ -630,12 +674,14 @@ export default function OwnerTarif() {
             </div>
           </div>
 
-          {/* Section Pembulatan Otomatis */}
-          <MinimumRoundingControl
-            row={hematMinRow}
-            onUpdate={handleUpdateMinimum}
-            exampleNote="Contoh Kasus: Paket Anton dihitung total ongkirnya Rp 5.000 untuk Jastip Hemat. Jika pembulatan otomatis diaktifkan sebesar Rp 10.000, maka berapapun harga dibawah Rp 10.000 (seperti 1k, 5k) akan otomatis dibulatkan ke Rp 10.000."
-          />
+          {/* Section Pembulatan Otomatis (Owner only) */}
+          {isOwner && (
+            <MinimumRoundingControl
+              row={hematMinRow}
+              onUpdate={handleUpdateMinimum}
+              exampleNote="Contoh Kasus: Paket Anton dihitung total ongkirnya Rp 5.000 untuk Jastip Hemat. Jika pembulatan otomatis diaktifkan sebesar Rp 10.000, maka berapapun harga dibawah Rp 10.000 (seperti 1k, 5k) akan otomatis dibulatkan ke Rp 10.000."
+            />
+          )}
         </CardContent>
       </Card>
 
@@ -686,38 +732,42 @@ export default function OwnerTarif() {
               </div>
             </div>
 
-            <div className="pt-2 border-t flex flex-wrap items-center justify-between gap-3">
-              <p className="text-xs text-muted-foreground">
-                Kalkulasi ulang seluruh paket Kargo tersimpan menggunakan tarif ini:
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleRecalcKargo}
-                disabled={isRecalculatingKargo}
-                className="border-orange-300 text-orange-700 hover:bg-orange-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isRecalculatingKargo ? "animate-spin" : ""}`} />
-                {isRecalculatingKargo ? "Menghitung Ulang..." : "Hitung Ulang Semua Paket Kargo"}
-              </Button>
-            </div>
+            {isOwner && (
+              <div className="pt-2 border-t flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-muted-foreground">
+                  Kalkulasi ulang seluruh paket Kargo tersimpan menggunakan tarif ini:
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRecalcKargo}
+                  disabled={isRecalculatingKargo}
+                  className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isRecalculatingKargo ? "animate-spin" : ""}`} />
+                  {isRecalculatingKargo ? "Menghitung Ulang..." : "Hitung Ulang Semua Paket Kargo"}
+                </Button>
+              </div>
+            )}
           </div>
 
-          {/* Section Pembulatan Otomatis Per Rute */}
-          <div className="space-y-3">
-            <Label className="font-semibold text-xs text-muted-foreground uppercase tracking-wider block">
-              2. Pembulatan Otomatis Per Rute Kargo
-            </Label>
-            <MinimumRoundingControl
-              row={kargoMinJkt}
-              onUpdate={handleUpdateMinimum}
-            />
-            <MinimumRoundingControl
-              row={kargoMinSby}
-              onUpdate={handleUpdateMinimum}
-            />
-          </div>
+          {/* Section Pembulatan Otomatis Per Rute (Owner only) */}
+          {isOwner && (
+            <div className="space-y-3">
+              <Label className="font-semibold text-xs text-muted-foreground uppercase tracking-wider block">
+                2. Pembulatan Otomatis Per Rute Kargo
+              </Label>
+              <MinimumRoundingControl
+                row={kargoMinJkt}
+                onUpdate={handleUpdateMinimum}
+              />
+              <MinimumRoundingControl
+                row={kargoMinSby}
+                onUpdate={handleUpdateMinimum}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -774,56 +824,64 @@ export default function OwnerTarif() {
             )}
           </div>
 
-          {/* Section Pembulatan Otomatis Per Rute Pelni */}
-          <div className="space-y-3">
-            <Label className="font-semibold text-xs text-muted-foreground uppercase tracking-wider block">
-              2. Pembulatan Otomatis Per Rute Pelni
-            </Label>
-            <MinimumRoundingControl
-              row={pelniMinJkt}
-              onUpdate={handleUpdateMinimum}
-              exampleNote="Rute Jakarta: Bila total ongkir kelompok konsumen Pelni di bawah nominal minimal, harganya dibulatkan ke nominal ini."
-            />
-            <MinimumRoundingControl
-              row={pelniMinSby}
-              onUpdate={handleUpdateMinimum}
-              exampleNote="Rute Surabaya: Bila total ongkir kelompok konsumen Pelni di bawah nominal minimal, harganya dibulatkan ke nominal ini."
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ── CARD 5: Save Section ────────────────────────────────────────── */}
-      <Card className="border-primary/30 shadow-md">
-        <CardContent className="pt-5 space-y-4">
-          <div className="space-y-1.5">
-            <Label className="font-semibold">Alasan Perubahan <span className="text-muted-foreground font-normal">(opsional)</span></Label>
-            <Input
-              placeholder="Contoh: Penyesuaian tarif operasional & pembulatan minimal baru..."
-              value={alasan}
-              onChange={(e) => setAlasan(e.target.value)}
-            />
-          </div>
-
-          <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 p-3.5 text-xs text-amber-800 dark:text-amber-300 space-y-1">
-            <div className="font-semibold flex items-center gap-1.5">
-              <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-              Catatan Penting Perubahan:
+          {/* Section Pembulatan Otomatis Per Rute Pelni (Owner only) */}
+          {isOwner && (
+            <div className="space-y-3">
+              <Label className="font-semibold text-xs text-muted-foreground uppercase tracking-wider block">
+                2. Pembulatan Otomatis Per Rute Pelni
+              </Label>
+              <MinimumRoundingControl
+                row={pelniMinJkt}
+                onUpdate={handleUpdateMinimum}
+                exampleNote="Rute Jakarta: Bila total ongkir kelompok konsumen Pelni di bawah nominal minimal, harganya dibulatkan ke nominal ini."
+              />
+              <MinimumRoundingControl
+                row={pelniMinSby}
+                onUpdate={handleUpdateMinimum}
+                exampleNote="Rute Surabaya: Bila total ongkir kelompok konsumen Pelni di bawah nominal minimal, harganya dibulatkan ke nominal ini."
+              />
             </div>
-            <p className="pl-5">
-              Perubahan tarif dan aturan pembulatan otomatis <strong>hanya berlaku untuk paket baru</strong> yang diinput setelah perubahan disimpan. Paket yang sudah ada tidak akan berubah secara otomatis.
-            </p>
-          </div>
-
-          <Button onClick={handleSaveAll} disabled={isSaving} className="w-full sm:w-auto h-11 px-6 text-sm font-semibold gap-2 shadow-sm">
-            {isSaving ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /> Menyimpan Semua Tarif & Pembulatan...</>
-            ) : (
-              <><Save className="w-4 h-4" /> Simpan Perubahan Tarif & Pembulatan Otomatis</>
-            )}
-          </Button>
+          )}
         </CardContent>
       </Card>
+
+      {/* ── CARD 5: Save Section (Owner only) ─────────────────────────────── */}
+      {isOwner ? (
+        <Card className="border-primary/30 shadow-md">
+          <CardContent className="pt-5 space-y-4">
+            <div className="space-y-1.5">
+              <Label className="font-semibold">Alasan Perubahan <span className="text-muted-foreground font-normal">(opsional)</span></Label>
+              <Input
+                placeholder="Contoh: Penyesuaian tarif operasional & pembulatan minimal baru..."
+                value={alasan}
+                onChange={(e) => setAlasan(e.target.value)}
+              />
+            </div>
+
+            <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 p-3.5 text-xs text-amber-800 dark:text-amber-300 space-y-1">
+              <div className="font-semibold flex items-center gap-1.5">
+                <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                Catatan Penting Perubahan:
+              </div>
+              <p className="pl-5">
+                Perubahan tarif dan aturan pembulatan otomatis berlaku untuk <strong>paket baru</strong> yang diinput setelah perubahan disimpan, serta <strong>paket lama setelah Owner menjalankan Hitung Ulang Ongkir</strong> di Pengaturan Kas. Paket yang sudah ada tidak akan berubah secara otomatis.
+              </p>
+            </div>
+
+            <Button onClick={handleSaveAll} disabled={isSaving} className="w-full sm:w-auto h-11 px-6 text-sm font-semibold gap-2 shadow-sm">
+              {isSaving ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Menyimpan Semua Tarif & Pembulatan...</>
+              ) : (
+                <><Save className="w-4 h-4" /> Simpan Perubahan Tarif & Pembulatan Otomatis</>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
+          Anda masuk sebagai Admin. Pengaturan hitung ulang ongkir, harga minimum, dan perubahan tarif hanya dapat dilakukan oleh Owner.
+        </div>
+      )}
 
       <HistoryModal open={showHistory} onClose={() => setShowHistory(false)} />
     </div>

@@ -16,22 +16,17 @@ import {
   Archive,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function formatRp(n: any) {
-  if (!n && n !== 0) return "Rp 0";
-  return `Rp ${Number(n).toLocaleString("id-ID")}`;
-}
-
-function fmtDate(d: string) {
-  if (!d) return "-";
-  return new Date(d).toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
+import {
+  formatRp,
+  fmtDate,
+  calculatePaymentSubtotals,
+  resolveBatchIdForPayment,
+  resolveServiceTypeForPayment,
+} from "@/lib/payment-history";
+import {
+  PaymentSummaryCards,
+  PaymentHistoryList,
+} from "@/components/payment-history-list";
 
 function batchStatusColor(s: string) {
   if (s === "OPEN") return "bg-green-100 text-green-800 border-green-200";
@@ -93,8 +88,6 @@ const SVC_DEFS = [
   },
 ];
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
-
 export default function RiwayatPembayaranBatch({
   params: propsParams,
 }: {
@@ -128,35 +121,25 @@ export default function RiwayatPembayaranBatch({
 
   // Filter payments that belong to this batch
   const batchPayments = useMemo(() => {
-    return (payments as any[]).filter((pmt) => {
-      const ids: number[] = pmt.packageIds ?? [];
-      const firstPkg = ids.length ? pkgMap[ids[0]] : null;
-      return firstPkg?.batchId === batchId;
-    });
+    return (payments as any[]).filter(
+      (pmt) => resolveBatchIdForPayment(pmt, pkgMap) === batchId,
+    );
   }, [payments, pkgMap, batchId]);
 
   // Group filtered payments by serviceType
   const svcGroups = useMemo(() => {
     const map = new Map<string, any[]>();
     for (const pmt of batchPayments) {
-      const svc: string =
-        pmt.packageSummary?.[0]?.serviceType ||
-        (pmt.packageIds?.[0] != null
-          ? pkgMap[pmt.packageIds[0]]?.serviceType
-          : "") ||
-        "";
-      const key = svc.toLowerCase().trim();
+      const key = resolveServiceTypeForPayment(pmt, pkgMap);
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(pmt);
     }
-    // Build ordered list from SVC_DEFS first, then any unknowns
     const knownKeys = SVC_DEFS.map((d) => d.key);
     const result: { def: (typeof SVC_DEFS)[0]; payments: any[] }[] = [];
     for (const def of SVC_DEFS) {
       const pmts = map.get(def.key);
       if (pmts?.length) result.push({ def, payments: pmts });
     }
-    // Unknown service types
     for (const [key, pmts] of map.entries()) {
       if (!knownKeys.includes(key) && pmts.length) {
         result.push({
@@ -175,20 +158,10 @@ export default function RiwayatPembayaranBatch({
     return result;
   }, [batchPayments, pkgMap]);
 
-  // Batch-level totals
-  const totalAll = batchPayments.reduce(
-    (s, p) => s + Number(p.totalAmount || 0),
-    0,
+  const batchSubtotals = useMemo(
+    () => calculatePaymentSubtotals(batchPayments),
+    [batchPayments],
   );
-  const totalTunai = batchPayments
-    .filter((p) => p.paymentType === "tunai")
-    .reduce((s, p) => s + Number(p.totalAmount || 0), 0);
-  const totalTransfer = batchPayments
-    .filter((p) => p.paymentType === "transfer")
-    .reduce((s, p) => s + Number(p.totalAmount || 0), 0);
-  const totalPiutang = batchPayments
-    .filter((p) => p.paymentType === "piutang")
-    .reduce((s, p) => s + Number(p.totalAmount || 0), 0);
 
   const PAGE_SIZE = 8;
   const [page, setPage] = useState(1);
@@ -248,52 +221,14 @@ export default function RiwayatPembayaranBatch({
           )}
           <p className="text-sm text-muted-foreground mt-0.5">
             <span className="font-semibold text-foreground">
-              {batchPayments.length} transaksi
+              {batchPayments.length} transaksi pembayaran
             </span>
           </p>
         </div>
       </div>
 
-      {/* Batch-level summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          {
-            label: "Total Semua",
-            value: totalAll,
-            color: "text-primary",
-            bg: "bg-primary/5 border-primary/20",
-          },
-          {
-            label: "Tunai",
-            value: totalTunai,
-            color: "text-green-700",
-            bg: "bg-green-50 border-green-200",
-          },
-          {
-            label: "Transfer",
-            value: totalTransfer,
-            color: "text-blue-700",
-            bg: "bg-blue-50 border-blue-200",
-          },
-          {
-            label: "Piutang",
-            value: totalPiutang,
-            color: "text-orange-700",
-            bg: "bg-orange-50 border-orange-200",
-          },
-        ].map((s) => (
-          <Card key={s.label} className={`border ${s.bg}`}>
-            <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">
-                {s.label}
-              </p>
-              <p className={`text-xl font-black mt-1 ${s.color}`}>
-                {formatRp(s.value)}
-              </p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* Batch-level subtotal summary per metode */}
+      <PaymentSummaryCards subtotals={batchSubtotals} />
 
       {/* Jenis Jastip cards */}
       {isLoading ? (
@@ -313,22 +248,7 @@ export default function RiwayatPembayaranBatch({
         <div className="space-y-4">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {paginatedSvcGroups.map(({ def, payments: pmts }) => {
-              const total = pmts.reduce(
-                (s: number, p: any) => s + Number(p.totalAmount || 0),
-                0,
-              );
-              const tunai = pmts
-                .filter((p: any) => p.paymentType === "tunai")
-                .reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
-              const transfer = pmts
-                .filter((p: any) => p.paymentType === "transfer")
-                .reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
-              const piutang = pmts
-                .filter((p: any) => p.paymentType === "piutang")
-                .reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
-              const piutangCount = pmts.filter(
-                (p: any) => p.paymentType === "piutang",
-              ).length;
+              const sub = calculatePaymentSubtotals(pmts);
 
               return (
                 <Card
@@ -346,39 +266,56 @@ export default function RiwayatPembayaranBatch({
 
                     <div>
                       <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">
-                        Total
+                        Total Keseluruhan
                       </p>
                       <p className={`text-2xl font-black ${def.num}`}>
-                        {formatRp(total)}
+                        {formatRp(sub.totalKeseluruhan)}
                       </p>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {pmts.length} transaksi
+                        {pmts.length} entri
                       </p>
                     </div>
 
                     <div className="space-y-1 pt-1 border-t border-border/40">
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-green-700 font-medium">Tunai</span>
-                        <span className="font-semibold">{formatRp(tunai)}</span>
+                        <span className="font-semibold">{formatRp(sub.tunai)}</span>
                       </div>
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-blue-700 font-medium">
                           Transfer
                         </span>
                         <span className="font-semibold">
-                          {formatRp(transfer)}
+                          {formatRp(sub.transfer)}
                         </span>
                       </div>
                       <div className="flex items-center justify-between text-xs">
-                        <span className="text-orange-700 font-medium">
-                          Piutang
+                        <span className="text-purple-700 font-medium">
+                          QRIS
                         </span>
-                        <span className="font-semibold">{formatRp(piutang)}</span>
+                        <span className="font-semibold">
+                          {formatRp(sub.qris)}
+                        </span>
                       </div>
-                      {piutangCount > 0 && (
-                        <p className="text-[10px] text-orange-600 pt-0.5">
-                          {piutangCount} belum lunas
-                        </p>
+                      {sub.counts.voidReversal > 0 && (
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-red-700 font-medium">
+                            VOID Reversal
+                          </span>
+                          <span className="font-semibold text-red-700">
+                            {formatRp(sub.voidReversal)}
+                          </span>
+                        </div>
+                      )}
+                      {sub.counts.piutang > 0 && (
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-orange-700 font-medium">
+                            Piutang
+                          </span>
+                          <span className="font-semibold">
+                            {formatRp(sub.piutang)}
+                          </span>
+                        </div>
                       )}
                     </div>
                   </CardContent>
@@ -399,6 +336,17 @@ export default function RiwayatPembayaranBatch({
             </div>
           )}
         </div>
+      )}
+
+      {/* Rincian seluruh transaksi pembayaran pada batch ini */}
+      {batchPayments.length > 0 && (
+        <PaymentHistoryList
+          title="Rincian Pembayaran Batch Ini"
+          payments={batchPayments}
+          subtotals={batchSubtotals}
+          pkgMap={pkgMap}
+          isLoading={isLoading}
+        />
       )}
     </div>
   );

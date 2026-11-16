@@ -1,434 +1,458 @@
 # PRD — Jastip Anggun Jaya
 
-> **Status dokumen:** As-is / reverse-engineered dan sinkronisasi penuh dari source code proyek aktif  
-> **Tanggal pembaruan:** 2026-09-27  
-> **Tujuan dokumen:** Mendeskripsikan arsitektur, halaman, navigasi, role, fitur operasional, sistem Invoice A4, modul barcode & detail paket (termasuk biaya tambahan opsional & navigasi detail /owner/packages), verifikasi scan, manajemen shift kasir, keuangan & VOID, database schema Drizzle ORM, rumus tarif & komponen pembulatan otomatis minimal terintegrasi di `/owner/tarif`, dan panduan testing yang benar-benar ada dan berjalan di sistem saat ini.
+> **Status Dokumen:** As-is (disusun dan disinkronkan 100% langsung dari source code aktif pada repositori)  
+> **Tanggal Pembaruan:** 2026-11-16  
+> **Tujuan Dokumen:** Mendokumentasikan arsitektur teknis, peran & kontrol akses, navigasi & rute frontend, spesifikasi seluruh modul operasional, mekanisme tarif & ongkir minimum, daftar lengkap endpoint API, skema 18 tabel database Drizzle ORM, serta daftar skrip dan catatan kondisi aktual sistem *apa adanya*.
 
 ---
 
-## 1. Ringkasan Produk
+## 1. Ringkasan Produk & Arsitektur Sistem
 
-Jastip Anggun Jaya adalah aplikasi operasional ekspedisi dan jasa titip (jastip) terpadu untuk mengelola alur pengiriman paket dari kota asal (Jakarta dan Surabaya) menuju Manokwari, Papua Barat.
+**Jastip Anggun Jaya** adalah sistem informasi operasional ekspedisi dan jasa titip (jastip) terpadu untuk mengelola alur pengiriman barang dari kota asal (**Jakarta** dan **Surabaya**) menuju **Manokwari, Papua Barat**.
 
-Sistem mencakup seluruh tahapan operasional logistik:
-- **Autentikasi & Otorisasi**: Login berbasis nomor HP dan kata sandi dengan kontrol hak akses multi-role (Owner dan Admin/Kasir).
-- **Manajemen Batch Pengiriman**: Penjadwalan keberangkatan kapal (KM Dobonsolo, KM Gunung Dempo, KM Ciremai, dsb), periode closing pengiriman, dan proteksi arsip.
-- **Pencatatan Paket**: Mode input satuan (Pesawat, Pelni, Hemat+, Kargo), mode grup multi-resi satu pemesan, serta import massal data Excel (.xlsx).
-- **Kalkulasi Otomatis Tarif & Ongkir**: Perhitungan berat volume, berat pakai aktual, pembulatan tarif berjenjang, minimum ongkir, dan biaya tambahan (*additional fee*).
-- **Label Barcode & QR Code**: Otomatisasi generate kode unik `JAJ-...` untuk paket individual dan `JAJ-GRUP-...` untuk paket gabungan beserta antarmuka cetak label stiker.
-- **Verifikasi Fisik Bongkar Muat**: Scan QR/barcode via webcam/kamera, upload gambar barcode, atau input manual dengan pencocokan nama penerima dan batch kapal.
-- **Sistem Invoice A4 Terpadu**: Modul pembuatan dokumen tagihan A4 resmi dengan pencarian customer manual, checklist seleksi paket, penanda status paket yang sudah/belum di-invoice, form diskon/DP, cetak snapshot A4, dan riwayat invoice.
-- **Shift Kasir Harian & Blind Closing**: Siklus buka shift dengan deklarasi modal awal laci (*opening balance*), pencatatan transaksi tunai/non-tunai, dan penutupan shift buta (*blind closing*) berbasis hitung lembar fisik denominasi uang kertas untuk mencegah kecurangan.
-- **Kasir & Multi-Metode Pembayaran**: Penerimaan pembayaran tunai (dengan kalkulasi kembalian otomatis), transfer bank (input nomor referensi), QRIS dinamis, dan sistem pencatatan piutang bertahap.
-- **Cetak Struk Kasir**: Penerbitan struk termal (58mm / 80mm) transaksi langsung maupun pelunasan piutang.
-- **Pengawasan VOID & Reversal Saldo**: Pengajuan pembatalan transaksi oleh Admin kasir yang wajib disetujui (*Approved*) oleh Owner untuk membalikkan saldo kas (*cash reversal*) dan mengembalikan status paket menjadi belum diambil.
-- **Pengeluaran Harian Kas**: Pencatatan arus kas keluar operasional toko/kantor dengan klasifikasi kategori pengeluaran.
-- **Manajemen & Audit Tarif**: Pengaturan tarif per rute dan per layanan oleh Owner dengan histori audit perubahan harga (*tariff audit trail*).
-- **Laporan & Rekonsiliasi**: Laporan laba/rugi, performa pendapatan per layanan, status piutang, dan rekapitulasi shift kasir.
+Cakupan operasional sistem meliputi:
+1. **Autentikasi & Manajemen Akses**: Login berbasis nomor HP & kata sandi dengan Bearer Token session, proteksi rute per role (`owner` & `admin`), serta manajemen akun staf (termasuk soft-delete/hard-delete).
+2. **Manajemen Batch Pengiriman**: Pengaturan jadwal keberangkatan kapal, periode closing, serta siklus status `OPEN`, `CLOSED`, dan `ARSIP` (read-only), plus penghapusan batch oleh Owner.
+3. **Pencatatan & Import Paket**: Input paket satuan/multi-resi (`Jastip Pesawat`, `Jastip Hemat+`, `Jastip Pelni`, `Jastip Kargo`), perhitungan berat volume otomatis, biaya tambahan opsional, dan import massal file `.xlsx` dengan template standar & kargo.
+4. **Label Barcode & QR Code**: Pembuatan kode unik `JAJ-...` (paket individual) dan `JAJ-GRUP-...` (grup paket per customer-layanan-batch) serta cetak stiker termal ukuran **100mm × 150mm** dan export PNG barcode Code128.
+5. **Verifikasi Fisik Paket Bongkar Muat**: Alur verifikasi 3 tahap berbasis batch → layanan → customer group menggunakan kamera QR (`html5-qrcode`), HID scanner, upload foto barcode, input manual, serta fitur **Verifikasi Sekaligus** (tingkat batch, layanan, maupun penerima).
+6. **Manajemen Shift Kasir, Blind Closing & Serah Terima**: Siklus buka shift (`PAGI` / `MALAM`) dengan modal awal laci, pelacakan kas laci real-time, penutupan buta (*blind closing*) 2 tahap dengan hitung pecahan fisik uang, batas toleransi selisih kas dengan approval Owner, serah terima shift dua pihak, dan cetak laporan closing termal **80mm**.
+7. **Kasir Scan, Multi-Pembayaran, Piutang & Struk**: Penyerahan paket dengan wajib shift aktif, pembayaran **Tunai**, **Transfer Bank**, **QRIS** (gambar QR dinamis unggahan Owner), dan **Piutang** (DP/tanpa bayar + cicilan bertahap), pencegahan duplikasi submit (*Idempotency Key*), serta cetak & download PDF struk **80mm** dengan mode `AUTO` / `ASK` / `OFF`.
+8. **Invoice A4 Terpadu**: Pembuatan tagihan A4 baik secara manual (pencarian nama customer, filter batch, penanda paket yang sudah/belum masuk invoice) maupun dari transaksi kasir, cetak snapshot HTML A4, Download PDF `jsPDF`, serta pencatatan audit reprint (`print_logs`).
+9. **Pengajuan & Persetujuan VOID**: Pengajuan pembatalan transaksi kasir oleh Admin/Owner dan persetujuan VOID oleh Owner untuk membalik saldo kas (`VOID_REVERSAL`), mendeteksi VOID pasca-closing, serta mengembalikan status paket ke `BELUM_DIAMBIL`.
+10. **Pengeluaran Operasional, Keuangan, Laporan & Pengaturan**: Pencatatan kas keluar harian, analisis keuangan per layanan, laporan harian/bulanan/tahunan beserta export `.xlsx` dan `.pdf`, serta konfigurasi tarif, ongkir minimum, QRIS, toleransi kas, dan mode cetak struk.
 
-### 1.1 Stack dan Arsitektur Sistem
+### 1.1 Stack Teknologi & Arsitektur Runtime
 
-| Komponen | Teknologi | Keterangan |
+| Komponen | Teknologi & Versi Aktual | Keterangan |
 |---|---|---|
-| **Runtime & Server** | Node.js + Express 5 + TypeScript (`tsx`) | Server terpadu di root `server.ts` |
-| **Frontend UI** | React 18 + Vite + TypeScript | Berlokasi di `artifacts/jastip` |
-| **Routing Frontend** | Wouter | Client-side routing dengan `ProtectedRoute` |
-| **State & Fetching** | TanStack React Query v5 | Cache time 30s, gcTime 5m |
-| **Desain & Komponen** | Tailwind CSS + Radix UI / shadcn/ui + Lucide React | Desain responsif desktop & mobile |
-| **Database & ORM** | PostgreSQL + Drizzle ORM | Schema di `lib/db/src/schema.ts` |
-| **Barcode & QR** | `qrcode`, `html5-qrcode`, `jsbarcode` | Render SVG barcode & QR scanner |
-| **Spreadsheet** | `xlsx` | Import/export data paket & laporan Excel |
-| **Port Akses** | **Port 3000** | Reverse-proxy tunggal untuk Express API & Vite UI |
-| **Prefix API** | `/api/*` | Semua endpoint server dilayani di bawah `/api` |
+| **Server Terpadu** | Node.js + Express `^5.2.1` + `tsx ^4.21.0` | Entrypoint tunggal `/server.ts` pada **Port `3000`** (`0.0.0.0:3000`). Menjalankan Express API (`/artifacts/api-server/src/app.ts`) dan Vite middleware (mode dev, HMR dinonaktifkan) atau static bundle `/artifacts/jastip/dist/public` (mode produksi). |
+| **API Standalone** | Express `5.2.1` + Pino / `pino-http` + CORS | Berlokasi di `/artifacts/api-server`. Limit payload JSON & URL-encoded `100mb`. Menyajikan file statis unggahan di prefix `/uploads` (`process.cwd()/uploads`). |
+| **Frontend UI** | **React `19.1.0`** + **Vite `7.3.2`** + **TypeScript `~5.9.3`** | Berlokasi di `/artifacts/jastip`. Proxy standalone dev (`vite.config.ts`) mengarahkan `/api` ke `http://localhost:8080`, sedangkan server terpadu `server.ts` melayani `/api` langsung di Port `3000`. |
+| **Routing & State** | **Wouter `^3.3.5`** + **TanStack React Query `^5.90.21`** | `staleTime: 30_000` (30 detik), `gcTime: 5 * 60_000` (5 menit). |
+| **Styling & Komponen** | **Tailwind CSS v4 (`@tailwindcss/vite ^4.1.14`)** + Radix UI / shadcn/ui + Lucide React | Antarmuka responsif desktop & mobile dengan komponen Sidebar & Dialog/AlertDialog. |
+| **Barcode, QR & Grafik** | `qrcode`, `html5-qrcode`, `jsbarcode`, `recharts` | Pemindaian kamera & gambar QR, rendering SVG/PNG barcode, dan grafik dashboard/laporan. |
+| **Ekspor PDF & Excel** | `jspdf ^4.2.1`, `jspdf-autotable ^5.0.8`, `xlsx ^0.18.5` | Generate PDF struk 80mm, Invoice A4, laporan tabel, serta import/export spreadsheet `.xlsx`. |
+| **Database & ORM** | **PostgreSQL (`pg`)** + **Drizzle ORM `^0.45.2`** | Skema modular di `/lib/db/src/schema/*.ts` (18 tabel) + 9 file migrasi SQL di `/lib/db/migrations/`. |
+| **Fallback Mock DB** | In-Memory Mock DB (`/lib/db/src/index.ts`) | Jika `DATABASE_URL`/`PGHOST` tidak diset atau koneksi PostgreSQL gagal saat startup, sistem otomatis beralih ke mode in-memory (`_isMock = true`) dengan data seed demo bawaan. |
+
+### 1.2 Variabel Lingkungan (`.env`)
+
+Variabel lingkungan yang digunakan oleh server dan database (nilai rahasia tidak dicantumkan dalam dokumen):
+- `DATABASE_URL` atau konfigurasi terpisah `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` — koneksi PostgreSQL.
+- `NODE_ENV` — menentukan mode `development` (Vite middleware) atau `production` (static `dist/public`) dan konfigurasi SSL/logging.
+- `PORT` — dipakai oleh standalone API server (`/artifacts/api-server/src/index.ts`), sedangkan `/server.ts` selalu mendengarkan di port `3000`.
+- `BASE_PATH` — base path aplikasi frontend pada konfigurasi Vite (`artifacts/jastip/vite.config.ts`).
+- `OWNER_PHONE` & `OWNER_PASSWORD` — kredensial bootstrap/seed akun Owner saat inisialisasi atau skrip pengujian/seed.
 
 ---
 
-## 2. Role dan Hak Akses Pengguna
+## 2. Autentikasi, Sesi & Kontrol Akses
 
-### 2.1 Role Owner
-Owner memiliki kendali penuh atas sistem:
-1. **Dashboard Eksekutif**: Melihat metrik omzet keseluruhan, laba bersih, piutang tertagih/belum tertagih, grafik performa layanan, dan ringkasan shift kasir.
-2. **Monitoring Seluruh Paket**: Memantau paket dari seluruh admin dan batch tanpa batas.
-3. **Persetujuan VOID**: Mengesahkan (*Approve*) atau menolak (*Reject*) permohonan pembatalan transaksi dari admin kasir dan mengesahkan *reversal* saldo kas.
-4. **Pengaturan Tarif**: Mengubah tarif dasar per kg, batas tiering Pelni, dan konfigurasi minimum ongkir.
-5. **Pengaturan Kas & QRIS**: Menyesuaikan nomor rekening transfer, unggah gambar QRIS statis/dinamis toko, dan saldo awal acuan.
-6. **Pengeluaran Kas**: Menyetujui dan mencatat pengeluaran operasional toko/kantor.
-7. **Manajemen User**: Menambah, mengedit status aktif/non-aktif, dan mereset akun staf Admin.
-8. **Admin Tools**: Memiliki akses langsung ke seluruh perkakas kerja Admin.
+### 2.1 Mekanisme Autentikasi & Sesi
+- **Login (`POST /api/auth/login`)**: Menggunakan nomor HP (`phone`) dan kata sandi (`password`). Kata sandi di-hash dengan **SHA-256** menggunakan salt statis `jaj_salt_2024`.
+- **Validasi Status Akun**: Pengguna yang memiliki `isActive = false`, `isHidden = true`, atau `deletedAt != null` ditolak login-nya (HTTP `403`).
+- **Token Sesi**: Setiap login menerbitkan token acak 64-hex yang disimpan di tabel `sessions` dengan masa berlaku **7 hari**, dikirim frontend melalui header `Authorization: Bearer <token>`.
+- **Registrasi (`POST /api/auth/register`)**: Endpoint API publik tersedia dan selalu membuat akun dengan role `admin` (`isActive = true`), namun halaman UI `/login` (`artifacts/jastip/src/pages/login.tsx`) saat ini **hanya menampilkan form login** (tidak ada tautan atau tab pendaftaran).
 
-### 2.2 Role Admin (Operator & Staf Kasir)
-Admin bertanggung jawab atas alur harian logistik dan kasir:
-1. **Operasional Shift**: Wajib membuka shift dengan input modal awal laci sebelum dapat memproses transaksi kasir, serta melakukan penutupan *blind closing*.
-2. **Pencatatan Paket**: Input paket satuan, paket grup multi-resi, dan import file Excel.
-3. **Cetak Label Barcode**: Mencetak stiker barcode paket individual maupun QR grup.
-4. **Verifikasi Paket Fisik**: Melakukan scan barcode paket yang tiba pasca-bongkar kapal.
-5. **Scan & Kasir**: Melayani pengambilan barang, menerima pembayaran (Tunai, Transfer, QRIS, Piutang), dan mencetak struk termal.
-6. **Invoice A4**: Mencari paket customer secara manual, memilih paket via checklist, menerbitkan tagihan invoice resmi A4, dan mencetak dokumen snapshot.
-7. **Pengajuan VOID**: Mengajukan permohonan pembatalan jika terjadi salah input pada transaksi kasir.
-8. **Arsip Paket**: Memeriksa riwayat paket yang telah selesai diserahkan ke pelanggan.
+### 2.2 Role Pengguna & Hak Akses
+Pada skema database `users.role`, hanya terdapat dua nilai enum resmi: **`owner`** dan **`admin`**.
+> *Catatan as-is:* Pada beberapa filter lama di API (`customers.ts`, `packages.ts`) dan route redirect `App.tsx` (`/customer`), masih terdapat penanganan nama legacy `"customer"`, namun sistem saat ini seluruhnya beroperasi sebagai aplikasi internal staf (`owner` dan `admin`).
+
+1. **Role `owner` (Pemilik / Super-Admin)**:
+   - Melalui komponen `ProtectedRoute` (`App.tsx`), role `owner` otomatis diizinkan mengakses seluruh rute yang bertanda `role="admin"` maupun `role="owner"`.
+   - Memiliki akses eksklusif untuk: Dashboard eksekutif & grafik, Keuangan per layanan, Approval VOID (`/owner/voids`), Laporan Harian/Bulanan/Tahunan (`/owner/reports`), Pengaturan Tarif & Ongkir Minimum (`/owner/tarif`), Pengaturan Kas/QRIS/Mode Struk/Toleransi Kas (`/owner/settings`), Data Admin (`/owner/admins`), Manajemen User (`/owner/users`), serta aksi destruktif **Hapus Paket (`DELETE /api/packages/:id`)** dan **Hapus Batch (`statusBatch = "HAPUS"`)**.
+2. **Role `admin` (Operator & Kasir)**:
+   - Menjalankan operasional harian: pengelolaan batch (`OPEN` / `CLOSED` / `ARSIP`), input & import paket, cetak label barcode, verifikasi paket fisik, penerbitan & cetak Invoice A4, manajemen shift & blind closing, transaksi kasir (`Scan & Pembayaran`), pelunasan piutang, riwayat pembayaran, pencatatan pengeluaran (via rute `/admin/pengeluaran`), pengajuan VOID, serta melihat pengaturan kas/tarif jika mengakses `/admin/settings` atau `/admin/tarif`.
 
 ---
 
-## 3. Struktur Navigasi Menu
+## 3. Struktur Navigasi & Daftar Rute Frontend
 
-### 3.1 Menu Navigasi Admin (`adminNav` — 14 Item)
+### 3.1 Navigasi Sidebar (`artifacts/jastip/src/components/layout.tsx`)
 
-| No | Label Menu | URL Route | Ikon | Keterangan |
-|:--:|---|---|---|---|
-| 1 | **Dashboard** | `/admin/dashboard` | `LayoutDashboard` | Ringkasan operasional & statistik harian |
-| 2 | **Semua Paket** | `/admin/packages` | `Package` | Manajemen tabel paket yang diinput |
-| 3 | **Batch Pengiriman** | `/admin/batches` | `Ship` | Daftar batch kapal dan status periode |
-| 4 | **Input Paket** | `/admin/packages/type` | `FileInput` | Pemilihan mode input (Satuan, Grup, Kargo) |
-| 5 | **Import Excel** | `/admin/packages/import` | `FileSpreadsheet` | Unggah data paket massal via file .xlsx |
-| 6 | **Label Barcode** | `/admin/barcode` | `Barcode` | Pencarian & cetak lembar label barcode |
-| 7 | **Arsip Sudah Diambil** | `/admin/arsip` | `Archive` | Daftar paket berstatus selesai/diambil |
-| 8 | **Verifikasi Paket** | `/admin/verify` | `ShieldCheck` | Pencocokan fisik paket di gudang |
-| 9 | **Riwayat Pembayaran** | `/admin/riwayat-pembayaran` | `History` | Rekapitulasi transaksi pembayaran per batch |
-| 10 | **Transaksi & VOID** | `/admin/finance` | `ShieldCheck` | Daftar transaksi aktif dan pengajuan VOID |
-| 11 | **Invoice A4** | `/admin/invoices` | `FileText` | Modul pembuatan & pencetakan invoice A4 |
-| 12 | **Shift Kasir** | `/admin/shift` | `WalletCards` | Manajemen shift & penutupan laci kasir |
-| 13 | **Scan & Pembayaran** | `/admin/scan` | `ScanLine` | Kasir serah paket (*memerlukan shift aktif*) |
-| 14 | **Profil** | `/admin/profile` | `UserCircle` | Pengaturan profil nama dan kata sandi |
+Header atas pada layout selalu menampilkan indikator status shift aktif milik user yang login (`<Nama> • Shift Pagi/Malam • Aktif` atau `Shift belum dibuka`) yang menaut ke `/admin/shift` atau `/owner/shift`.
 
-### 3.2 Menu Navigasi Owner (`ownerSections`)
+#### A. Menu Admin (`adminNav` — 14 Item)
+| No | Label Menu | Route | Ikon | Keterangan |
+|:-:|:---|:---|:---|:---|
+| 1 | **Dashboard** | `/admin/dashboard` | `LayoutDashboard` | Statistik ringkas paket & aktivitas admin |
+| 2 | **Semua Paket** | `/admin/packages` | `Package` | Tabel inventaris seluruh paket |
+| 3 | **Batch Pengiriman** | `/admin/batches` | `Ship` | Kelola daftar batch kapal & periode closing |
+| 4 | **Input Paket** | `/admin/packages/type` | `FileInput` | Pilih jenis layanan untuk input paket baru |
+| 5 | **Import Excel** | `/admin/packages/import` | `FileSpreadsheet` | Upload massal data paket via `.xlsx` |
+| 6 | **Label Barcode** | `/admin/barcode` | `Barcode` | Pilih batch untuk cetak label barcode/QR |
+| 7 | **Arsip Sudah Diambil** | `/admin/arsip` | `Archive` | Daftar batch & paket yang sudah diserahkan |
+| 8 | **Verifikasi Paket** | `/admin/verify` | `ShieldCheck` | Verifikasi fisik paket bongkar kapal per batch |
+| 9 | **Riwayat Pembayaran** | `/admin/riwayat-pembayaran` | `History` | Daftar batch & rincian pelunasan/pembayaran |
+| 10 | **Transaksi & VOID** | `/admin/finance` | `ShieldCheck` | Daftar transaksi kasir & ajukan VOID |
+| 11 | **Invoice A4** | `/admin/invoices` | `FileText` | Buat & cetak Invoice A4 |
+| 12 | **Shift Kasir** | `/admin/shift` | `WalletCards` | Buka shift, pantau kas laci, & blind closing |
+| 13 | **Scan & Pembayaran** | `/admin/scan` | `ScanLine` | **Kondisional**: hanya tampil di sidebar bila user memiliki shift `AKTIF` |
+| 14 | **Profil** | `/admin/profile` | `UserCircle` | Ubah nama dan kata sandi akun |
 
-#### Section 1: Menu Utama Owner (13 Item)
-1. **Dashboard** (`/owner/dashboard`) — Analisis grafik performa omzet dan laporan kas.
-2. **Monitor Paket** (`/owner/packages`) — Pemantauan seluruh paket dari semua admin, dilengkapi navigasi klik baris/kartu & tombol **Detail** ke rincian paket `/owner/packages/:id`.
-3. **Data Admin** (`/owner/admins`) — Daftar dan evaluasi kinerja staf admin.
-4. **Keuangan** (`/owner/finance`) — Arus kas masuk/keluar, pendapatan per layanan.
-5. **Invoice A4** (`/owner/invoices`) — Akses penuh penerbitan dan audit invoice A4.
-6. **Laporan VOID** (`/owner/voids`) — Antarmuka approval/reject permohonan VOID.
-7. **Pengeluaran Harian** (`/owner/pengeluaran`) — Pencatatan dan audit beban kas toko.
-8. **Shift & Closing** (`/owner/shift`) — Monitoring status shift kasir & audit selisih kas laci.
-9. **Laporan** (`/owner/reports`) — Laporan komprehensif laba-rugi, piutang, dan volume.
-10. **Pengaturan Tarif** (`/owner/tarif`) — Konfigurasi harga per kg/m³ dan riwayat audit tarif.
-11. **Pengaturan Kas** (`/owner/settings`) — Pengaturan rekening, QRIS, dan batas toleransi selisih.
-12. **Manajemen User** (`/owner/users`) — Kelola data kredensial staf dan status aktif/nonaktif.
-13. **Profil** (`/owner/profile`) — Profil dan ganti password akun Owner.
+#### B. Menu Owner (`ownerSections` — Total 20 Item dalam 2 Seksi)
+- **Seksi 1: `Owner` (13 Item)**:
+  1. **Dashboard** (`/owner/dashboard`)
+  2. **Monitor Paket** (`/owner/packages`)
+  3. **Data Admin** (`/owner/admins`)
+  4. **Keuangan** (`/owner/finance`)
+  5. **Invoice A4** (`/owner/invoices`)
+  6. **Laporan VOID** (`/owner/voids`)
+  7. **Pengeluaran Harian** (`/owner/pengeluaran`)
+  8. **Shift & Closing** (`/owner/shift`)
+  9. **Laporan** (`/owner/reports`)
+  10. **Pengaturan Tarif** (`/owner/tarif`)
+  11. **Pengaturan Kas** (`/owner/settings`)
+  12. **Manajemen User** (`/owner/users`)
+  13. **Profil** (`/owner/profile`)
+- **Seksi 2: `Admin Tools` (7 Item)**:
+  1. **Batch Pengiriman** (`/owner/batches`)
+  2. **Input Paket** (`/owner/packages/type`)
+  3. **Import Excel** (`/owner/packages/import`)
+  4. **Label Barcode** (`/owner/barcode`)
+  5. **Arsip Sudah Diambil** (`/owner/arsip`)
+  6. **Verifikasi Paket** (`/owner/verify`)
+  7. **Scan & Pembayaran** (`/owner/scan`) — **Kondisional**: hanya tampil saat Owner membuka shift `AKTIF`
 
-#### Section 2: Admin Tools (12 Item)
-Menyediakan akses cepat bagi Owner untuk menjalankan seluruh alat operasional Admin (`/owner/batches`, `/owner/packages/type`, `/owner/packages/import`, `/owner/barcode`, `/owner/arsip`, `/owner/verify`, `/owner/riwayat-pembayaran`, `/owner/scan`, dsb).
+### 3.2 Daftar Lengkap Rute Detail & Terdaftar (`App.tsx`)
 
----
-
-## 4. Spesifikasi Modul & Fitur Utama
-
-### 4.1 Modul Invoice A4 (Pencarian, Pemilihan Manual, Penanda Status, & Cetak PDF)
-
-Modul Invoice A4 (`/admin/invoices` & `/owner/invoices`) dirancang untuk memenuhi kebutuhan pembuatan tagihan resmi multi-paket per customer:
-
-1. **Alur Pencarian Customer Manual & Tab Transaksi**:
-   - **Mode Manual (Pilih Paket & Buat Invoice)**: Admin memasukkan nama customer (contoh: *"Andi"*) pada kotak pencarian nama. Sistem secara dinamis mencari dan menampilkan seluruh daftar paket yang terdaftar atas nama pelanggan tersebut dari database.
-   - **Filter Batch Pengiriman**: Dilengkapi filter dropdown batch pengiriman kapal yang memungkinkan admin menyaring paket khusus pada batch tertentu atau menampilkan dari semua batch.
-   - **Mode Dari Transaksi**: Memungkinkan pembuatan invoice langsung dari transaksi kasir yang telah dicatat sebelumnya.
-   - Pada setiap baris paket ditampilkan informasi lengkap: No. Resi, No. Paket, Nama Barang, Layanan (Pesawat/Pelni/Hemat+/Kargo), Berat Pakai, Rute, Batch Kapal, Biaya Tambahan, dan Total Ongkir.
-
-2. **Penanda Visual Status Invoice Paket (Package Invoicing Indicator)**:
-   - Sistem memanfaatkan endpoint `/api/invoices/package-map` untuk memetakan paket mana saja yang sudah pernah dibuatkan invoice.
-   - **Badge Hijau ("Sudah di-Invoice")**: Menandakan paket sudah masuk dalam invoice aktif, dilengkapi tombol nomor invoice terkait (misal `INV-20260919-0001`) yang dapat diklik langsung untuk preview/cetak.
-   - **Badge Netral/Abu-abu ("Belum Ber-Invoice")**: Menandakan paket belum pernah ditagihkan via Invoice A4.
-   - Filter cepat disediakan: *"Semua Status Invoice"*, *"Hanya Belum Ber-Invoice"*, atau *"Sudah Ber-Invoice"*.
-
-3. **Checklist Seleksi Manual**:
-   - Admin dapat mencentang satu per satu (*checkbox*) paket yang benar-benar milik customer tersebut dan valid untuk ditagihkan.
-   - Tombol *"Pilih Semua yang Belum di-Invoice"* mempermudah seleksi instan tanpa memilih ulang paket yang sudah ber-invoice.
-   - Tombol *"Cek Detail Paket"* memungkinkan modal dialog inspeksi rincian fisik, resi, nomor grup, dan histori paket.
-
-4. **Kalkulasi & Form Penerbitan Invoice**:
-   - Sistem otomatis menghitung subtotal ongkir dan biaya tambahan dari seluruh paket yang dicentang.
-   - Input opsional:
-     - **Diskon (Potongan Harga)** + Keterangan Alasan Diskon.
-     - **Uang Muka / Down Payment (DP)** yang telah diserahkan pelanggan.
-     - **Catatan Tambahan** (misal instruksi pembayaran bank atau syarat pengambilan).
-   - Status invoice ditentukan otomatis:
-     - `BELUM_LUNAS` (jika DP = Rp 0).
-     - `DIBAYAR_SEBAGIAN` (jika DP > 0 dan DP < Total).
-     - `LUNAS` (jika DP >= Total).
-
-5. **Format Dokumen Cetak & Download PDF Snapshot A4**:
-   - Desain tata letak standar ukuran A4 yang rapi dan elegan saat di-print (`window.print()` / popup browser print preview / *Save as PDF*).
-   - Header resmi Jastip Anggun Jaya (kontak, rute Jakarta/Surabaya → Manokwari).
-   - Informasi Invoice No, Tanggal Terbit, Jatuh Tempo, Kasir Pembuat, dan Identitas Pelanggan.
-   - Tabel rincian paket bergaris dengan kolom: No, Resi / Identitas, Nama Barang, Layanan & Rute, Berat / Kubikasi, Ongkir Satuan, Biaya Tambahan, dan Subtotal.
-   - Box rekapitulasi: Subtotal, Diskon, Total Akhir, Uang Muka (DP), dan **Sisa Tagihan**.
-   - Kolom tanda tangan resmi pengirim dan penerima.
-   - Fitur audit cetak: Mencatat log cetak (`print_logs`) dan jumlah cetak (`printCount`).
-
-6. **Riwayat & Audit Invoice**:
-   - Tab **Riwayat Invoice Terbit** menampilkan daftar seluruh invoice yang pernah diterbitkan.
-   - Fitur pencarian invoice berdasarkan nomor invoice (`INV-...`) atau nama pelanggan serta filter status pembayaran.
-   - Tombol **Cetak / PDF A4** (membuka kembali snapshot dokumen cetak A4 dan memanggil dialog cetak/PDF).
-   - Tombol **Batalkan Invoice** (mengubah status menjadi `BATAL` dan melepaskan status penanda pada paket-paket terkait).
+Selain item di sidebar, `Router()` mendaftarkan rute detail dan rute bersama berikut:
+- **Rute Publik / Pengalihan**: `/`, `/admin`, `/owner`, `/customer` (mengalihkan otomatis ke `/${user.role}/dashboard` atau `/login`), `/login`, serta fallback `NotFound`.
+- **Rute Detail & Sub-halaman Admin**:
+  - `/admin/packages/new` — Form input paket (satuan/grup/kargo)
+  - `/admin/packages/:id` — Rincian paket & edit atribut + download PNG barcode
+  - `/admin/barcode/batch/:id` — Daftar paket & grup dalam batch, cetak label batch, hitung ulang ongkir batch (`recalculate-batch`)
+  - `/admin/barcode-group` — Rincian paket per grup customer-layanan-batch & cetak QR grup
+  - `/admin/verify/batch/:id` — Halaman 3 langkah verifikasi fisik & Verifikasi Sekaligus
+  - `/admin/riwayat-pembayaran/batch/:id` — Rekap pembayaran per customer pada batch tertentu
+  - `/admin/riwayat-pembayaran/batch/:id/detail` — Rincian transaksi/pelunasan customer dalam batch
+  - `/admin/arsip/batch/:id` — Rincian paket berstatus sudah diambil pada batch tertentu
+  - `/admin/shift/handover` — Serah terima kas shift antar kasir
+  - `/admin/pengeluaran` — Pencatatan pengeluaran operasional
+  - `/admin/settings` & `/admin/tarif` (`roles={["admin", "owner"]}`) — Akses komponen pengaturan kas & tarif
+  - `/admin/admins`, `/admin/reports`, `/admin/users`, `/admin/voids` (terdaftar di router dengan guard `role="owner"`)
+- **Rute Detail & Sub-halaman Owner**:
+  - `/owner/packages/new`, `/owner/packages/:id`
+  - `/owner/barcode/batch/:id`, `/owner/barcode-group`
+  - `/owner/verify/batch/:id`
+  - `/owner/arsip/batch/:id`
+  - `/owner/shift/handover`
+  - `/owner/finance/:service` — Rincian paket & transaksi untuk satu jenis layanan (`pesawat`, `hemat`, `pelni`, `kargo`)
 
 ---
 
-### 4.2 Modul Barcode & Detail Paket (Termasuk Biaya Tambahan Opsional)
+## 4. Spesifikasi Lengkap Modul & Fitur Operasional
 
-Modul Barcode dan Detail Paket dirancang untuk menyajikan transparansi seluruh komponen data paket yang diinput oleh admin:
+### 4.1 Manajemen Batch Pengiriman (`/admin/batches`, `/owner/batches`)
+- **Data Batch**: `namaKapal`, `etd` (tanggal berangkat), `periodeClosingMulai`, `periodeClosingSelesai`, `kotaAsal` (Jakarta / Surabaya / dll), `tujuan` (default `Manokwari`), dan `statusBatch`.
+- **Siklus Status**:
+  - `OPEN`: Batch aktif menerima input dan import paket baru.
+  - `CLOSED`: Batch dikunci dari operasional input normal atau sedang dalam proses pengiriman/bongkar.
+  - `ARSIP`: Batch selesai dan bersifat *read-only* — API `PATCH /api/batches/:id` menolak mutasi apa pun pada batch yang sudah berstatus `ARSIP`.
+  - `HAPUS`: Aksi khusus pada `PATCH /api/batches/:id` (hanya `owner`) untuk menghapus seluruh paket yang terkait dengan batch tersebut beserta record batch-nya secara permanen.
+- **Tampilan**: Dikelompokkan dalam tab status (`OPEN`, `CLOSED`, `ARSIP`) dengan paginasi **5 item/halaman**.
 
-1. **Halaman Detail Barcode / Detail Grup Paket (`/admin/barcode-group` & `/owner/barcode-group`)**:
-   - Menampilkan kartu detail lengkap setiap paket:
-     - **No Resi**: Nomor resi kurir asal (misal `spxid069821994619`).
-     - **No Paket**: Nomor urut paket per pemesan (`#1`, `#2`, dst).
-     - **Tanggal**: Tanggal pencatatan paket fisik.
-     - **Jenis Jastip**: Pesawat, Pelni, Hemat+, atau Kargo.
-     - **Rute Pengiriman**: Rute asal ke tujuan (misal *Jakarta → Manokwari*).
-     - **Nama Barang**: Identitas jenis isi barang (wajib/penting untuk Kargo dan Pelni).
-     - **Berat Real**: Bobot timbangan fisik (kg).
-     - **Berat Volume**: Hasil kalkulasi dimensi kubikasi ($P \times L \times T / \text{Divisor}$).
-     - **Berat Digunakan**: Bobot pakai penentu ongkir ($\max(\text{Berat Real}, \text{Berat Volume})$).
-     - **Dimensi (cm)**: Ukuran fisik Panjang $\times$ Lebar $\times$ Tinggi.
-     - **Total Ongkir**: Ongkir murni berdasarkan berat dan tarif layanan.
-     - **Nominal Biaya Tambahan (Rp)**: Biaya perlindungan/layanan ekstra (misal *Rp 15.000*, default *Rp 0* jika tidak ada biaya tambahan).
-     - **Keterangan Biaya Tambahan**: Penjelasan jenis biaya tambahan (contoh: *Paking kayu, bubble wrap ekstra, karung berlapis*).
-     - **Total Tagihan**: Penjumlahan $\text{Total Ongkir} + \text{Biaya Tambahan}$ dengan penyorotan warna hijau tegas saat biaya tambahan aktif.
-   - **Header Ringkasan Grup**: Menampilkan akumulasi jumlah paket, total berat, total ongkir, total biaya tambahan, dan grand total.
-   - **Dialog Edit Paket**: Menyediakan form penyuntingan lengkap termasuk box *Biaya Tambahan (Opsional)* untuk mengubah nominal dan alasan biaya tambahan secara langsung.
+### 4.2 Input Paket, Mode Grup, & Import Excel
+- **Input Paket Baru (`/admin/packages/type` → `/admin/packages/new`)**:
+  - Mendukung 4 layanan: **Jastip Pesawat**, **Jastip Hemat+**, **Jastip Pelni**, dan **Jastip Kargo**.
+  - Mendukung mode input **Satuan/Grup Multi-Resi** dan **Kargo (`packageMode: "single"` atau kubikasi)** dalam satu atau beberapa resi per customer.
+  - Menyimpan data berat fisik (`realWeight`), dimensi `P × L × T` (cm), `volumeWeight`, `usedWeight`, `packagingType`, `serviceType`, `deliveryRoute`, `totalShipping`, serta field **Biaya Tambahan (`additionalFee`)** dan alasan biaya tambahan pada UI.
+- **Import Excel (`/admin/packages/import`)**:
+  - Menyediakan unduhan dua template `.xlsx`: **Template Standard** (Pesawat, Hemat+, Pelni) dan **Template Kargo** (`packageMode: "single"`).
+  - Saat import (`POST /api/packages/import`), nomor resi (`resiNumber`) yang sudah ada pada `batchId` yang sama otomatis dilewati (*skip duplicate*) untuk mencegah impor ganda — **kecuali** paket dengan `packageMode === "single"` (Kargo) yang diizinkan mengulang resi/item terpisah.
+- **Detail & Edit Paket (`/admin/packages/:id` & `/owner/packages/:id`)**:
+  - Menampilkan seluruh atribut berat, dimensi, ongkir, biaya tambahan, status verifikasi/pengambilan/pembayaran, serta tombol unduh barcode Code128 sebagai gambar PNG.
+  - Pengeditan (`PATCH /api/packages/:id`) mengunci seluruh field finansial/berat/layanan apabila paket sudah berstatus `SUDAH_DIAMBIL` / `diserahkan` (hanya pembaruan `customerName` yang masih diizinkan).
+  - Penghapusan paket (`DELETE /api/packages/:id`) hanya dapat dilakukan oleh **Owner**.
+  - > *Catatan Skema As-Is (`additionalFeeReason`):* Kolom `additional_fee` tersimpan penuh di PostgreSQL (`packages.additional_fee`), namun tabel `packages` pada Drizzle schema belum memiliki kolom `additional_fee_reason` (hanya tersedia di tabel `transactions` dan payload runtime/mock DB). Akibatnya, di mode PostgreSQL alasan biaya tambahan per paket belum dipersistensikan di baris `packages` setelah reload, sedangkan nominal rupiah biaya tambahannya tersimpan normal dan ikut terjumlah dalam total tagihan kasir/invoice.
 
-2. **Halaman Detail Paket Individual (`/admin/packages/:id` & `/owner/packages/:id`)**:
-   - Menampilkan tabel atribut lengkap dengan pemisahan baris *Nominal Biaya Tambahan (Rp)*, *Keterangan Biaya Tambahan*, dan *Total Tagihan*.
-   - Mode edit form mendukung pembaruan nominal serta keterangan biaya tambahan yang langsung tersimpan ke PostgreSQL melalui endpoint PATCH `/api/packages/:id`.
-   - Modul Cetak Stiker Label Barcode/QR (`BarcodeDisplay`) menyertakan baris Biaya Tambahan bila bernilai $> 0$.
+### 4.3 Modul Label Barcode & QR Code (`/admin/barcode`, `/admin/barcode/batch/:id`, `/admin/barcode-group`)
+- **Format Barcode**:
+  - Paket individual: `JAJ-<timestamp>-<random/urut>`.
+  - Paket grup (multi-paket milik customer + layanan + batch yang sama): kode QR grup **`JAJ-GRUP-<id1>-<id2>-...`**.
+- **Cetak Stiker Termal (`artifacts/jastip/src/lib/print-label.ts`)**:
+  - Menghasilkan jendela cetak HTML berukuran stiker **100mm × 150mm** (`@page { size: 100mm 150mm; margin: 0; }`) berisi QR code beresolusi tinggi, identitas Jastip Anggun Jaya, nama penerima, rute pengiriman, batch kapal/ETD, jenis layanan, no resi, berat, catatan/biaya tambahan (jika > 0), dan ringkasan ongkir.
+  - Mendukung cetak satu paket, cetak grup QR (`JAJ-GRUP-...`), maupun cetak semua label paket pada satu batch.
+- **Halaman Detail Batch Barcode (`/admin/barcode/batch/:id` & `/owner/barcode/batch/:id`)**:
+  - Menampilkan daftar customer group & paket dengan paginasi **15 item/halaman**.
+  - Dilengkapi tombol **Hitung Ulang Batch Ini** (`POST /api/packages/recalculate-batch`) untuk menghitung ulang ongkir seluruh paket di batch tersebut berdasarkan aturan tiering dan minimum ongkir aktif saat itu.
+- **Halaman Detail Grup Barcode (`/admin/barcode-group` & `/owner/barcode-group`)**:
+  - Menampilkan ringkasan total paket, total berat, total ongkir, total biaya tambahan, grand total tagihan, paginasi **10 paket/halaman**, dan dialog edit paket langsung.
 
-3. **Input Paket Baru & Import Excel**:
-   - Form input (`/admin/packages/new`): Komponen khusus bergaris putus-putus amber dengan field *Nominal Biaya Tambahan (Rp)* dan *Keterangan Biaya Tambahan*.
-   - Import file Excel (`/admin/packages/import`): Kolom *Biaya Tambahan* dan *Ket Biaya Tambahan* yang langsung terpetakan ke database.
+### 4.4 Modul Verifikasi Paket Fisik (`/admin/verify`, `/admin/verify/batch/:id`, `/owner/verify/batch/:id`)
+Alur verifikasi fisik barang pasca-bongkar muat kapal pada `verify-batch-detail.tsx` menggunakan **3 langkah terstruktur**:
+- **Langkah 0 — Pilih Jenis Jastip**: Menampilkan ringkasan progres verifikasi per layanan (`Jastip Pesawat`, `Jastip Hemat+`, `Jastip Pelni`, `Jastip Kargo`) di dalam batch tersebut.
+- **Langkah 1 — Daftar Penerima (Customer Group)**:
+  - Menampilkan kartu grup customer dengan paginasi **15 grup/halaman**, pencarian nama/resi/barcode, dan filter status (*Semua*, *Belum Selesai*, *Selesai*).
+- **Langkah 2 — Verifikasi Paket per Penerima**:
+  - Mendukung 4 metode scan: **Kamera QR (`Html5Qrcode`)**, **USB/Bluetooth HID Barcode Scanner** (deteksi input cepat/Enter), **Upload Foto Barcode/QR**, dan **Input Manual** (via `GET /api/packages/scan/:barcode?batchId=...`).
+  - **Validasi Keamanan Scan**:
+    - Mendukung format individual (`JAJ-...`), grup (`JAJ-GRUP-...`), nomor resi, nomor paket, dan ID.
+    - Menolak dengan peringatan keras jika paket berasal dari **batch berbeda** atau milik **customer yang berbeda** dengan tab customer yang sedang dibuka.
+    - Menolak duplikasi verifikasi jika paket sudah berstatus `SUDAH_DIVERIFIKASI`.
+- **Fitur Verifikasi Sekaligus (Bulk Verify — `POST /api/packages/verify-all`)**:
+  - Tersedia di ketiga level UI dengan dialog konfirmasi `AlertDialog` untuk mencegah klik tidak disengaja:
+    1. **Level Batch (Langkah 0)**: Tombol *Verifikasi Semua Paket (N)* untuk memverifikasi seluruh paket belum terverifikasi di batch aktif.
+    2. **Level Layanan (Langkah 1)**: Tombol *Verifikasi Semua {Jenis Layanan} (N)* untuk memverifikasi seluruh paket pada layanan terpilih di batch aktif.
+    3. **Level Penerima (Langkah 2)**: Tombol *Verifikasi Penerima Ini (N)* untuk memverifikasi sekaligus semua paket milik customer group yang sedang dibuka.
+  - Endpoint `POST /api/packages/verify-all` mendukung filter `packageIds[]`, `batchId` (termasuk `"no-batch"` / `null`), dan opsional `serviceType`, serta dapat dijalankan baik pada PostgreSQL maupun mode Mock DB.
+
+### 4.5 Modul Invoice A4 (`/admin/invoices`, `/owner/invoices`)
+- **3 Tab Antarmuka**:
+  1. **Pilih Paket & Buat Invoice**: Pencarian paket berdasarkan nama customer, filter dropdown batch pengiriman, filter status invoice (*Semua Status*, *Belum Ber-Invoice*, *Sudah Ber-Invoice*), paginasi **10 paket/halaman**, tombol *Pilih Semua yang Belum di-Invoice*, serta checklist manual paket.
+  2. **Daftar Invoice Terbit**: Pencarian nomor invoice (`INV-YYYYMMDD-NNNN`) atau nama customer, filter status pembayaran, paginasi **10 invoice/halaman**, tombol Preview & Cetak A4, serta Download PDF.
+  3. **Dari Transaksi**: Daftar transaksi kasir berstatus `AKTIF` (paginasi **6 transaksi/halaman**) untuk menerbitkan invoice langsung via `POST /api/invoices/from-transaction/:transactionId`.
+- **Penanda Paket (`GET /api/invoices/package-map`)**: Menandai paket mana saja yang sudah terikat pada invoice non-batal (badge hijau nomor invoice yang dapat diklik untuk membuka detail/cetak).
+- **Kalkulasi Status Invoice**:
+  - Input opsional: Diskon, Uang Muka (DP), Jatuh Tempo, Catatan.
+  - Penentuan status otomatis: `BELUM_LUNAS` (DP = 0), `DIBAYAR_SEBAGIAN` (0 < DP < Total), `LUNAS` (DP >= Total).
+- **Cetak HTML A4 & Download PDF (`artifacts/jastip/src/lib/print-invoice.ts`)**:
+  - Cetak snapshot dokumen A4 standar via jendela print browser serta generator PDF langsung menggunakan `jsPDF` + `jspdf-autotable`.
+  - Setiap aksi cetak memanggil `POST /api/invoices/:id/print` yang menyimpan audit ke tabel `print_logs` dan mengembalikan `copyNumber` serta label `"SALINAN / REPRINT"` bila `copyNumber > 1`.
+- > *Catatan As-Is:* Nilai enum `"BATAL"` sudah ada di definisi database `invoices.status` dan sudah dikecualikan oleh endpoint `/api/invoices/package-map`, namun saat ini **belum terdapat tombol maupun endpoint API untuk membatalkan (`BATAL`) invoice yang sudah terbit**.
+
+### 4.6 Modul Shift Kasir, Blind Closing & Serah Terima (`/admin/shift`, `/owner/shift`, `/admin/shift/handover`)
+- **Pembukaan Shift (`POST /api/shifts/open`)**:
+  - Kasir memilih `shiftType` (`PAGI` atau `MALAM`), opsional `terminalId`, dan mengisi modal awal laci (`openingBalance` bilangan bulat $\ge 0$).
+  - Satu user hanya dapat memiliki satu shift berstatus `AKTIF` dalam satu waktu. Selama tidak ada shift `AKTIF`, menu & akses kasir (`Scan & Pembayaran` + `POST /api/transactions` + `POST /api/transactions/:id/pay`) diblokir oleh middleware `requireActiveShift`.
+- **Formula Kas Sistem (`artifacts/api-server/src/lib/shift-cash.ts`)**:
+  $$\text{System Cash} = \text{Modal Awal} + \text{Kas Masuk Tunai} - \text{Kembalian} - \text{Pengeluaran Tunai} - \text{Refund Tunai VOID} - \text{Setoran Kas}$$
+  *(Catatan: Pengeluaran `cash` pada tabel `pengeluaran` dipetakan ke shift apabila waktu `createdAt`-nya berada di antara `actualStart` dan `actualEnd` shift tersebut.)*
+- **Blind Closing 2 Tahap (`POST /api/shifts/:id/close`)**:
+  - **Tahap 1 (Inisiasi tanpa `closingId`)**: Server menghitung `systemCash`, membuat record di `shift_closings`, tetapi **menyembunyikan nilai `systemCash` dari kasir** agar kasir menghitung fisik uang secara jujur (*blind closing*).
+  - **Tahap 2 (Konfirmasi Hitung Fisik dengan `closingId`)**: Pada UI kasir memasukkan jumlah lembar/koin untuk **9 pecahan uang** (`100.000`, `50.000`, `20.000`, `10.000`, `5.000`, `2.000`, `1.000`, `500`, `200`).
+  - **Validasi Toleransi Selisih Kas**: Selisih (`actualCash - systemCash`) dibandingkan terhadap pengaturan `cash_variance_tolerance` (default Rp 0). Jika selisih melebihi toleransi dan dilakukan bukan oleh Owner (tanpa `overrideByOwner`), API mengembalikan **HTTP `403`** dengan kode `OWNER_APPROVAL_REQUIRED` sampai Owner menyetujui/mengambil alih penutupan shift. Jika selisih $\neq 0$, `alasanSelisih` wajib diisi.
+- **Cetak Laporan Closing Shift (`artifacts/jastip/src/lib/print-shift-closing.ts`)**:
+  - Mencetak ringkasan closing shift (modal awal, penerimaan tunai/transfer/QRIS, pengeluaran tunai, system cash, actual cash, selisih, dan alasan) ke format struk termal **80mm**.
+- **Serah Terima Shift (`POST /api/shifts/:id/handover`, `/admin/shift/handover`, `/owner/shift/handover`)**:
+  - Mencatat perpindahan kas (`handoverAmount`) dari `fromShiftSessionId` ke `toShiftSessionId` pada tabel `shift_handovers` dengan mekanisme konfirmasi dua sisi (`confirmedByGiver` dan `confirmedByReceiver`) serta opsi `manualOverride` + `manualReason`.
+- **Riwayat Shift**: Tabel riwayat shift di `/admin/shift` dan `/owner/shift` dipaginasi **10 shift/halaman**.
+
+### 4.7 Modul Scan Kasir, Pembayaran, Piutang & Struk (`/admin/scan`, `/admin/riwayat-pembayaran`)
+- **Kasir Scan (`/admin/scan` & `/owner/scan`)**:
+  - Dilindungi oleh middleware `requireActiveShift`.
+  - Mendukung scan kamera, HID scanner, upload gambar, dan cari manual. Jika memindai QR grup `JAJ-GRUP-...`, seluruh paket dalam grup tersebut langsung dimuat ke keranjang kasir.
+  - Dapat menambahkan biaya tambahan transaksi (`additionalFee` + `additionalFeeReason`) serta potongan diskon (`discount` + wajib `discountReason` jika diskon > 0).
+- **4 Metode Pembayaran (`POST /api/transactions`)**:
+  - **Tunai**: Validasi uang diterima $\ge$ total tagihan, hitung kembalian otomatis.
+  - **Transfer Bank**: Pencatatan nomor referensi transfer (`paymentReference`).
+  - **QRIS**: Menampilkan gambar QRIS toko yang diambil dari pengaturan `qris_image_url` (`/api/settings/qris-image` yang disimpan di `/uploads/qris/...`) + nomor referensi pembayaran.
+  - **Piutang**: Pilihan bayar sebagian (DP) atau `Rp 0` dengan wajib mengisi estimasi jatuh tempo (`jatuhTempo`) dan nama penanggung jawab (`penanggungJawab`).
+- **Integritas Transaksi**:
+  - Mendukung `Idempotency-Key` (header HTTP atau body `idempotencyKey`) dan penguncian baris PostgreSQL (`FOR UPDATE`) pada paket yang sedang diproses agar tidak terjadi pembayaran ganda dari klik/jaringan lambat.
+- **Pelunasan Piutang Bertahap (`POST /api/transactions/:id/pay` & `/admin/riwayat-pembayaran`)**:
+  - Halaman riwayat pembayaran menampilkan daftar batch, rekap tagihan & sisa piutang per customer (paginasi **10 customer/halaman** pada `/admin/riwayat-pembayaran/batch/:id`), dan rincian pembayaran cicilan bertahap (tunai/transfer/QRIS) hingga `sisaPiutang = 0` (`LUNAS`).
+- **Struk Kasir 80mm (`artifacts/jastip/src/lib/print-receipt.ts`)**:
+  - Mendukung cetak HTML termal **80mm** dan **Download PDF** langsung (`jsPDF` ukuran lebar 80mm).
+  - Perilaku otomatis setelah pembayaran dikontrol oleh pengaturan `receipt_print_mode`:
+    - `AUTO`: Langsung memicu cetak struk setelah transaksi sukses.
+    - `ASK`: Menampilkan dialog konfirmasi pilihan cetak/download/lewati.
+    - `OFF`: Tidak memunculkan prompt cetak otomatis (masih bisa dicetak ulang dari riwayat).
+  - Setiap pencetakan struk dicatat ke `print_logs` melalui `POST /api/transactions/:id/receipt/print`.
+
+### 4.8 Modul Pengajuan & Persetujuan VOID (`/admin/finance`, `/owner/voids`)
+- **Pengajuan VOID (`POST /api/transactions/:id/void`)**:
+  - Admin atau Owner dapat mengajukan pembatalan untuk transaksi yang masih berstatus `AKTIF` dengan memilih kode alasan (`reasonCode`) dan catatan (`notes`). Record tersimpan di tabel `voids` dengan `statusAfter = "MENUNGGU_APPROVAL"`.
+  - Pengajuan ganda pada transaksi yang sudah `VOID` atau sedang menunggu approval ditolak oleh server.
+- **Approval VOID oleh Owner (`POST /api/voids/:id/approve` di `/owner/voids`)**:
+  - Paginasi daftar pengajuan VOID pada `/owner/voids` adalah **5 item/halaman**.
+  - Saat Owner menekan tombol **Setujui VOID**:
+    1. Status transaksi diubah menjadi `VOID`, `paymentStatus = "BELUM_BAYAR"`, dan `sisaPiutang = 0`.
+    2. Seluruh paket dalam transaksi tersebut dikembalikan ke status `status = "pending"`, `statusPengambilan = "BELUM_DIAMBIL"`, `pickedUpAt = null`.
+    3. Sistem membuat entri pembayaran negatif bertipe `VOID_REVERSAL` sebesar total yang pernah dibayarkan.
+    4. **Deteksi Pasca-Closing (`isPostClosing`)**: Jika shift asal transaksi sudah berstatus `CLOSED`, `isPostClosing` ditandai `true`. Jika Owner sedang membuka shift aktif, reversal diarahkan ke shift aktif Owner tersebut; jika tidak, reversal pasca-closing dibiarkan `shiftSessionId = null` sebagai koreksi pusat.
+- > *Catatan As-Is:* Antarmuka `/owner/voids` dan backend `routes/voids.ts` saat ini **hanya menyediakan aksi Approve (`POST /api/voids/:id/approve`)**; tombol atau endpoint penolakan (`Reject VOID`) belum diimplementasikan.
+
+### 4.9 Modul Keuangan, Pengeluaran, Dashboard, Laporan, User & Pengaturan
+- **Dashboard Admin (`/admin/dashboard`) & Owner (`/owner/dashboard`)**:
+  - Ringkasan jumlah paket masuk, belum diverifikasi, siap diambil, sudah diambil, omzet harian/total, piutang belum lunas, pengeluaran, dan grafik tren periode `week` / `month` / `year` (`GET /api/dashboard/chart`).
+- **Keuangan Owner (`/owner/finance` & `/owner/finance/:service`)**:
+  - Rekap pemasukan per layanan (`pesawat`, `hemat`, `pelni`, `kargo`) dan rincian transaksi/paket per layanan dengan paginasi **10 item/halaman**.
+- **Pengeluaran Operasional (`/owner/pengeluaran` & `/admin/pengeluaran`)**:
+  - CRUD pengeluaran (`tanggal`, `kategori`, `nominal`, `metodePembayaran`: `cash` | `transfer` | `lainnya`, `catatan`), filter pencarian, export `.xlsx`/`.pdf`, dan paginasi **10 item/halaman**.
+- **Laporan Komprehensif (`/owner/reports`)**:
+  - Mode laporan **Harian**, **Bulanan**, dan **Tahunan** (`GET /api/reports?type=daily|monthly|yearly`), menampilkan metrik pendapatan, piutang, pengeluaran, ringkasan transaksi, dan tombol export Excel/PDF (paginasi **10 item/halaman**).
+- **Data Admin (`/owner/admins`) & Manajemen User (`/owner/users`)**:
+  - CRUD akun staf `admin` (tambah akun, ubah nama/HP, aktifkan/nonaktifkan, reset kata sandi, hapus akun). Paginasi **10 item/halaman**.
+  - **Aturan Hapus Admin (`DELETE /api/admins/:id`)**: Jika admin memiliki riwayat data (paket, transaksi, pembayaran, atau shift), sistem melakukan **Soft Delete** (`isActive = false`, `isHidden = true`, `deletedAt = now()`) agar integritas data historis terjaga; jika belum memiliki riwayat sama sekali, dilakukan **Hard Delete**.
+- **Pengaturan Kas & Operasional (`/owner/settings`)**:
+  - Mengelola konfigurasi pada tabel `settings`: `qris_image_url` (upload gambar PNG/JPG/JPEG/WEBP maks 2MB ke `/uploads/qris/...`), `cash_variance_tolerance` (batas toleransi selisih kas laci), dan `receipt_print_mode` (`AUTO` / `ASK` / `OFF`). Setiap perubahan dicatat juga ke `tarif_history`.
+- **Tabel Inventaris Paket (`/admin/packages`, `/owner/packages`, `/admin/arsip`, `/owner/arsip`)**:
+  - Mendukung filter layanan, batch, status, pencarian resi/customer, export Excel/PDF (`package-export.ts`), dengan paginasi **10 item/halaman** (`packages.tsx`) dan **5 batch/halaman** (`arsip.tsx`).
 
 ---
 
-### 4.3 Modul Verifikasi Paket Fisik (Gudang & Bongkar Muat)
-
-1. **Scan Barcode & QR Code**:
-   - Menggunakan webcam/kamera scanner (`Html5QrcodeScanner`), upload file foto barcode, atau input manual nomor barcode/resi.
-   - Mendukung pencarian instan via:
-     - Barcode individual (`JAJ-...`).
-     - Barcode grup (`JAJ-GRUP-...`).
-     - Nomor resi pengiriman kurir asal.
-     - Nomor urut paket / nomor item.
-
-2. **Validasi & Proteksi Kesalahan Scan**:
-   - **Pencocokan Batch Kapal**: Jika paket yang di-scan berasal dari batch yang berbeda dengan batch yang sedang diverifikasi, sistem memberikan peringatan kesalahan.
-   - **Pencocokan Nama Customer & Barcode Grup**: Pada mode verifikasi per penerima, scan barcode individu atau scan QR grup mencocokkan identitas pemilik paket. Jika paket di-scan milik customer lain (misal Customer Rina saat verifikasi tab Customer edu), sistem menolak dan menampilkan banner peringatan *"TIDAK COCOK: Paket ini milik Customer Rina, bukan edu"*.
-   - **Pencegahan Double Verify**: Paket yang sudah diverifikasi ditandai visual centang hijau dan dicegah dari duplikasi verifikasi.
-
----
-
-### 4.3 Navigasi & Paginasi Komponen Card / Tabel
-
-Untuk menjaga performa rendering pada antarmuka dengan volume data ribuan item, komponen `<Pagination />` (`@/components/pagination.tsx`) diintegrasikan pada seluruh halaman kartu dan tabel:
-
-1. **`/admin/invoices` & `/owner/invoices`**:
-   - Paginasi daftar paket customer pada Tab 1 (*Pilih Paket & Buat Invoice*, 10 item/halaman).
-   - Paginasi riwayat invoice terbit pada Tab 2 (*Riwayat Invoice Terbit*, 10 invoice/halaman).
-2. **`/admin/barcode/group/:id` & `/owner/barcode/group/:id`**:
-   - Paginasi daftar card paket dalam grup barcode multi-resi (10 paket/halaman).
-3. **`/admin/riwayat-pembayaran/:batchId` & `/owner/riwayat-pembayaran/:batchId`**:
-   - Paginasi card rekapitulasi pembayaran per customer pada batch pengiriman tertentu (10 customer/halaman).
-4. **`/admin/shift` & `/owner/shift`**:
-   - Paginasi tabel riwayat closing shift kasir terdahulu (10 shift/halaman).
-5. **`/owner/finance/:service` (Finance Detail)**:
-   - Paginasi tabel transaksi dan tabel paket per jenis layanan (10 transaksi/paket per halaman).
-6. **`/admin/packages`, `/owner/packages`, `/admin/arsip`, `/owner/arsip`**:
-   - Paginasi tabel inventaris paket dengan opsi ukuran per halaman fleksibel.
-
----
-
-### 4.4 Modul Shift Kasir & Blind Closing
-
-1. **Siklus Pembukaan Shift**:
-   - Kasir memilih tipe shift (`PAGI` / `MALAM`) dan mengisi saldo kas awal laci (*opening balance*).
-   - Tombol kasir (`Scan & Pembayaran`) hanya aktif jika kasir telah memiliki shift aktif berstatus `OPEN`.
-
-2. **Pencatatan Keuangan Real-time (*System Cash*)**:
-   - Sistem mengakumulasi kas fisik laci:
-     $$\text{System Cash} = \text{Modal Awal} + \text{Kas Masuk Tunai} - \text{Kembalian} - \text{Pengeluaran Tunai} - \text{Refund VOID}$$
-   - Pembayaran non-tunai (Transfer & QRIS) dicatat pada rekap omzet terpisah tanpa mencemari hitungan uang kertas laci.
-
-3. **Penutupan Shift Buta (*Blind Closing*)**:
-   - Kasir menutup shift tanpa diperlihatkan saldo akhir menurut komputer (*System Cash disembunyikan*).
-   - Kasir wajib menghitung dan menginput jumlah lembar/koin fisik untuk setiap pecahan (Rp 100.000, Rp 50.000, Rp 20.000, Rp 10.000, Rp 5.000, Rp 2.000, Rp 1.000, Rp 500, Rp 200, Rp 100).
-   - Sistem mengkalkulasi kas fisik aktual (*Actual Cash*).
-   - Jika terdapat selisih ($\text{Selisih} \neq 0$), kasir wajib menyertakan keterangan alasan selisih sebelum finalisasi tutup shift.
-
----
-
-### 4.5 Modul Transaksi Pembayaran, Piutang, dan VOID
-
-1. **Multi-Metode Pembayaran**:
-   - **Tunai**: Validasi nominal bayar $\ge$ total tagihan, penghitungan kembalian otomatis.
-   - **Transfer Bank**: Pilihan rekening bank tujuan dan pencatatan nomor referensi transfer unik.
-   - **QRIS**: Tampilan QR code pembayaran statis/dinamis dan pencatatan nomor RRN/referensi QRIS.
-   - **Piutang**: Opsi cicilan uang muka sebagian (*BAYAR_SEBAGIAN*) atau tanpa bayar sama sekali (*BELUM_BAYAR*) dengan penetapan tanggal jatuh tempo dan penanggung jawab.
-
-2. **Pelunasan Piutang Bertahap**:
-   - Pencarian transaksi piutang berdasarkan nama customer.
-   - Pembayaran angsuran bertahap dengan metode fleksibel (misal tahap 1 Tunai Rp 100.000, tahap 2 QRIS Rp 200.000) hingga sisa piutang mencapai Rp 0 (`LUNAS`).
-
-3. **Alur Pengajuan & Approval VOID**:
-   - **Pengajuan Admin**: Admin memilih transaksi, memilih kode alasan VOID, dan mengirim usulan status `MENUNGGU_APPROVAL`.
-   - **Approval Owner**: Owner mengevaluasi pengajuan pada menu `/owner/voids`. Saat disetujui:
-     - Status transaksi berubah menjadi `VOID`.
-     - Dana tunai ditarik balik (*cash reversal*) dari shift aktif.
-     - Seluruh paket terkait dikembalikan statusnya menjadi `BELUM_DIAMBIL` (*pending*) agar dapat diproses ulang.
-   - **Proteksi Anti-Duplikasi**: Transaksi yang sudah berstatus `VOID` ditolak secara ketat dari pengajuan ulang.
-
----
-
-## 5. Rumus Berat, Dimensi, & Perhitungan Ongkir
+## 5. Rumus Berat, Tarif & Mekanisme Ongkir Minimum
 
 ### 5.1 Rumus Berat Volume & Berat Pakai
 $$\text{Berat Volume} = \frac{\text{Panjang (cm)} \times \text{Lebar (cm)} \times \text{Tinggi (cm)}}{\text{Divisor Layanan}}$$
 $$\text{Berat Pakai} = \max(\text{Berat Aktual (kg)}, \text{Berat Volume (kg)})$$
 
-**Divisor Layanan:**
-- **Jastip Pesawat**: $5.000$
-- **Jastip Hemat+**: $4.000$
-- **Jastip Pelni**: $4.000$
-- **Jastip Kargo**: $1.000.000$ (menghasilkan volume dalam satuan $\text{M}^3$)
+**Divisor per Layanan (`routes/packages.ts`):**
+- **Jastip Pesawat**: `5.000`
+- **Jastip Hemat+**: `4.000`
+- **Jastip Pelni**: `4.000`
+- **Jastip Kargo**: `1.000.000` *(menghasilkan volume kubikasi $\text{M}^3$)*
 
-### 5.2 Aturan Per Layanan
+### 5.2 Aturan Tarif & Pembulatan Layanan (`routes/packages.ts`)
 
-| Layanan | Rumus / Ketentuan Perhitungan Ongkir |
+| Layanan | Ketentuan & Perhitungan As-Is Saat Ini |
 |---|---|
-| **Jastip Pesawat** | Tarif acuan default: Rp77.000/kg.<br>Pembulatan berat kumulatif per customer per batch: $\le 0.2\text{ kg} \rightarrow 0.2\text{ kg}$; $\le 0.4\text{ kg} \rightarrow 0.4\text{ kg}$; $\le 0.5\text{ kg} \rightarrow 0.5\text{ kg}$; $> 0.5\text{ kg} \rightarrow \text{Berat Aktual}$. Ongkir didistribusikan proporsional ke paket-paketnya. Memiliki floor batas bawah pembulatan berat minimum 0.2 kg (setara ongkir minimum Rp15.400). |
-| **Jastip Hemat+** | Tarif acuan default: Rp10.000/kg.<br>Satu paket tunggal berat $< 1\text{ kg}$ dikenakan minimum $1\text{ kg}$ (minimum ongkir Rp10.000). Lebih dari satu paket milik customer yang sama dalam batch dihitung berdasarkan total berat gabungan tanpa pembulatan ke atas per paket, dengan floor batas minimum total ongkir grup Rp10.000. |
-| **Jastip Pelni** | Tarif tiering bertingkat berdasarkan total berat gabungan customer dalam batch yang sama:<br>Contoh Jakarta $\rightarrow$ Manokwari: $\le 10.1\text{ kg}: \text{Rp}20.000/\text{kg}$; $\le 20.1\text{ kg}: \text{Rp}19.000/\text{kg}$; $\le 40.1\text{ kg}: \text{Rp}18.000/\text{kg}$; $\le 80.1\text{ kg}: \text{Rp}17.000/\text{kg}$; $> 80.1\text{ kg}: \text{Rp}16.000/\text{kg}$.<br>Surabaya $\rightarrow$ Manokwari: $\le 10\text{ kg}: \text{Rp}18.000/\text{kg}$; $\le 20\text{ kg}: \text{Rp}17.000/\text{kg}$; $\le 40\text{ kg}: \text{Rp}16.000/\text{kg}$; $> 40\text{ kg}: \text{Rp}15.500/\text{kg}$.<br>**Ongkir Minimum Pelni**: Dikenakan minimum Rp20.000 per customer (ongkir total di bawah Rp20.000 otomatis dibulatkan menjadi Rp20.000). |
-| **Jastip Kargo** | Dihitung berdasarkan kubikasi $\text{M}^3$ ($\frac{P \times L \times T}{1.000.000}$) atau berat aktual (Ton) dikalikan tarif kargo per $\text{M}^3$. **TIDAK ADA MINIMAL ONGKIR** (tidak ada batas minimum Rp70.000, Rp25.000, maupun angka batas minimum lainnya; total ongkir dihitung murni sesuai hasil perkalian volume kubikasi $\text{M}^3 \times \text{Tarif/M}^3$, misalnya $0{,}02142\text{ M}^3 \times \text{Rp } 1.900.000 = \text{Rp } 40.698$). Dilengkapi fitur **Hitung Ulang Batch Ini** (`POST /api/packages/recalculate-batch`) langsung pada halaman detail barcode batch (`/owner/barcode/batch/:id` & `/admin/barcode/batch/:id`) untuk memperbarui ongkir seluruh paket khusus pada batch tersebut dalam 1 klik tanpa mempengaruhi batch lain. |
+| **Jastip Pesawat** | Tarif default `Rp 77.000 / kg`. Akumulasi berat per customer dalam batch yang sama dibulatkan: $\le 0{,}2\text{ kg} \rightarrow 0{,}2\text{ kg}$; $\le 0{,}4\text{ kg} \rightarrow 0{,}4\text{ kg}$; $\le 0{,}5\text{ kg} \rightarrow 0{,}5\text{ kg}$; $> 0{,}5\text{ kg} \rightarrow$ sesuai total berat pakai. Ongkir didistribusikan secara proporsional ke paket-paket milik customer pada batch tersebut, lalu dicek terhadap `settings_shipping_minimum`. |
+| **Jastip Hemat+** | Tarif default `Rp 10.000 / kg`. Untuk paket tunggal berbobot $< 1\text{ kg}$ dibulatkan menjadi `1 kg`. Jika customer mengirim lebih dari 1 paket dalam batch yang sama, berat digabung apa adanya lalu dikalikan tarif, kemudian dicek terhadap `settings_shipping_minimum`. |
+| **Jastip Pelni** | Tarif berjenjang (*tiering*) berdasarkan total berat gabungan customer pada batch & rute yang sama:<br>- **Jakarta $\rightarrow$ Manokwari**: $\le 10{,}1\text{ kg} = \text{Rp } 20.000$; $\le 20{,}1\text{ kg} = \text{Rp } 19.000$; $\le 40{,}1\text{ kg} = \text{Rp } 18.000$; $\le 80{,}1\text{ kg} = \text{Rp } 17.000$; $> 80{,}1\text{ kg} = \text{Rp } 16.000$/kg.<br>- **Surabaya $\rightarrow$ Manokwari**: $\le 10\text{ kg} = \text{Rp } 18.000$; $\le 20\text{ kg} = \text{Rp } 17.000$; $\le 40\text{ kg} = \text{Rp } 16.000$; $> 40\text{ kg} = \text{Rp } 15.500$/kg.<br>Setelah ongkir per paket dihitung, sistem mengecek minimum ongkir dari `settings_shipping_minimum` (default floor `Rp 20.000` jika enabled/fallback aktif). |
+| **Jastip Kargo** | Dihitung dari kubikasi $\text{M}^3$ ($\frac{P \times L \times T}{1.000.000}$) atau berat aktual dikalikan tarif kargo per $\text{M}^3$/kg. Secara default konfigurasi `settings_shipping_minimum` untuk Kargo bernilai `enabled: false, minimumAmount: 0` (tidak ada minimum ongkir bawaan). Pada `recalculate-batch` & `recalculate-kargo`, minimum hanya diterapkan apabila Owner secara eksplisit mengaktifkan minimum Kargo di `/owner/tarif`. |
 
-### 5.3 Sistem & Spesifikasi Ongkir Minimum (Shipping Minimums)
+### 5.3 Sistem Ongkir Minimum (`settings_shipping_minimum`) & Hitung Ulang
+- Tabel `settings_shipping_minimum` menyimpan konfigurasi per kombinasi `(serviceId, originCity)` dengan kolom `enabled` (boolean) dan `minimumAmount` (numeric).
+- **Redistribusi Customer-Level Minimum (`lib/shipping-minimum.ts` & `routes/packages.ts`)**:
+  - Jika total ongkir seluruh paket milik satu customer (pada layanan & batch yang sama) lebih kecil dari `minimumAmount`, maka kekurangan menuju `minimumAmount` didistribusikan secara proporsional ke tiap paket berdasarkan bobot `usedWeight` (atau merata bila seluruh berat bernilai 0).
+- **Hitung Ulang Batch**:
+  - `POST /api/packages/recalculate-batch` menghitung ulang ongkir seluruh paket pada satu `batchId` tertentu sesuai aturan layanan, tiering, dan `settings_shipping_minimum` yang aktif di database.
+  - `POST /api/packages/recalculate-kargo` menghitung ulang khusus paket layanan `kargo`.
 
-Sistem menerapkan arsitektur ongkir minimum berbasis grup konsumen dan layanan dalam satu batch pengiriman:
-
-1. **Matriks Ongkir Minimum Default Sistem**:
-   | Jenis Jastip | Rute Pengiriman | Default Ongkir Minimum | Mekanisme & Keterangan |
-   |---|---|---|---|
-   | **Jastip Pelni** | Jakarta $\rightarrow$ Manokwari | **Rp 20.000** | Floor otomatis sistem & form input. Paket dengan total ongkir $< \text{Rp } 20.000$ (misal 0.5 kg $\times$ Rp 20.000 = Rp 10.000) otomatis dibulatkan menjadi Rp 20.000. |
-   | **Jastip Pelni** | Surabaya $\rightarrow$ Manokwari | **Rp 18.000 / Rp 20.000** | Terdaftar pada konfigurasi minimum dengan batas dasar Rp 18.000 (Surabaya) dan floor rekalkulasi aktif Rp 20.000. |
-   | **Jastip Hemat+** | Surabaya $\rightarrow$ Manokwari | **Rp 10.000** | Berlaku aturan minimum 1 kg (1 kg $\times$ Rp 10.000 = Rp 10.000) untuk paket tunggal, serta batas bawah total ongkir customer Rp 10.000. |
-   | **Jastip Kargo** | Jakarta/Surabaya $\rightarrow$ Manokwari | **Tidak Ada Minimal (Rp 0)** | Jastip Kargo **tidak memberlakukan tarif minimum sama sekali**. Total ongkir berapapun hasilnya (misal Rp 40.698 atau Rp 7.000) dihitung murni dari hasil volume M³ / berat Ton dikalikan tarif per M³, tanpa pembulatan minimum. |
-   | **Jastip Pesawat** | Jakarta $\rightarrow$ Manokwari | **Rp 15.400** *(Weight Floor)* | Menggunakan floor pembulatan berat efektif terkecil $0.20\text{ kg} \times \text{Rp } 77.000 = \text{Rp } 15.400$. |
-
-2. **Aturan Berlaku Per Grup Konsumen (Customer-Level Minimum)**:
-   - Ongkir minimum diperlakukan sebagai batas **total ongkir per customer** dalam batch yang sama, bukan membebani setiap paket secara terpisah jika customer mengirim banyak paket kecil.
-   - **1 Paket Tunggal**: Jika total ongkir paket di bawah batas minimum, ongkir paket tersebut langsung dinaikkan ke nilai minimum.
-   - **Multi-Paket (Lebih dari 1 Paket)**: Jika penjumlahan ongkir seluruh paket customer dalam batch tersebut masih di bawah batas minimum, selisih menuju nilai minimum didistribusikan secara proporsional ke masing-masing paket berdasarkan bobot berat pakai (`usedWeight` / `pkgEffectiveWeights`), sehingga penjumlahan seluruh `totalShipping` paket tepat setara dengan nominal minimum.
-   - **Pengecualian Kargo**: Jastip Kargo dikecualikan dari segala mekanisme redistribusi atau batas minimum, memastikan tarif murni per meter kubik / ton.
-
-3. **Manajemen Terintegrasi oleh Owner (`/owner/tarif`)**:
-   - Menu *Pengaturan Tarif* Owner menyajikan kartu terintegrasi untuk masing-masing jenis jastip (**Jastip Pesawat**, **Jastip Hemat+**, **Jastip Kargo**, dan **Jastip Pelni**).
-   - Setiap kartu layanan menampilkan secara berdampingan:
-     1. **Tarif Aktif Saat Ini**: Badge indikator visual yang menampilkan tarif dasar yang sedang digunakan di sistem (misal `Tarif Aktif Saat Ini: Rp 77.000 / kg`, `Rp 10.000 / kg`, `Rp 7.000 / M³`, atau tiering Pelni).
-     2. **Input Tarif Baru**: Form input langsung untuk mengubah tarif dasar per kg / per M³ / tiering Pelni.
-     3. **Pembulatan Otomatis Minimal**: Komponen kontrol pembulatan otomatis yang terintegrasi di dalam setiap kartu layanan, dilengkapi dengan:
-        - **Toggle Sakelar (AKTIF / NONAKTIF)**: Mengaktifkan atau mematikan pembulatan otomatis minimal untuk jenis jastip tersebut secara mandiri.
-        - **Input Nominal Pembulatan Otomatis**: Form input untuk menentukan batas nominal minimal baru (misal diset ke **Rp 10.000**).
-        - **Keterangan Skenario**: Penjelasan contoh kasus (seperti paket Anton dengan harga kalkulasi Rp 5.000 yang otomatis dibulatkan ke Rp 10.000 jika pembulatan aktif).
-   - **Simpan Sekaligus**: Tombol *"Simpan Perubahan Tarif & Pembulatan Otomatis"* menyimpan tarif utama dan aturan pembulatan secara simultan dalam satu transaksi dengan audit log lengkap di `tarif_history`.
+> **Catatan Kondisi Aktual (Sinkronisasi Pengaturan Tarif vs Kalkulasi Paket):**  
+> Halaman `/owner/tarif` menyimpan nilai baru `pesawatRate`, `hematRate`, `kargoRate`, `pelniTiersJakarta`, dan `pelniTiersSurabaya` ke tabel `settings` serta mencatat log ke `tarif_history`. Namun pada source code `artifacts/api-server/src/routes/packages.ts` saat ini, kalkulasi harga dasar per kg pada endpoint input/edit/import/recalculate **masih membaca konstanta tarif default kode** (`77000` untuk Pesawat, `10000` untuk Hemat+, dan tabel tier Pelni di kode), sedangkan konfigurasi **ongkir minimum (`settings_shipping_minimum`) sudah dibaca langsung secara dinamis dari database** oleh `getShippingMinimum()`.
 
 ---
 
-## 6. Struktur Database (Drizzle ORM)
+## 6. Daftar Lengkap Endpoint Backend API (`/api/*`)
 
-| Nama Tabel | Deskripsi & Kolom Utama |
-|---|---|
-| **`users`** | Akun pengguna (`id`, `name`, `phone`, `password` (SHA-256), `role` [owner/admin], `isActive`, `createdAt`). |
-| **`sessions`** | Sesi login token (`id`, `userId`, `token`, `expiresAt`, `createdAt`). |
-| **`batches`** | Data batch pengiriman kapal (`id`, `namaKapal`, `etd`, `periodeClosingMulai`, `periodeClosingSelesai`, `kotaAsal`, `tujuan`, `statusBatch` [OPEN/CLOSED/ARSIP/HAPUS], `createdBy`). |
-| **`packages`** | Data paket fisik (`id`, `barcode`, `resiNumber`, `packageNumber`, `customerName`, `customerPhone`, `itemName`, `serviceType`, `deliveryRoute`, `realWeight`, `length`, `width`, `height`, `volumeWeight`, `usedWeight`, `packagingType`, `totalShipping`, `additionalFee`, `additionalFeeReason`, `statusVerifikasi`, `statusPengambilan`, `statusPembayaran`, `batchId`, `adminId`). |
-| **`transactions`** | Transaksi kasir (`id`, `transactionNo`, `customerName`, `packageIds` (array), `subtotal`, `additionalFee`, `discount`, `total`, `paymentStatus` [LUNAS/BAYAR_SEBAGIAN/BELUM_BAYAR], `transactionStatus` [AKTIF/VOID/MENUNGGU_APPROVAL], `sisaPiutang`, `shiftSessionId`, `cashierId`, `idempotencyKey`). |
-| **`payments`** | Riwayat mutasi pembayaran kasir (`id`, `transactionId`, `paymentType` [PELUNASAN_LANGSUNG/PELUNASAN_PIUTANG], `paymentMethod` [tunai/transfer/qris/piutang], `totalAmount`, `paidAmount`, `changeAmount`, `shiftSessionId`, `adminId`). |
-| **`invoices`** | Dokumen tagihan Invoice A4 (`id`, `invoiceNo`, `customerName`, `customerPhone`, `subtotal`, `discount`, `discountReason`, `downPayment`, `total`, `balance`, `status` [BELUM_LUNAS/DIBAYAR_SEBAGIAN/LUNAS/BATAL], `notes`, `createdById`, `createdByName`, `issuedAt`, `dueDate`, `printCount`, `lastPrintedAt`, `history`). |
-| **`invoice_items`** | Rincian baris paket dalam invoice (`id`, `invoiceId`, `packageId`, `resiNumber`, `packageNumber`, `itemName`, `serviceType`, `deliveryRoute`, `usedWeight`, `shippingRate`, `additionalFee`, `additionalFeeReason`, `price`, `itemDate`). |
-| **`print_logs`** | Log audit cetak dokumen (`id`, `documentType` [INVOICE/RECEIPT/LABEL], `documentId`, `printedById`, `printedByName`, `printedAt`, `reason`). |
-| **`shift_sessions`** | Sesi shift kerja kasir (`id`, `adminId`, `shiftType` [PAGI/MALAM], `terminalId`, `openingBalance`, `status` [AKTIF/CLOSED], `actualStart`, `actualEnd`). |
-| **`shift_closings`** | Rekapitulasi penutupan shift laci (`id`, `shiftSessionId`, `systemCash`, `actualCash`, `selisih`, `alasanSelisih`, `closedAt`, `approvedBy`). |
-| **`void_requests`** | Log permohonan pembatalan transaksi (`id`, `transactionId`, `reasonCode`, `notes`, `requestedBy`, `reversalAmount`, `packageIdsReturned`, `statusBefore`, `statusAfter` [MENUNGGU_APPROVAL/VOID/DITOLAK], `approvedBy`, `approvedAt`). |
-| **`pengeluaran`** | Pengeluaran kas operasional (`id`, `tanggal`, `nominal`, `kategori`, `catatan`, `metodePembayaran` [cash/transfer/lainnya], `dicatatOleh`, `namaPencatat`, `createdAt`). |
-| **`service_types`** | Master jenis layanan jastip (`id`, `name`, `code`, `divisor`, `defaultRate`). |
-| **`settings`** | Konfigurasi tarif umum & tiering Pelni dalam format JSON key-value. |
-| **`settings_shipping_minimum`** | Pengaturan harga ongkir minimum per layanan dan rute (`id`, `serviceId`, `originCity`, `enabled` (boolean), `minimumAmount` (numeric), `updatedBy`, `createdAt`, `updatedAt`). |
-| **`tarif_history`** | Riwayat audit perubahan tarif dan ongkir minimum oleh Owner (`id`, `jenisJastip`, `tarifLama`, `tarifBaru`, `alasan`, `diubahOleh`, `namaUbah`, `createdAt`). |
+Seluruh endpoint berada di bawah prefix `/api` pada `/artifacts/api-server/src/routes/`.
 
----
-
-## 7. Prosedur Pengujian & Verifikasi Kualitas
-
-Sistem dilengkapi suite pengujian otomatis untuk memastikan integritas logika bisnis dan fungsionalitas UI/API:
-
-1. **Linting & Type Safety**:
-   ```bash
-   npm run lint
-   npm run typecheck
-   ```
-   *Status:* **100% LULUS** (Zero type / syntax errors).
-
-2. **Pengujian Komprehensif Seluruh Modul & Fitur Sistem (26 Poin Uji)**:
-   ```bash
-   npx --prefix scripts tsx scripts/src/verify-all-system-features.ts
-   ```
-   *Cakupan:*
-   - [x] **System Bootstrap & Health**: Endpoint `/healthz` merespons HTTP 200 `status: ok`.
-   - [x] **Autentikasi & Profile**: Login Owner & Admin, token session, dan endpoint `/api/auth/me`.
-   - [x] **Batch Pengiriman**: Query list batch dan pembuatan batch baru oleh Owner.
-   - [x] **Input Paket**: Satuan Pesawat, Pelni (dengan proteksi paking kayu), Kargo (murni M³ tanpa batas minimal: 34×30×21 cm $\rightarrow$ Rp40.698), dan Bulk Import Multi-Resi.
-   - [x] **Label Barcode**: Generate otomatis kode barcode `JAJ-...` pada seluruh paket.
-   - [x] **Verifikasi Paket**: Scan fisik dan update status verifikasi paket di gudang.
-   - [x] **Shift Kasir**: Deteksi status shift `AKTIF` dan pembukaan shift dengan modal awal.
-   - [x] **Transaksi Kasir**: Transaksi tunai lunas, perhitungan kembalian laci kas, dan penerbitan format struk termal.
-   - [x] **Invoice A4**: Pemetaan status `package-map`, penerbitan Invoice A4 resmi dengan DP/Diskon, dan render cetak snapshot.
-   - [x] **Transaksi & VOID**: Pengajuan permohonan VOID oleh kasir dan persetujuan approval + *cash reversal* oleh Owner.
-   - [x] **Pengeluaran Kas**: Pencatatan beban harian operasional dan rekapitulasi riwayat kas keluar.
-   - [x] **Pengaturan Tarif**: Query daftar pengaturan tarif aktif dan audit histori perubahan.
-   - [x] **Manajemen User**: Pengelolaan akun staf/admin oleh Owner.
-   - [x] **Laporan & Keuangan**: Ringkasan laporan keuangan dan arus kas.
-   *Status:* **26 / 26 PENGUJIAN LULUS (100%)**.
-
-3. **Pengujian Kalkulasi Jastip Kargo (Tanpa Batas Minimum)**:
-   ```bash
-   npx --prefix scripts tsx scripts/src/test-kargo-calc.ts
-   ```
-   *Cakupan:*
-   - Kasus 1 (Rak Sepatu 34×30×21 cm): $0{,}02142\text{ M}^3 \times \text{Rp } 1.900.000 = \text{Rp } 40.698$ (Bukan Rp70.000 atau Rp25.000).
-   - Kasus 2 (Kereta Bayi 66×64×13 cm): $0{,}054912\text{ M}^3 \times \text{Rp } 1.900.000 = \text{Rp } 104.333$.
-   - Kasus 3 (Kasur 200×90×26 cm): $0{,}468\text{ M}^3 \times \text{Rp } 1.500.000 = \text{Rp } 702.000$.
-   *Status:* **100% LULUS**.
-
-4. **Pengujian Biaya Tambahan (Opsional) di Detail Paket & Barcode**:
-   ```bash
-   npx --prefix scripts tsx scripts/src/test-additional-fee-detail.ts
-   ```
-   *Status:* **100% LULUS**.
-
-5. **Pengujian Regresi Penuh End-to-End (15 Langkah)**:
-   ```bash
-   npx --prefix scripts tsx scripts/src/verify-full-regression-e2e.ts
-   ```
-   *Status:* **15 / 15 LANGKAH REGRESI LULUS 100%**.
-
-6. **Pengujian Batas Minimal Semua Jenis Jastip & Hitung Ulang Per-Batch**:
-   - [x] Pengaturan Batas Minimal Jastip Pesawat, Pelni, Hemat+, dan Kargo (Jakarta & Surabaya).
-   - [x] Sinkronisasi toggle ON/OFF dan nominal custom batas minimal di database & audit history (`tarif_history`).
-   - [x] Eksekusi Hitung Ulang Khusus Per-Batch (`POST /api/packages/recalculate-batch`) langsung di halaman `/owner/barcode/batch/:id`.
-   - [x] Verifikasi API & UI Build Linter: **10 / 10 PENGUJIAN LULUS (100%)**.
+| Modul | Method & Endpoint | Autentikasi / Role / Guard | Deskripsi Singkat |
+|---|---|---|---|
+| **Health** | `GET /api/healthz`, `GET /api/health` | Publik | Cek status server (`status: "ok"`) |
+| **Auth** | `POST /api/auth/login` | Publik | Login HP & password, terbitkan Bearer token |
+| | `POST /api/auth/register` | Publik | Buat akun `admin` baru (API) |
+| | `GET /api/auth/me` | `requireAuth` | Ambil profil user yang sedang login |
+| | `PATCH /api/auth/profile` | `requireAuth` | Ubah nama dan/atau kata sandi sendiri |
+| | `POST /api/auth/logout` | `requireAuth` | Hapus sesi token aktif |
+| **Batches** | `GET /api/batches` | `requireAuth` | Daftar semua batch pengiriman |
+| | `POST /api/batches` | `requireAuth` | Buat batch kapal baru |
+| | `GET /api/batches/:id` | `requireAuth` | Detail batch & statistik paket |
+| | `PATCH /api/batches/:id` | `requireAuth` (`HAPUS`: `owner`) | Ubah metadata/status batch (`ARSIP` locked; `HAPUS` hapus permanen) |
+| | `GET /api/batches/service-types/list` | `requireAuth` | Daftar master `service_types` |
+| **Packages** | `GET /api/packages` | `requireAuth` | Daftar paket (filter query status, batch, search, admin) |
+| | `POST /api/packages` | `requireAuth` | Input paket baru + kalkulasi berat/ongkir/minimum |
+| | `POST /api/packages/import` | `requireAuth` | Import massal paket dari hasil parsing Excel |
+| | `GET /api/packages/scan/:barcode` | `requireAuth` | Cari paket/grup via barcode (`JAJ-...` / `JAJ-GRUP-...`), resi, no paket, atau ID |
+| | `GET /api/packages/:id` | `requireAuth` | Rincian satu paket |
+| | `PATCH /api/packages/:id` | `requireAuth` | Edit data paket (terkunci bila `SUDAH_DIAMBIL`, kecuali `customerName`) |
+| | `DELETE /api/packages/:id` | `requireAuth`, `owner` | Hapus paket permanen |
+| | `GET /api/packages/:id/barcode` | `requireAuth` | Informasi payload barcode paket |
+| | `POST /api/packages/:id/verify` | `requireAuth` | Verifikasi fisik satu paket |
+| | `POST /api/packages/verify-all` | `requireAuth` | Verifikasi massal (`packageIds[]` atau `batchId` + opsional `serviceType`) |
+| | `POST /api/packages/:id/serahkan` | `requireAuth` | Tandai penyerahan paket (legacy/direct pickup) |
+| | `POST /api/packages/:id/customer-pickup` | `requireAuth` | Tandai pengambilan oleh customer |
+| | `POST /api/packages/:id/tolak` | `requireAuth` | Tandai penolakan / batalkan serah paket |
+| | `POST /api/packages/recalculate-batch` | `requireAuth` | Hitung ulang ongkir semua paket pada 1 batch |
+| | `POST /api/packages/recalculate-kargo` | `requireAuth` | Hitung ulang ongkir paket layanan Kargo |
+| **Transactions** | `GET /api/transactions` | `requireAuth` | Daftar transaksi kasir |
+| | `POST /api/transactions` | `requireAuth`, `requireActiveShift` | Proses pembayaran kasir & penyerahan paket (idempotent + row lock) |
+| | `POST /api/transactions/:id/pay` | `requireAuth`, `requireActiveShift` | Bayar cicilan / pelunasan piutang bertahap |
+| | `POST /api/transactions/:id/void` | `requireAuth` | Ajukan permohonan VOID transaksi (`MENUNGGU_APPROVAL`) |
+| **Receipts** | `GET /api/transactions/:id/receipt` | `requireAuth` | Ambil data payload struk transaksi |
+| | `POST /api/transactions/:id/receipt/print` | `requireAuth` | Catat audit cetak struk ke `print_logs` |
+| **Voids** | `GET /api/voids` | `requireAuth`, `owner` | Daftar pengajuan & riwayat VOID |
+| | `POST /api/voids/:id/approve` | `requireAuth`, `owner` | Setujui VOID, reversal saldo, & kembalikan status paket |
+| **Shifts** | `GET /api/shifts/current` | `requireAuth` | Ambil shift aktif user (atau `null`) |
+| | `GET /api/shifts/active` | `requireAuth` | Daftar shift berstatus `AKTIF` |
+| | `GET /api/shifts/history` | `requireAuth` | Riwayat shift & hasil closing |
+| | `GET /api/shifts/handovers/pending` | `requireAuth` | Daftar serah terima shift yang menunggu konfirmasi |
+| | `GET /api/shifts/:id/summary` | `requireAuth` | Rincian ringkasan transaksi & kas shift tertentu |
+| | `POST /api/shifts/open` | `requireAuth` | Buka shift baru (`PAGI`/`MALAM` + modal awal) |
+| | `POST /api/shifts/:id/close` | `requireAuth` | Penutupan shift 2 tahap (*blind closing* + toleransi selisih kas) |
+| | `POST /api/shifts/:id/handover` | `requireAuth` | Buat/konfirmasi serah terima shift (`giver`/`receiver`) |
+| **Invoices** | `GET /api/invoices` | `requireAuth`, `admin`/`owner` | Daftar seluruh invoice terbit |
+| | `GET /api/invoices/package-map` | `requireAuth`, `admin`/`owner` | Pemetaan paket ke nomor invoice aktif (kecuali `BATAL`) |
+| | `GET /api/invoices/:id` | `requireAuth`, `admin`/`owner` | Detail invoice + daftar `invoice_items` |
+| | `POST /api/invoices` | `requireAuth`, `admin`/`owner` | Terbitkan Invoice A4 manual dari checklist paket |
+| | `POST /api/invoices/from-transaction/:transactionId` | `requireAuth`, `admin`/`owner` | Terbitkan Invoice A4 dari transaksi kasir aktif |
+| | `POST /api/invoices/:id/print` | `requireAuth`, `admin`/`owner` | Catat log cetak A4 (`print_logs`) & info salinan/reprint |
+| **Payments** | `GET /api/payments` | `requireAuth` | Riwayat mutasi pembayaran |
+| | `POST /api/payments` | `requireAuth` | Catat entri pembayaran |
+| | `PATCH /api/payments/:id` | `requireAuth` | Update entri pembayaran |
+| **Pengeluaran** | `GET /api/pengeluaran` | `requireAuth` | Daftar catatan pengeluaran operasional |
+| | `POST /api/pengeluaran` | `requireAuth` | Tambah pengeluaran baru |
+| | `PATCH /api/pengeluaran/:id` | `requireAuth` | Ubah pengeluaran |
+| | `DELETE /api/pengeluaran/:id` | `requireAuth` | Hapus pengeluaran |
+| **Settings & Tarif** | `GET /api/settings` | `requireAuth` | Ambil seluruh pengaturan & konfigurasi tarif |
+| | `PATCH /api/settings` | `requireAuth`, `owner` | Ubah key pengaturan (`kargoRate`, `pesawatRate`, `hematRate`, `pelniTiersJakarta`, `pelniTiersSurabaya`, `cash_variance_tolerance`, `receipt_print_mode`, `qris_image_url`) + log ke `tarif_history` |
+| | `GET /api/settings/qris` | `requireAuth` | Ambil URL gambar QRIS aktif |
+| | `POST /api/settings/qris-image` | `requireAuth`, `owner` | Unggah gambar QRIS base64 (maks 2MB) ke `/uploads/qris/` |
+| | `GET /api/settings/shipping-minimums` | `requireAuth` | Daftar konfigurasi ongkir minimum per layanan & rute |
+| | `PATCH /api/settings/shipping-minimums` | `requireAuth`, `owner` | Simpan perubahan aktif/nominal minimum + log ke `tarif_history` |
+| | `GET /api/settings/history`, `/tarif-history` | `requireAuth`, `owner` | Audit riwayat perubahan tarif & pengaturan |
+| **Admins & Users** | `GET /api/admins` | `requireAuth`, `owner` | Daftar staf admin |
+| | `POST /api/admins` | `requireAuth`, `owner` | Tambah akun admin baru |
+| | `PATCH /api/admins/:id` | `requireAuth`, `owner` | Ubah nama/HP admin |
+| | `POST /api/admins/:id/toggle-active` | `requireAuth`, `owner` | Aktifkan / nonaktifkan akun admin |
+| | `POST /api/admins/:id/reset-password` | `requireAuth`, `owner` | Reset kata sandi admin |
+| | `DELETE /api/admins/:id` | `requireAuth`, `owner` | Soft delete (jika berisikan histori) atau hard delete admin |
+| **Customers** | `GET /api/customers` | `requireAuth` | Daftar ringkasan customer |
+| | `GET /api/customers/:id` | `requireAuth` | Detail customer & daftar paketnya |
+| **Dashboard & Reports** | `GET /api/dashboard/summary` | `requireAuth` | Ringkasan metrik dashboard |
+| | `GET /api/dashboard/chart` | `requireAuth` | Data grafik tren (`period=week|month|year`) |
+| | `GET /api/reports` | `requireAuth`, `owner` | Laporan keuangan (`type=daily|monthly|yearly`) |
 
 ---
 
-## 8. Panduan Menjalankan Aplikasi (Deployment & Development)
+## 7. Skema Database Lengkap (18 Tabel Drizzle ORM)
+
+Seluruh skema berada di `/lib/db/src/schema/` dan diekspor melalui `/lib/db/src/schema/index.ts`.
+
+| No | Nama Tabel | File Skema | Kolom, Enum, Relasi & Index Aktual |
+|:-:|:---|:---|:---|
+| 1 | **`users`** | `users.ts` | `id`, `name`, `phone` (unique), `password` (SHA-256), `role` (`admin` \| `owner`), `isActive` (bool), `isHidden` (bool), `deletedAt`, `createdAt`, `updatedAt`. |
+| 2 | **`sessions`** | `sessions.ts` | `id`, `userId` (FK `users`), `token` (unique), `createdAt`, `expiresAt`. |
+| 3 | **`batches`** | `batches.ts` | `id`, `namaKapal`, `etd`, `periodeClosingMulai`, `periodeClosingSelesai`, `kotaAsal`, `tujuan` (default `"Manokwari"`), `statusBatch` (`OPEN` \| `CLOSED` \| `ARSIP`), `createdBy` (FK `users`), `createdAt`, `updatedAt`. |
+| 4 | **`packages`** | `packages.ts` | `id`, `barcode` (unique), `resiNumber`, `packageNumber`, `itemName`, `packageMode`, `realWeight`, `length`, `width`, `height`, `volumeWeight`, `packagingType`, `serviceType`, `deliveryRoute`, `usedWeight`, `shippingRate`, `totalWeight`, `price`, `totalShipping`, `additionalFee` (default `0`), `weight` (legacy), `notes`, `status` (`pending` \| `diserahkan`), `verified` (`belum_diverifikasi` \| `sudah_diverifikasi`), `verifiedAt`, `statusVerifikasi` (`BELUM_DIVERIFIKASI` \| `SUDAH_DIVERIFIKASI`), `statusPengambilan` (`BELUM_DIAMBIL` \| `SUDAH_DIAMBIL`), `statusPembayaran` (`BELUM_DIBAYAR` \| `DP` \| `SUDAH_DIBAYAR`), `batchId` (FK `batches`), `serviceTypeId` (FK `service_types`), `customerName`, `customerId` (FK `users`), `adminId` (FK `users`), `packageDate`, `pickedUpAt`, `createdAt`, `updatedAt`. **Index:** `idx_packages_status`, `idx_packages_status_pengambilan`, `idx_packages_batch_id`, `idx_packages_batch_status`, `idx_packages_created_at`, `idx_packages_customer_name`, `idx_packages_service_type`. *(Catatan: kolom `additional_fee_reason` belum ada pada tabel ini).* |
+| 5 | **`transactions`** | `transactions.ts` | `id`, `transactionNo` (unique), `idempotencyKey` (unique), `customerId` (FK `users`), `customerName`, `packageIds` (`jsonb number[]`), `subtotal`, `additionalFee`, `additionalFeeReason`, `discount`, `discountReason`, `total`, `paymentStatus` (`BELUM_BAYAR` \| `BAYAR_SEBAGIAN` \| `LUNAS`), `transactionStatus` (`AKTIF` \| `VOID`), `sisaPiutang`, `jenisJastip`, `jatuhTempo`, `penanggungJawab`, `shiftSessionId` (FK `shift_sessions`), `cashierId` (FK `users`), `createdAt`. **Index:** `transactions_created_at_idx`, `transactions_payment_status_idx`. |
+| 6 | **`payments`** | `payments.ts` | `id`, `paymentType` (`tunai` \| `transfer` \| `qris` \| `piutang` \| `TRANSAKSI_BARU` \| `PELUNASAN_PIUTANG` \| `CICILAN` \| `VOID_REVERSAL`), `paymentMethod` (`tunai` \| `transfer` \| `qris`), `totalAmount`, `paidAmount`, `changeAmount`, `paymentReference`, `packageIds` (`jsonb`), `packageSummary` (`jsonb`), `adminId` (FK `users`), `adminName`, `shiftSessionId` (FK `shift_sessions`), `transactionId` (FK `transactions`), `notes`, `createdAt`. **Index:** `payments_transaction_created_at_idx`, `payments_shift_created_at_idx`. |
+| 7 | **`invoices`** | `invoices.ts` | `id`, `invoiceNo` (unique), `transactionId` (FK `transactions`), `customerSnapshot` (`jsonb`), `issuedAt`, `dueAt`, `subtotal`, `discount`, `downPayment`, `total`, `balance`, `status` (`DRAFT` \| `BELUM_LUNAS` \| `DIBAYAR_SEBAGIAN` \| `LUNAS` \| `BATAL`), `manualReason`. |
+| 8 | **`invoice_items`** | `invoice-items.ts` | `id`, `invoiceId` (FK `invoices`), `packageId` (FK `packages`), `description`, `qty`, `weight`, `volume`, `unitPrice`, `lineTotal`. |
+| 9 | **`print_logs`** | `print-logs.ts` | `id`, `entityType`, `entityId`, `printType`, `printedBy` (FK `users`), `printedAt`, `copyNumber`, `isReprint` (bool). |
+| 10 | **`shift_sessions`** | `shift-sessions.ts` | `id`, `adminId` (FK `users`), `shiftType` (`PAGI` \| `MALAM`), `terminalId`, `scheduledStart`, `scheduledEnd`, `actualStart`, `actualEnd`, `openingBalance`, `status` (`AKTIF` \| `CLOSED`), `createdAt`. |
+| 11 | **`shift_closings`** | `shift-closings.ts` | `id`, `shiftSessionId` (FK `shift_sessions`), `systemCash` (int), `actualCash` (int), `selisih` (int), `alasanSelisih`, `approvedBy` (FK `users`), `closedAt`, `createdAt`. |
+| 12 | **`shift_handovers`** | `shift-handovers.ts` | `id`, `fromShiftSessionId` (FK `shift_sessions`), `toShiftSessionId` (FK `shift_sessions`), `handoverAmount` (int), `confirmedByGiver` (bool), `confirmedByReceiver` (bool), `manualOverride` (bool), `manualReason`, `createdAt`. |
+| 13 | **`voids`** | `voids.ts` | `id`, `transactionId` (FK `transactions`), `reasonCode`, `notes`, `requestedBy` (FK `users`), `approvedBy` (FK `users`), `approvedAt`, `reversalAmount`, `packageIdsReturned` (`jsonb number[]`), `statusBefore`, `statusAfter` (bernilai `"MENUNGGU_APPROVAL"` lalu `"VOID"`), `isPostClosing` (bool), `createdAt`. |
+| 14 | **`pengeluaran`** | `pengeluaran.ts` | `id`, `tanggal` (date), `kategori`, `nominal`, `metodePembayaran` (`cash` \| `transfer` \| `lainnya`), `dicatatOleh` (FK `users`), `namaPencatat`, `catatan`, `createdAt`, `updatedAt`. |
+| 15 | **`service_types`** | `service-types.ts` | `id`, `name` (unique, mis. `"jastip hemat+"`), `label` (mis. `"Jastip Hemat+"`). |
+| 16 | **`settings`** | `settings.ts` | `key` (PK), `value` (text/JSON), `updatedAt`. |
+| 17 | **`settings_shipping_minimum`** | `settings-shipping-minimum.ts` | `id`, `serviceId` (FK `service_types`), `originCity`, `enabled` (bool), `minimumAmount` (numeric), `updatedBy` (FK `users`), `updatedAt`. **Unique Index:** `settings_shipping_minimum_service_origin_idx (serviceId, originCity)`. |
+| 18 | **`tarif_history`** | `tarif-history.ts` | `id`, `jenisJastip`, `tarifLama`, `tarifBaru`, `alasan`, `diubahOleh` (FK `users`), `namaUbah`, `createdAt`. |
+
+---
+
+## 8. Skrip Proyek, Utilitas & Panduan Menjalankan
+
+### 8.1 Perintah Utama (`package.json`)
 
 ```bash
-# 1. Menjalankan server pengembangan (Express API + Vite Frontend di Port 3000)
+# 1. Jalankan server terpadu mode development (Express API + Vite di Port 3000)
 npm run dev
 
-# 2. Build produksi
+# 2. Build bundle produksi frontend (artifacts/jastip/dist/public)
 npm run build
 
-# 3. Menjalankan server produksi
+# 3. Jalankan server mode production (Express API + static dist di Port 3000)
 npm start
 
-# 4. Sinkronisasi skema database Drizzle
+# 4. Pengecekan TypeScript seluruh workspace (lint & typecheck)
+npm run lint
+npm run typecheck
+
+# 5. Sinkronisasi skema Drizzle ke PostgreSQL
 npm run db:push
 
-# 5. Inisialisasi data demo awal (Seed Demo Users & Data)
+# 6. Seed data pengguna & data awal demo
 npm run db:seed
 ```
+
+### 8.2 Daftar Skrip Utilitas & Pengujian yang Tersedia (`/scripts/src/`)
+Direktori `/scripts/src/` berisi skrip TypeScript/ESM untuk inisialisasi, migrasi, audit, dan pengujian API/alur kerja (dijalankan manual sesuai kebutuhan dengan `npx --prefix scripts tsx scripts/src/<nama-skrip>`):
+- **Bootstrap & Migrasi**: `seed-demo.ts`, `seed-batches.ts`, `seed-batch2.ts`, `migrate-finance-foundation.ts`, `migrate-shipping-minimum.ts`
+- **Audit & Debug**: `check-db-info.ts`, `audit-deep-dive.ts`, `test-auth-debug.ts`, `test-login.ts`, `test-cond.ts`, `test-and-cond.ts`, `hello.ts` + SQL `/scripts/sql/export-closing-audit.sql`
+- **Pengujian Fitur & Regresi**: `verify-all-system-features.ts`, `verify-full-regression-e2e.ts`, `verify-fase2-closing.ts`, `verify-fase8-uat.ts`, `verify-qris-runtime.ts`, `test-kargo-calc.ts`, `test-additional-fee-detail.ts`, `test-invoices-flow.ts`, `test-shipping-minimum.mjs`, `test-bulk.ts`

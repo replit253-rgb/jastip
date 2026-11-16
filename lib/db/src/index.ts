@@ -367,7 +367,10 @@ const mockShifts: any[] = [];
 const mockPengeluaran: any[] = [];
 const mockVoids: any[] = [];
 const mockInvoices: any[] = [];
+const mockInvoiceItems: any[] = [];
+const mockPackageImports: any[] = [];
 const mockTarifHistory: any[] = [];
+let mockSeqId = 1000;
 const mockServiceTypes: any[] = [
   { id: 1, name: "jastip pelni", label: "Jastip Pelni", description: "Layanan kapal Pelni", divisor: 4000, isActive: true },
   { id: 2, name: "jastip hemat+", label: "Jastip Hemat+", description: "Layanan hemat Surabaya-Manokwari", divisor: 4000, isActive: true },
@@ -411,12 +414,14 @@ function getStoreForTable(table: any): any[] {
   if (tableName.includes("user")) return mockUsers;
   if (tableName.includes("shift")) return mockShifts;
   if (tableName.includes("session")) return mockSessions;
+  if (tableName.includes("package_import") || tableName.includes("packageimport")) return mockPackageImports;
   if (tableName.includes("package")) return mockPackages;
   if (tableName.includes("batch")) return mockBatches;
   if (tableName.includes("transaction")) return mockTransactions;
   if (tableName.includes("payment")) return mockPayments;
   if (tableName.includes("pengeluaran")) return mockPengeluaran;
   if (tableName.includes("void")) return mockVoids;
+  if (tableName.includes("invoice_item") || tableName.includes("invoiceitem")) return mockInvoiceItems;
   if (tableName.includes("invoice")) return mockInvoices;
   if (tableName.includes("tarif")) return mockTarifHistory;
   if (tableName.includes("shipping_minimum") || tableName.includes("shippingminimum")) return mockShippingMinimum;
@@ -653,7 +658,7 @@ function createMockChain(getData: () => any[], tableRef?: any, selectFields?: an
     values: (data: any) => {
       const store = getStoreForTable(tableRef);
       const items = Array.isArray(data) ? data : [data];
-      const inserted = items.map((item, idx) => {
+      const inserted = items.map((item) => {
         if (item?.key !== undefined) {
           const existIdx = store.findIndex((s: any) => s.key === item.key);
           if (existIdx >= 0) {
@@ -662,7 +667,7 @@ function createMockChain(getData: () => any[], tableRef?: any, selectFields?: an
           }
         }
         const record = {
-          id: Date.now() + idx,
+          id: ++mockSeqId,
           createdAt: new Date(),
           updatedAt: new Date(),
           ...item,
@@ -692,7 +697,7 @@ function createMockDb() {
       values: (data: any) => {
         const store = getStoreForTable(table);
         const items = Array.isArray(data) ? data : [data];
-        const inserted = items.map((item, idx) => {
+        const inserted = items.map((item) => {
           if (item?.key !== undefined) {
             const existIdx = store.findIndex((s: any) => s.key === item.key);
             if (existIdx >= 0) {
@@ -701,7 +706,7 @@ function createMockDb() {
             }
           }
           const record = {
-            id: Date.now() + idx,
+            id: ++mockSeqId,
             createdAt: new Date(),
             updatedAt: new Date(),
             ...item,

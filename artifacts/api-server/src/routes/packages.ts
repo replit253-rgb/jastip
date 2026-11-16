@@ -6,6 +6,9 @@ import {
   serviceTypesTable,
   batchesTable,
   settingsShippingMinimumTable,
+  packageImportsTable,
+  transactionsTable,
+  invoiceItemsTable,
 } from "@workspace/db";
 import { eq, and, ne, inArray, ilike, sql, gte, lte, or, desc, isNull } from "drizzle-orm";
 import { requireAuth, requireRole } from "../middlewares/auth";
@@ -13,6 +16,11 @@ import {
   applyShippingMinimum,
   distributeShippingTotal,
 } from "../lib/shipping-minimum";
+import {
+  type BaseRates,
+  getBaseRates,
+  getPelniRateByTotalWeightFromTiers,
+} from "../lib/base-rates";
 import { safeIsoString, safeIsoStringOrNull } from "../lib/dates";
 import crypto from "crypto";
 
@@ -38,52 +46,78 @@ function toNum(val: any): number | null {
   return isNaN(n) ? null : n;
 }
 
+async function resolveOriginCity(
+  deliveryRoute: string | null | undefined,
+  batchId?: number | null,
+): Promise<string> {
+  if (deliveryRoute && String(deliveryRoute).trim()) {
+    const firstPart = String(deliveryRoute).split("→")[0]?.split("->")[0]?.trim();
+    if (firstPart) return firstPart;
+  }
+  if (batchId) {
+    try {
+      const [batch] = await db
+        .select({ kotaAsal: batchesTable.kotaAsal })
+        .from(batchesTable)
+        .where(eq(batchesTable.id, Number(batchId)))
+        .limit(1);
+      if (batch?.kotaAsal) return String(batch.kotaAsal).trim();
+    } catch {
+      // ignore fallback
+    }
+  }
+  return "";
+}
+
 async function getShippingMinimum(
   serviceType: string | null | undefined,
   deliveryRoute: string | null | undefined,
+  batchId?: number | null,
 ) {
   if (!serviceType) return null;
-  const originCity = deliveryRoute ? String(deliveryRoute).split("→")[0]?.trim() : "";
+  const svcLower = String(serviceType).trim().toLowerCase();
+  const originCity = await resolveOriginCity(deliveryRoute, batchId);
+
   try {
-    const rows = await db
-      .select({
-        enabled: settingsShippingMinimumTable.enabled,
-        minimumAmount: settingsShippingMinimumTable.minimumAmount,
-      })
-      .from(settingsShippingMinimumTable)
-      .innerJoin(
-        serviceTypesTable,
-        eq(settingsShippingMinimumTable.serviceId, serviceTypesTable.id),
-      )
-      .where(
-        and(
-          eq(serviceTypesTable.name, serviceType),
-          originCity ? eq(settingsShippingMinimumTable.originCity, originCity) : sql`1=1`,
-        ),
-      )
-      .limit(1);
-    const row = rows[0];
-    if (row) {
-      return {
-        enabled: Boolean(row.enabled),
-        minimumAmount: Number(row.minimumAmount) || 0,
-      };
+    const services = await db.select().from(serviceTypesTable);
+    const svc = services.find(
+      (s: any) => String(s.name || "").trim().toLowerCase() === svcLower,
+    );
+    if (svc) {
+      const rows = await db
+        .select()
+        .from(settingsShippingMinimumTable)
+        .where(eq(settingsShippingMinimumTable.serviceId, svc.id));
+
+      const matched = originCity
+        ? rows.find(
+            (r: any) =>
+              String(r.originCity || "").trim().toLowerCase() === originCity.toLowerCase(),
+          )
+        : rows[0];
+
+      if (matched) {
+        return {
+          enabled: Boolean(matched.enabled),
+          minimumAmount: Number(matched.minimumAmount) || 0,
+        };
+      }
     }
   } catch {
     // Ignore query fallback
   }
 
-  // Default minimum rules if not yet set in database:
-  if (serviceType === "jastip pelni") {
+  // Default minimum rules ONLY when not configured in database:
+  if (svcLower === "jastip pelni") {
     return { enabled: true, minimumAmount: 20000 };
   }
-  if (serviceType === "jastip hemat+") {
+  if (svcLower === "jastip hemat+") {
     return { enabled: true, minimumAmount: 10000 };
   }
-  if (serviceType === "jastip pesawat") {
+  if (svcLower === "jastip pesawat") {
     return { enabled: false, minimumAmount: 15400 };
   }
-  if (serviceType === "jastip kargo") {
+  if (svcLower === "jastip kargo") {
     return { enabled: false, minimumAmount: 0 };
   }
   return null;
@@ -103,6 +137,7 @@ function roundPesawatGroupWeight(totalRealWeight: number): number {
 async function recalcPesawatCustomerOngkir(
   batchId: number,
   customerName: string,
+  preloadedRates?: BaseRates,
 ): Promise<void> {
   if (!batchId || !customerName) return;
 
@@ -123,6 +158,8 @@ async function recalcPesawatCustomerOngkir(
   );
   if (!customerPkgs.length) return;
 
+  const baseRates = preloadedRates ?? (await getBaseRates());
+
   // Tiap paket: gunakan max(berat_real, berat_volume) sebagai berat efektif
   const pkgEffectiveWeights = customerPkgs.map((p) => {
     const real = Number(p.realWeight) || 0;
@@ -131,10 +168,11 @@ async function recalcPesawatCustomerOngkir(
   });
   const totalEffectiveWeight = pkgEffectiveWeights.reduce((s, w) => s + w, 0);
   const roundedWeight = roundPesawatGroupWeight(totalEffectiveWeight);
-  const normalTotalOngkir = Math.round(roundedWeight * 77000);
+  const normalTotalOngkir = Math.round(roundedWeight * baseRates.pesawatRate);
   const minimum = await getShippingMinimum(
     "jastip pesawat",
     customerPkgs[0].deliveryRoute,
+    batchId,
   );
   const totalGroupOngkir = applyShippingMinimum(normalTotalOngkir, minimum);
   const distributedTotals = distributeShippingTotal(
@@ -148,7 +186,7 @@ async function recalcPesawatCustomerOngkir(
       db
         .update(packagesTable)
         .set({
-          shippingRate: "77000",
+          shippingRate: String(baseRates.pesawatRate),
           totalShipping: String(distributedTotals[index]),
           updatedAt: new Date(),
         })
@@ -162,10 +200,11 @@ async function recalcPesawatCustomerOngkir(
 //   - 1 paket & total_berat < 1 kg  → berat_digunakan = 1 kg
 //   - 1 paket & total_berat >= 1 kg → berat_digunakan = total_berat
 //   - >1 paket                       → berat_digunakan = total_berat (TANPA pembulatan per paket)
-// Total ongkir = berat_digunakan × Rp10.000, didistribusikan proporsional ke tiap paket.
+// Total ongkir = berat_digunakan × tarif Hemat+ (settings.hematRate), didistribusikan proporsional ke tiap paket.
 async function recalcHematCustomerOngkir(
   batchId: number,
   customerName: string,
+  preloadedRates?: BaseRates,
 ): Promise<void> {
   if (!batchId || !customerName) return;
 
@@ -185,6 +224,8 @@ async function recalcHematCustomerOngkir(
   );
   if (!customerPkgs.length) return;
 
+  const baseRates = preloadedRates ?? (await getBaseRates());
+
   const jumlahPaket = customerPkgs.length;
   const totalBerat = customerPkgs.reduce(
     (s, p) => s + (Number(p.usedWeight) || 0),
@@ -198,10 +239,11 @@ async function recalcHematCustomerOngkir(
     beratDigunakan = totalBerat; // >1 paket: jumlah langsung, tanpa pembulatan per paket
   }
 
-  const normalTotalOngkir = Math.round(beratDigunakan * 10000);
+  const normalTotalOngkir = Math.round(beratDigunakan * baseRates.hematRate);
   const minimum = await getShippingMinimum(
     "jastip hemat+",
     customerPkgs[0].deliveryRoute,
+    batchId,
   );
   const totalGroupOngkir = applyShippingMinimum(normalTotalOngkir, minimum);
   const distributedTotals = distributeShippingTotal(
@@ -215,7 +257,7 @@ async function recalcHematCustomerOngkir(
       db
         .update(packagesTable)
         .set({
-          shippingRate: "10000",
+          shippingRate: String(baseRates.hematRate),
           totalShipping: String(distributedTotals[index]),
           updatedAt: new Date(),
         })
@@ -226,33 +268,13 @@ async function recalcHematCustomerOngkir(
 
 // ── Pelni: tarif per-kg berdasarkan TOTAL BERAT GABUNGAN konsumen dalam satu batch
 // (bukan berdasarkan berat per paket)
-function getPelniRateByTotalWeight(
-  totalWeight: number,
-  deliveryRoute: string | null | undefined,
-): number | null {
-  if (!deliveryRoute || !totalWeight || totalWeight <= 0) return null;
-  if (deliveryRoute === "Jakarta → Manokwari") {
-    if (totalWeight <= 10.1) return 20000;
-    if (totalWeight <= 20.1) return 19000;
-    if (totalWeight <= 40.1) return 18000;
-    if (totalWeight <= 80.1) return 17000;
-    return 16000; // 81–200 kg
-  }
-  if (deliveryRoute === "Surabaya → Manokwari") {
-    if (totalWeight <= 10) return 18000;
-    if (totalWeight <= 20) return 17000;
-    if (totalWeight <= 40) return 16000;
-    return 15500;
-  }
-  return null;
-}
-
 // Recalculate shippingRate + totalShipping untuk SEMUA paket Pelni milik satu
 // konsumen dalam satu batch, berdasarkan total berat gabungan mereka.
 async function recalcPelniCustomerOngkir(
   batchId: number,
   customerName: string,
   deliveryRoute?: string | null,
+  preloadedRates?: BaseRates,
 ): Promise<void> {
   if (!batchId || !customerName) return;
 
@@ -300,17 +322,27 @@ async function recalcPelniCustomerOngkir(
   );
   if (totalWeight <= 0 && customerPkgs.length === 0) return;
 
-  // Tarif dari tabel bertingkat berdasarkan total berat
-  const rate = getPelniRateByTotalWeight(totalWeight, effectiveRoute) || 20000;
+  const baseRates = preloadedRates ?? (await getBaseRates());
+
+  // Tarif dari tabel bertingkat (settings.pelniTiersJakarta / pelniTiersSurabaya) berdasarkan total berat
+  const fallbackFirstRate = String(effectiveRoute).toLowerCase().includes("surabaya")
+    ? baseRates.pelniTiersSurabaya[0]?.rate
+    : baseRates.pelniTiersJakarta[0]?.rate;
+  const rate =
+    getPelniRateByTotalWeightFromTiers(totalWeight, effectiveRoute, baseRates) ??
+    fallbackFirstRate ??
+    baseRates.pelniTiersJakarta[0]?.rate ??
+    20000;
 
   const normalTotals = customerPkgs.map((pkg) =>
     Math.round((Number(pkg.usedWeight) || Number(pkg.realWeight) || 0) * rate),
   );
   const normalTotalOngkir = normalTotals.reduce((sum, amount) => sum + amount, 0);
-  const minimum = await getShippingMinimum("jastip pelni", effectiveRoute);
-  // Default minimal untuk Pelni adalah Rp 20.000 (total ongkir di bawah 20 rb otomatis jadi 20 rb)
-  const minAmount = minimum?.enabled ? minimum.minimumAmount : 20000;
-  const totalGroupOngkir = Math.max(normalTotalOngkir, minAmount);
+  const minimum = await getShippingMinimum("jastip pelni", effectiveRoute, batchId);
+  const totalGroupOngkir =
+    minimum !== null
+      ? applyShippingMinimum(normalTotalOngkir, minimum)
+      : Math.max(normalTotalOngkir, fallbackFirstRate ?? 20000);
   const distributedTotals = distributeShippingTotal(
     totalGroupOngkir,
     customerPkgs.map((pkg) => Number(pkg.usedWeight) || Number(pkg.realWeight) || 0),
@@ -331,29 +363,63 @@ async function recalcPelniCustomerOngkir(
   );
 }
 
-async function recalcKargoCustomerOngkir(
-  _batchId: number,
-  _customerName: string,
-  _deliveryRoute: string | null | undefined,
+async function applyShippingMinimumToKargoPackages(
+  packageIds: number[],
 ): Promise<void> {
-  // Jastip Kargo: TIDAK ADA MINIMAL. Ongkir dihitung murni dari berat digunakan/kubikasi × tarif M3.
-  return;
+  const validIds = packageIds.map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  if (validIds.length === 0) return;
+
+  const targetPkgs = await db
+    .select()
+    .from(packagesTable)
+    .where(inArray(packagesTable.id, validIds));
+
+  for (const pkg of targetPkgs) {
+    if (String(pkg.serviceType || "").toLowerCase() !== "jastip kargo") continue;
+    const minimum = await getShippingMinimum(
+      "jastip kargo",
+      pkg.deliveryRoute,
+      pkg.batchId,
+    );
+    if (!minimum) continue;
+
+    const currentTotal = Number(pkg.totalShipping);
+    const rate = Number(pkg.shippingRate) || 0;
+    const used = Number(pkg.usedWeight) || Number(pkg.volumeWeight) || Number(pkg.realWeight) || 0;
+    const baseTotal =
+      !isNaN(currentTotal) && currentTotal >= 0
+        ? Math.round(currentTotal)
+        : rate > 0 && used > 0
+          ? Math.round(used * rate)
+          : 0;
+    const finalTotal = applyShippingMinimum(baseTotal, minimum);
+    if (finalTotal !== currentTotal) {
+      await db
+        .update(packagesTable)
+        .set({
+          totalShipping: String(finalTotal),
+          updatedAt: new Date(),
+        })
+        .where(eq(packagesTable.id, pkg.id));
+    }
+  }
 }
 
 function getShippingRate(
   serviceType: string | null | undefined,
   deliveryRoute: string | null | undefined,
   weight: number | null | undefined,
+  baseRates: BaseRates,
 ): number | null {
   if (!serviceType || !weight || weight <= 0) return null;
-  if (serviceType === "jastip pesawat") return 77000;
-  if (serviceType === "jastip hemat+") return 10000;
-  if (serviceType === "jastip kargo") return 7000;
-  // Pelni: gunakan getPelniRateByTotalWeight (tarif berdasarkan total berat konsumen)
+  if (serviceType === "jastip pesawat") return baseRates.pesawatRate;
+  if (serviceType === "jastip hemat+") return baseRates.hematRate;
+  if (serviceType === "jastip kargo") return baseRates.kargoRate;
+  // Pelni: gunakan getPelniRateByTotalWeightFromTiers (tarif berdasarkan total berat konsumen)
   // Fungsi ini hanya dipakai sebagai estimasi awal; recalcPelniCustomerOngkir akan
   // menghitung ulang dengan benar setelah semua paket tersimpan.
   if (serviceType === "jastip pelni")
-    return getPelniRateByTotalWeight(weight, deliveryRoute);
+    return getPelniRateByTotalWeightFromTiers(weight, deliveryRoute, baseRates);
   return null;
 }
 
@@ -361,6 +427,7 @@ function getTotalShipping(
   serviceType: string | null | undefined,
   deliveryRoute: string | null | undefined,
   weight: number | null | undefined,
+  baseRates: BaseRates,
 ): number | null {
   if (!serviceType || !weight || weight <= 0) return null;
 
@@ -371,24 +438,30 @@ function getTotalShipping(
     deliveryRoute === "Jakarta → Manokwari"
   ) {
     const rounded = roundPesawatGroupWeight(weight);
-    return Math.round(rounded * 77000);
+    return Math.round(rounded * baseRates.pesawatRate);
   }
 
   if (
     serviceType === "jastip hemat+" &&
     deliveryRoute === "Surabaya → Manokwari"
   ) {
-    return Math.round(weight * 10000);
+    return Math.round(weight * baseRates.hematRate);
   }
 
-  // Kargo: setiap paket dihitung sendiri — berat × Rp 7.000
+  // Kargo: setiap paket dihitung sendiri — berat/M³ × baseRates.kargoRate
   if (serviceType === "jastip kargo") {
-    return Math.round(weight * 7000);
+    return Math.round(weight * baseRates.kargoRate);
   }
 
   if (serviceType === "jastip pelni") {
-    const rate = getPelniRateByTotalWeight(weight, deliveryRoute) || 20000;
-    if (rate) return Math.max(20000, Math.round(weight * rate));
+    const fallbackFirst = String(deliveryRoute || "").toLowerCase().includes("surabaya")
+      ? baseRates.pelniTiersSurabaya[0]?.rate
+      : baseRates.pelniTiersJakarta[0]?.rate;
+    const rate =
+      getPelniRateByTotalWeightFromTiers(weight, deliveryRoute, baseRates) ??
+      fallbackFirst ??
+      20000;
+    if (rate) return Math.round(weight * rate);
   }
 
   return null;
@@ -410,14 +483,22 @@ async function ensurePelniPackagesMinimum() {
       .where(eq(packagesTable.serviceType, "jastip pelni"));
 
     const needRecalcGroups = new Map<string, { batchId: number; customerName: string; deliveryRoute: string }>();
+    const minCache = new Map<string, { enabled: boolean; minimumAmount: number } | null>();
     for (const p of allPelni) {
-      if (Number(p.totalShipping || 0) < 20000 && p.batchId && p.customerName) {
+      if (!p.batchId || !p.customerName) continue;
+      const route = p.deliveryRoute || "Jakarta → Manokwari";
+      const cacheKey = `${p.batchId}|${route}`;
+      if (!minCache.has(cacheKey)) {
+        minCache.set(cacheKey, await getShippingMinimum("jastip pelni", route, p.batchId));
+      }
+      const minCfg = minCache.get(cacheKey);
+      if (minCfg?.enabled && minCfg.minimumAmount > 0 && Number(p.totalShipping || 0) < minCfg.minimumAmount) {
         const key = `${p.batchId}__${p.customerName.trim().toLowerCase()}`;
         if (!needRecalcGroups.has(key)) {
           needRecalcGroups.set(key, {
             batchId: p.batchId,
             customerName: p.customerName.trim(),
-            deliveryRoute: p.deliveryRoute || "Jakarta → Manokwari",
+            deliveryRoute: route,
           });
         }
       }
@@ -439,6 +520,8 @@ async function ensureKargoPackagesNoMinimum() {
     const allKargo = await db
       .select({
         id: packagesTable.id,
+        batchId: packagesTable.batchId,
+        deliveryRoute: packagesTable.deliveryRoute,
         serviceType: packagesTable.serviceType,
         totalShipping: packagesTable.totalShipping,
         shippingRate: packagesTable.shippingRate,
@@ -453,6 +536,8 @@ async function ensureKargoPackagesNoMinimum() {
       .where(eq(packagesTable.serviceType, "jastip kargo"));
 
     for (const p of allKargo) {
+      const minKargo = await getShippingMinimum("jastip kargo", p.deliveryRoute, p.batchId);
+      if (minKargo?.enabled && minKargo.minimumAmount > 0) continue;
       const rate = Number(p.shippingRate) || 0;
       if (rate > 0) {
         let vol = Number(p.volumeWeight) || 0;
@@ -514,6 +599,9 @@ function formatPackage(
     adminName: pkg.adminId ? (adminMap.get(pkg.adminId)?.name ?? null) : null,
     packageDate: safeIsoStringOrNull(pkg.packageDate),
     pickedUpAt: safeIsoStringOrNull(pkg.pickedUpAt),
+    importId: pkg.importId ?? null,
+    importedAt: safeIsoStringOrNull(pkg.importedAt),
+    inputSource: pkg.inputSource ?? null,
     createdAt: safeIsoString(pkg.createdAt),
     updatedAt: safeIsoString(pkg.updatedAt),
   };
@@ -718,21 +806,25 @@ router.post(
         effectiveRealWeight !== null && volumeWeight !== null
           ? Math.max(effectiveRealWeight, volumeWeight)
           : (effectiveRealWeight ?? volumeWeight);
-      // Kargo: shippingRate diisi user (tarif/M3), bukan hardcoded 7000
+      const baseRates = await getBaseRates();
+
+      // Kargo: gunakan shippingRate dari user bila diisi; bila kosong pakai baseRates.kargoRate dari settings
+      const hasExplicitTotalShipping =
+        totalShippingInput !== undefined &&
+        totalShippingInput !== null &&
+        totalShippingInput !== "";
       const effectiveShippingRate =
         serviceType === "jastip kargo"
           ? shippingRate
             ? Number(shippingRate)
-            : null
-          : (getShippingRate(serviceType, deliveryRoute, usedWeight) ??
+            : hasExplicitTotalShipping
+              ? null
+              : baseRates.kargoRate
+          : (getShippingRate(serviceType, deliveryRoute, usedWeight, baseRates) ??
             (shippingRate ? Number(shippingRate) : null));
 
       let totalShipping: number | null = null;
-      if (
-        totalShippingInput !== undefined &&
-        totalShippingInput !== null &&
-        totalShippingInput !== ""
-      ) {
+      if (hasExplicitTotalShipping) {
         totalShipping = Number(totalShippingInput);
       } else if (
         serviceType === "jastip kargo" &&
@@ -747,6 +839,7 @@ router.post(
           serviceType,
           deliveryRoute,
           usedWeight,
+          baseRates,
         );
       }
 
@@ -757,6 +850,9 @@ router.post(
         itemName: itemName || null,
         status: "pending",
         adminId: user.id,
+        importId: null,
+        importedAt: null,
+        inputSource: "manual",
         packageDate: packageDate ? new Date(packageDate) : new Date(),
         ...(packageNumber ? { packageNumber } : {}),
         ...(packageMode ? { packageMode } : {}),
@@ -799,7 +895,7 @@ router.post(
 
       // Pesawat: hitung ulang ongkir berdasarkan total berat gabungan konsumen dalam batch
       if (serviceType === "jastip pesawat" && pkg.batchId && pkg.customerName) {
-        await recalcPesawatCustomerOngkir(pkg.batchId, pkg.customerName);
+        await recalcPesawatCustomerOngkir(pkg.batchId, pkg.customerName, baseRates);
         const refreshed = await db
           .select()
           .from(packagesTable)
@@ -812,13 +908,13 @@ router.post(
       if (
         serviceType === "jastip pelni" &&
         pkg.batchId &&
-        pkg.customerName &&
-        pkg.deliveryRoute
+        pkg.customerName
       ) {
         await recalcPelniCustomerOngkir(
           pkg.batchId,
           pkg.customerName,
           pkg.deliveryRoute,
+          baseRates,
         );
         // Re-fetch agar nilai yang dikembalikan sudah benar
         const refreshed = await db
@@ -831,7 +927,7 @@ router.post(
 
       // Hemat+: hitung ulang ongkir berdasarkan total berat gabungan konsumen dalam batch
       if (serviceType === "jastip hemat+" && pkg.batchId && pkg.customerName) {
-        await recalcHematCustomerOngkir(pkg.batchId, pkg.customerName);
+        await recalcHematCustomerOngkir(pkg.batchId, pkg.customerName, baseRates);
         const refreshed = await db
           .select()
           .from(packagesTable)
@@ -840,12 +936,8 @@ router.post(
         if (refreshed[0]) pkg = refreshed[0];
       }
 
-      if (serviceType === "jastip kargo" && pkg.batchId && pkg.customerName) {
-        await recalcKargoCustomerOngkir(
-          pkg.batchId,
-          pkg.customerName,
-          pkg.deliveryRoute,
-        );
+      if (serviceType === "jastip kargo" && pkg.batchId) {
+        await applyShippingMinimumToKargoPackages([pkg.id]);
         const refreshed = await db
           .select()
           .from(packagesTable)
@@ -918,6 +1010,23 @@ router.post(
       const serviceTypeByName = new Map(
         allServiceTypes.map((t) => [t.name, t.id]),
       );
+      const importNow = new Date();
+      const rawFileName =
+        typeof req.body?.fileName === "string" && req.body.fileName.trim()
+          ? req.body.fileName.trim()
+          : null;
+      const [importRecord] = await db
+        .insert(packageImportsTable)
+        .values({
+          batchId: Number(batchId),
+          fileName: rawFileName,
+          packageCount: 0,
+          importedBy: user.id,
+          createdAt: importNow,
+        })
+        .returning();
+
+      const baseRates = await getBaseRates();
       let success = 0,
         failed = 0;
       const errors: string[] = [];
@@ -989,26 +1098,37 @@ router.post(
               ? Math.max(effectiveRealWeight, volumeWeight)
               : (effectiveRealWeight ?? volumeWeight);
 
-          // Kargo: gunakan ongkir dari data row jika tersedia, atau hitung kubikasi × tarif
-          let totalShipping: number | null;
-          if (
+          // Kargo: gunakan ongkir dari data row jika tersedia, atau hitung kubikasi × tarif (row / baseRates.kargoRate)
+          const hasExplicitRowTotal =
             totalShippingRow !== undefined &&
             totalShippingRow !== null &&
-            totalShippingRow !== ""
-          ) {
+            totalShippingRow !== "";
+          const effectiveRowRate =
+            serviceType === "jastip kargo"
+              ? shippingRate
+                ? Number(shippingRate)
+                : hasExplicitRowTotal
+                  ? null
+                  : baseRates.kargoRate
+              : (getShippingRate(serviceType, deliveryRoute, usedWeight, baseRates) ??
+                (shippingRate ? Number(shippingRate) : null));
+
+          let totalShipping: number | null;
+          if (hasExplicitRowTotal) {
             totalShipping = Number(totalShippingRow);
           } else if (
             serviceType === "jastip kargo" &&
             (usedWeight !== null || volumeWeight !== null) &&
-            shippingRate
+            effectiveRowRate !== null
           ) {
             const kargoWeight = usedWeight ?? volumeWeight ?? 0;
-            totalShipping = Math.round(kargoWeight * Number(shippingRate));
+            totalShipping = Math.round(kargoWeight * effectiveRowRate);
           } else {
             totalShipping = getTotalShipping(
               serviceType,
               deliveryRoute,
               usedWeight,
+              baseRates,
             );
           }
 
@@ -1028,7 +1148,8 @@ router.post(
               volumeWeight: volumeWeight !== null ? String(volumeWeight) : null,
               packagingType: packagingType ? String(packagingType) : null,
               usedWeight: usedWeight !== null ? String(usedWeight) : null,
-              shippingRate: shippingRate ? String(shippingRate) : null,
+              shippingRate:
+                effectiveRowRate !== null ? String(effectiveRowRate) : null,
               totalWeight: totalWeight ? String(totalWeight) : null,
               price: price ? String(price) : null,
               totalShipping:
@@ -1046,6 +1167,9 @@ router.post(
               serviceTypeId: serviceType
                 ? (serviceTypeByName.get(String(serviceType)) ?? null)
                 : null,
+              importId: importRecord?.id ?? null,
+              importedAt: importNow,
+              inputSource: "import",
               additionalFee: additionalFeeRow !== undefined && additionalFeeRow !== null && additionalFeeRow !== ""
                 ? String(additionalFeeRow)
                 : "0",
@@ -1069,7 +1193,7 @@ router.post(
           if (r.customerName) pesawatCustomers.add(String(r.customerName));
         }
         for (const customerName of pesawatCustomers) {
-          await recalcPesawatCustomerOngkir(Number(batchId), customerName);
+          await recalcPesawatCustomerOngkir(Number(batchId), customerName, baseRates);
         }
       }
 
@@ -1079,17 +1203,22 @@ router.post(
         (r: any) => r.serviceType === "jastip pelni",
       );
       if (pelniRows.length > 0) {
+        const defaultBatchRoute =
+          batches[0]?.kotaAsal && batches[0]?.tujuan
+            ? `${batches[0].kotaAsal} → ${batches[0].tujuan}`
+            : "Jakarta → Manokwari";
         const pelniGroups = new Map<
           string,
           { customerName: string; deliveryRoute: string }
         >();
         for (const r of pelniRows) {
-          if (!r.customerName || !r.deliveryRoute) continue;
-          const key = `${(r.customerName as string).trim().toLowerCase()}|${r.deliveryRoute}`;
+          if (!r.customerName) continue;
+          const effRoute = r.deliveryRoute ? String(r.deliveryRoute) : defaultBatchRoute;
+          const key = `${(r.customerName as string).trim().toLowerCase()}|${effRoute}`;
           if (!pelniGroups.has(key)) {
             pelniGroups.set(key, {
               customerName: String(r.customerName),
-              deliveryRoute: String(r.deliveryRoute),
+              deliveryRoute: effRoute,
             });
           }
         }
@@ -1098,6 +1227,7 @@ router.post(
             Number(batchId),
             customerName,
             deliveryRoute,
+            baseRates,
           );
         }
       }
@@ -1112,34 +1242,24 @@ router.post(
           if (r.customerName) hematCustomers.add(String(r.customerName));
         }
         for (const customerName of hematCustomers) {
-          await recalcHematCustomerOngkir(Number(batchId), customerName);
+          await recalcHematCustomerOngkir(Number(batchId), customerName, baseRates);
         }
       }
 
-      const kargoRows = (rows as any[]).filter(
-        (r: any) => r.serviceType === "jastip kargo",
-      );
-      if (kargoRows.length > 0) {
-        const kargoGroups = new Map<
-          string,
-          { customerName: string; deliveryRoute: string }
-        >();
-        for (const r of kargoRows) {
-          if (!r.customerName || !r.deliveryRoute) continue;
-          const key = `${String(r.customerName).trim().toLowerCase()}|${r.deliveryRoute}`;
-          if (!kargoGroups.has(key)) {
-            kargoGroups.set(key, {
-              customerName: String(r.customerName),
-              deliveryRoute: String(r.deliveryRoute),
-            });
-          }
-        }
-        for (const { customerName, deliveryRoute } of kargoGroups.values()) {
-          await recalcKargoCustomerOngkir(
-            Number(batchId),
-            customerName,
-            deliveryRoute,
-          );
+      if (createdIds.length > 0) {
+        await applyShippingMinimumToKargoPackages(createdIds);
+      }
+
+      if (importRecord?.id) {
+        if (createdIds.length > 0) {
+          await db
+            .update(packageImportsTable)
+            .set({ packageCount: createdIds.length })
+            .where(eq(packageImportsTable.id, importRecord.id));
+        } else {
+          await db
+            .delete(packageImportsTable)
+            .where(eq(packageImportsTable.id, importRecord.id));
         }
       }
 
@@ -1149,6 +1269,7 @@ router.post(
         total: rows.length,
         errors,
         ids: createdIds,
+        importId: createdIds.length > 0 ? (importRecord?.id ?? null) : null,
       });
     } catch (err) {
       req.log.error(err);
@@ -1381,6 +1502,435 @@ router.post(
   },
 );
 
+type ImportLockReason = "manual" | "verified" | "pickedUp" | "inTransaction" | "inInvoice";
+
+async function collectLockedPackageSets(executor: any) {
+  const allTxs = await executor.select().from(transactionsTable);
+  const txPkgIds = new Set<number>();
+  for (const tx of allTxs) {
+    if (String(tx.transactionStatus || "").toUpperCase() === "VOID") continue;
+    const ids = Array.isArray(tx.packageIds) ? tx.packageIds : [];
+    for (const pid of ids) {
+      const n = Number(pid);
+      if (Number.isInteger(n) && n > 0) txPkgIds.add(n);
+    }
+  }
+
+  const allInvItems = await executor.select().from(invoiceItemsTable);
+  const invPkgIds = new Set<number>();
+  for (const item of allInvItems) {
+    const pid = Number(item.packageId);
+    if (Number.isInteger(pid) && pid > 0) invPkgIds.add(pid);
+  }
+
+  return { txPkgIds, invPkgIds };
+}
+
+function getPackageImportDeleteLock(
+  pkg: any,
+  txPkgIds: Set<number>,
+  invPkgIds: Set<number>,
+): { deletable: boolean; reason?: ImportLockReason } {
+  if (pkg.inputSource === "manual") {
+    return { deletable: false, reason: "manual" };
+  }
+  if (
+    pkg.statusVerifikasi === "SUDAH_DIVERIFIKASI" ||
+    pkg.verified === "sudah_diverifikasi"
+  ) {
+    return { deletable: false, reason: "verified" };
+  }
+  if (
+    pkg.statusPengambilan === "SUDAH_DIAMBIL" ||
+    pkg.status === "diserahkan"
+  ) {
+    return { deletable: false, reason: "pickedUp" };
+  }
+  if (txPkgIds.has(Number(pkg.id))) {
+    return { deletable: false, reason: "inTransaction" };
+  }
+  if (invPkgIds.has(Number(pkg.id))) {
+    return { deletable: false, reason: "inInvoice" };
+  }
+  return { deletable: true };
+}
+
+async function recalcAffectedGroupsAfterImportDelete(
+  batchId: number,
+  deletedPackages: any[],
+) {
+  const remaining = await db
+    .select()
+    .from(packagesTable)
+    .where(eq(packagesTable.batchId, batchId));
+
+  const touchedKeys = new Set<string>();
+  const remainingByGroup = new Map<string, { serviceType: string; customerName: string; deliveryRoute?: string | null }>();
+
+  for (const p of deletedPackages) {
+    const svc = String(p.serviceType || "").toLowerCase();
+    const cname = String(p.customerName || "").trim().toLowerCase();
+    if (!svc || !cname) continue;
+    touchedKeys.add(`${svc}|${cname}`);
+  }
+
+  for (const p of remaining) {
+    const svc = String(p.serviceType || "").toLowerCase();
+    const cname = String(p.customerName || "").trim().toLowerCase();
+    const key = `${svc}|${cname}`;
+    if (touchedKeys.has(key) && !remainingByGroup.has(key)) {
+      remainingByGroup.set(key, {
+        serviceType: svc,
+        customerName: p.customerName,
+        deliveryRoute: p.deliveryRoute,
+      });
+    }
+  }
+
+  for (const g of remainingByGroup.values()) {
+    if (g.serviceType === "jastip pelni") {
+      await recalcPelniCustomerOngkir(batchId, g.customerName, g.deliveryRoute);
+    } else if (g.serviceType === "jastip pesawat") {
+      await recalcPesawatCustomerOngkir(batchId, g.customerName);
+    } else if (g.serviceType === "jastip hemat+") {
+      await recalcHematCustomerOngkir(batchId, g.customerName);
+    }
+  }
+}
+
+async function executeSafeImportDelete(
+  executor: any,
+  batchId: number,
+  candidates: any[],
+) {
+  const { txPkgIds, invPkgIds } = await collectLockedPackageSets(executor);
+
+  const deletablePkgs: any[] = [];
+  const skippedReasons: Record<ImportLockReason, number> = {
+    manual: 0,
+    verified: 0,
+    pickedUp: 0,
+    inTransaction: 0,
+    inInvoice: 0,
+  };
+  const skippedDetails: Array<{ id: number; resiNumber: string; customerName: string; reason: ImportLockReason }> = [];
+
+  for (const pkg of candidates) {
+    const lock = getPackageImportDeleteLock(pkg, txPkgIds, invPkgIds);
+    if (lock.deletable) {
+      deletablePkgs.push(pkg);
+    } else if (lock.reason) {
+      skippedReasons[lock.reason] += 1;
+      skippedDetails.push({
+        id: pkg.id,
+        resiNumber: pkg.resiNumber,
+        customerName: pkg.customerName,
+        reason: lock.reason,
+      });
+    }
+  }
+
+  const deletableIds = deletablePkgs.map((p) => Number(p.id));
+  if (deletableIds.length > 0) {
+    if ((db as any)._isMock) {
+      for (const delId of deletableIds) {
+        await executor.delete(packagesTable).where(eq(packagesTable.id, delId));
+      }
+    } else {
+      await executor
+        .delete(packagesTable)
+        .where(inArray(packagesTable.id, deletableIds));
+    }
+  }
+
+  // Clean up empty package_imports rows in this batch
+  const importBatches = await executor
+    .select()
+    .from(packageImportsTable)
+    .where(eq(packageImportsTable.batchId, batchId));
+  const batchPackagesAfter = await executor
+    .select({ id: packagesTable.id, importId: packagesTable.importId })
+    .from(packagesTable)
+    .where(eq(packagesTable.batchId, batchId));
+
+  for (const imp of importBatches) {
+    const remainingCount = batchPackagesAfter.filter(
+      (p: any) => Number(p.importId) === Number(imp.id),
+    ).length;
+    if (remainingCount === 0) {
+      await executor
+        .delete(packageImportsTable)
+        .where(eq(packageImportsTable.id, imp.id));
+    }
+  }
+
+  return {
+    deletedCount: deletableIds.length,
+    skippedCount: skippedDetails.length,
+    skippedReasons,
+    skippedDetails: skippedDetails.slice(0, 50),
+    deletedPackages: deletablePkgs,
+  };
+}
+
+// GET /api/packages/imports?batchId=... — List import sessions in a batch (Owner only)
+router.get(
+  "/imports",
+  requireAuth,
+  requireRole("owner"),
+  async (req, res) => {
+    try {
+      const batchId = Number(req.query.batchId);
+      if (!Number.isInteger(batchId) || batchId <= 0) {
+        res.status(400).json({ error: "batchId wajib diisi dan valid" });
+        return;
+      }
+
+      const [batch] = await db
+        .select()
+        .from(batchesTable)
+        .where(eq(batchesTable.id, batchId))
+        .limit(1);
+      if (!batch) {
+        res.status(404).json({ error: "Batch tidak ditemukan" });
+        return;
+      }
+
+      const imports = await db
+        .select()
+        .from(packageImportsTable)
+        .where(eq(packageImportsTable.batchId, batchId))
+        .orderBy(desc(packageImportsTable.createdAt));
+
+      const batchPkgs = await db
+        .select()
+        .from(packagesTable)
+        .where(eq(packagesTable.batchId, batchId));
+
+      const users = await db
+        .select({ id: usersTable.id, name: usersTable.name })
+        .from(usersTable);
+      const userMap = new Map(users.map((u: any) => [u.id, u.name]));
+
+      const { txPkgIds, invPkgIds } = await collectLockedPackageSets(db);
+
+      const formattedImports = imports
+        .map((imp: any) => {
+          const linkedPkgs = batchPkgs.filter(
+            (p: any) => Number(p.importId) === Number(imp.id),
+          );
+          let deletableCount = 0;
+          let lockedCount = 0;
+          for (const p of linkedPkgs) {
+            const lock = getPackageImportDeleteLock(p, txPkgIds, invPkgIds);
+            if (lock.deletable) deletableCount++;
+            else lockedCount++;
+          }
+          return {
+            importId: imp.id,
+            batchId: imp.batchId,
+            fileName: imp.fileName || "Import Excel",
+            packageCount: imp.packageCount ?? linkedPkgs.length,
+            currentPackageCount: linkedPkgs.length,
+            deletableCount,
+            lockedCount,
+            importedBy: imp.importedBy ?? null,
+            importedByName: imp.importedBy
+              ? (userMap.get(imp.importedBy) ?? `User #${imp.importedBy}`)
+              : null,
+            createdAt: safeIsoString(imp.createdAt),
+          };
+        })
+        .sort(
+          (a: any, b: any) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
+
+      const trackedPkgs = batchPkgs.filter(
+        (p: any) => p.importId != null || p.inputSource === "import",
+      );
+      const legacyUnlinkedPkgs = batchPkgs.filter(
+        (p: any) => p.importId == null && (p.inputSource == null || p.inputSource === ""),
+      );
+      const manualPkgs = batchPkgs.filter(
+        (p: any) => p.inputSource === "manual",
+      );
+
+      let deletableTrackedCount = 0;
+      for (const p of trackedPkgs) {
+        if (getPackageImportDeleteLock(p, txPkgIds, invPkgIds).deletable) {
+          deletableTrackedCount++;
+        }
+      }
+
+      let deletableLegacyCount = 0;
+      for (const p of legacyUnlinkedPkgs) {
+        if (getPackageImportDeleteLock(p, txPkgIds, invPkgIds).deletable) {
+          deletableLegacyCount++;
+        }
+      }
+
+      res.json({
+        batchId,
+        statusBatch: batch.statusBatch,
+        imports: formattedImports,
+        trackedPackageCount: trackedPkgs.length,
+        deletableTrackedCount,
+        legacyUnlinkedCount: legacyUnlinkedPkgs.length,
+        deletableLegacyCount,
+        manualCount: manualPkgs.length,
+      });
+    } catch (err) {
+      req.log.error(err);
+      res.status(500).json({ error: "Gagal memuat daftar data impor" });
+    }
+  },
+);
+
+// DELETE /api/packages/imports/batch/:batchId — Delete all imported packages in a batch (Owner only)
+router.delete(
+  "/imports/batch/:batchId",
+  requireAuth,
+  requireRole("owner"),
+  async (req, res) => {
+    try {
+      const batchId = Number(req.params.batchId);
+      if (!Number.isInteger(batchId) || batchId <= 0) {
+        res.status(400).json({ error: "batchId tidak valid" });
+        return;
+      }
+
+      const includeLegacy =
+        req.query.includeLegacy === "true" || req.body?.includeLegacy === true;
+
+      const [batch] = await db
+        .select()
+        .from(batchesTable)
+        .where(eq(batchesTable.id, batchId))
+        .limit(1);
+      if (!batch) {
+        res.status(404).json({ error: "Batch tidak ditemukan" });
+        return;
+      }
+      if (batch.statusBatch === "ARSIP") {
+        res.status(400).json({
+          error: "Batch sudah diarsipkan sehingga data paket tidak dapat dihapus.",
+        });
+        return;
+      }
+
+      const result = await db.transaction(async (tx) => {
+        const batchPkgs = await tx
+          .select()
+          .from(packagesTable)
+          .where(eq(packagesTable.batchId, batchId));
+
+        const candidates = batchPkgs.filter((p: any) => {
+          if (p.inputSource === "manual") return false;
+          const isTrackedImport = p.importId != null || p.inputSource === "import";
+          const isLegacyUnlinked = p.importId == null && (p.inputSource == null || p.inputSource === "");
+          return isTrackedImport || (includeLegacy && isLegacyUnlinked);
+        });
+
+        return executeSafeImportDelete(tx, batchId, candidates);
+      });
+
+      if (result.deletedPackages.length > 0) {
+        await recalcAffectedGroupsAfterImportDelete(batchId, result.deletedPackages);
+      }
+
+      res.json({
+        success: true,
+        batchId,
+        includeLegacy,
+        deletedCount: result.deletedCount,
+        skippedCount: result.skippedCount,
+        skippedReasons: result.skippedReasons,
+        skippedDetails: result.skippedDetails,
+        message:
+          result.deletedCount > 0
+            ? `${result.deletedCount} paket hasil impor berhasil dihapus.${result.skippedCount > 0 ? ` ${result.skippedCount} paket dilewati karena terkunci.` : ""}`
+            : result.skippedCount > 0
+              ? `Tidak ada paket yang dihapus (${result.skippedCount} paket terkunci / input manual).`
+              : "Tidak ada paket hasil impor yang dapat dihapus pada batch ini.",
+      });
+    } catch (err) {
+      req.log.error(err);
+      res.status(500).json({ error: "Gagal menghapus data impor batch" });
+    }
+  },
+);
+
+// DELETE /api/packages/imports/:importId — Delete packages from a specific import batch (Owner only)
+router.delete(
+  "/imports/:importId",
+  requireAuth,
+  requireRole("owner"),
+  async (req, res) => {
+    try {
+      const importId = Number(req.params.importId);
+      if (!Number.isInteger(importId) || importId <= 0) {
+        res.status(400).json({ error: "importId tidak valid" });
+        return;
+      }
+
+      const [imp] = await db
+        .select()
+        .from(packageImportsTable)
+        .where(eq(packageImportsTable.id, importId))
+        .limit(1);
+      if (!imp) {
+        res.status(404).json({ error: "Data sesi impor tidak ditemukan" });
+        return;
+      }
+
+      const [batch] = await db
+        .select()
+        .from(batchesTable)
+        .where(eq(batchesTable.id, imp.batchId))
+        .limit(1);
+      if (batch?.statusBatch === "ARSIP") {
+        res.status(400).json({
+          error: "Batch sudah diarsipkan sehingga data paket tidak dapat dihapus.",
+        });
+        return;
+      }
+
+      const result = await db.transaction(async (tx) => {
+        const candidates = await tx
+          .select()
+          .from(packagesTable)
+          .where(eq(packagesTable.importId, importId));
+
+        return executeSafeImportDelete(tx, imp.batchId, candidates);
+      });
+
+      if (result.deletedPackages.length > 0) {
+        await recalcAffectedGroupsAfterImportDelete(imp.batchId, result.deletedPackages);
+      }
+
+      res.json({
+        success: true,
+        importId,
+        batchId: imp.batchId,
+        deletedCount: result.deletedCount,
+        skippedCount: result.skippedCount,
+        skippedReasons: result.skippedReasons,
+        skippedDetails: result.skippedDetails,
+        message:
+          result.deletedCount > 0
+            ? `${result.deletedCount} paket dari impor "${imp.fileName || `#${importId}`}" berhasil dihapus.${result.skippedCount > 0 ? ` ${result.skippedCount} paket dilewati karena terkunci.` : ""}`
+            : result.skippedCount > 0
+              ? `Tidak ada paket yang dihapus (${result.skippedCount} paket terkunci).`
+              : "Tidak ada paket yang tersisa dari sesi impor ini.",
+      });
+    } catch (err) {
+      req.log.error(err);
+      res.status(500).json({ error: "Gagal menghapus data sesi impor" });
+    }
+  },
+);
+
 // GET /api/packages/:id
 router.get(
   "/:id",
@@ -1517,8 +2067,12 @@ router.patch(
         height !== undefined;
       const hasService =
         serviceType !== undefined || deliveryRoute !== undefined;
+      const hasShippingRate = shippingRate !== undefined;
 
-      if (hasPhysical || hasService) {
+      const baseRates =
+        hasPhysical || hasService || hasShippingRate ? await getBaseRates() : undefined;
+
+      if (hasPhysical || hasService || hasShippingRate) {
         const existing = await db
           .select()
           .from(packagesTable)
@@ -1529,6 +2083,7 @@ router.patch(
           return;
         }
         const e = existing[0];
+        const effectiveRates = baseRates!;
 
         const effService =
           serviceType !== undefined ? serviceType || null : e.serviceType;
@@ -1571,19 +2126,31 @@ router.patch(
         const uw = rw != null && vw != null ? Math.max(rw, vw) : (rw ?? vw);
         updateData.usedWeight = uw != null ? String(uw) : null;
 
-        // Kargo: gunakan shippingRate dari body (tarif/M3 user-input), bukan hardcoded 7000
+        const isChangingToKargo =
+          serviceType !== undefined &&
+          String(serviceType || "").toLowerCase() === "jastip kargo" &&
+          String(e.serviceType || "").toLowerCase() !== "jastip kargo";
+
+        // Kargo: gunakan shippingRate dari body, atau rate lama paket, atau baseRates.kargoRate
         const rate =
           effService === "jastip kargo"
             ? shippingRate !== undefined
               ? shippingRate
                 ? Number(shippingRate)
-                : null
-              : toNum(e.shippingRate)
-            : getShippingRate(effService, effRoute, uw ?? undefined);
+                : effectiveRates.kargoRate
+              : isChangingToKargo
+                ? effectiveRates.kargoRate
+                : (toNum(e.shippingRate) ?? effectiveRates.kargoRate)
+            : getShippingRate(effService, effRoute, uw ?? undefined, effectiveRates);
         updateData.shippingRate = rate != null ? String(rate) : null;
 
         if (effService !== "jastip kargo") {
-          const total = getTotalShipping(effService, effRoute, uw ?? undefined);
+          const total = getTotalShipping(
+            effService,
+            effRoute,
+            uw ?? undefined,
+            effectiveRates,
+          );
           if (total != null) updateData.totalShipping = String(total);
         } else if (
           totalShippingInput === undefined ||
@@ -1615,7 +2182,7 @@ router.patch(
         pkg.batchId &&
         pkg.customerName
       ) {
-        await recalcPesawatCustomerOngkir(pkg.batchId, pkg.customerName);
+        await recalcPesawatCustomerOngkir(pkg.batchId, pkg.customerName, baseRates);
         const refreshedP = await db
           .select()
           .from(packagesTable)
@@ -1628,13 +2195,13 @@ router.patch(
       if (
         pkg.serviceType === "jastip pelni" &&
         pkg.batchId &&
-        pkg.customerName &&
-        pkg.deliveryRoute
+        pkg.customerName
       ) {
         await recalcPelniCustomerOngkir(
           pkg.batchId,
           pkg.customerName,
           pkg.deliveryRoute,
+          baseRates,
         );
         const refreshed = await db
           .select()
@@ -1650,7 +2217,7 @@ router.patch(
         pkg.batchId &&
         pkg.customerName
       ) {
-        await recalcHematCustomerOngkir(pkg.batchId, pkg.customerName);
+        await recalcHematCustomerOngkir(pkg.batchId, pkg.customerName, baseRates);
         const refreshed = await db
           .select()
           .from(packagesTable)
@@ -1661,14 +2228,9 @@ router.patch(
 
       if (
         pkg.serviceType === "jastip kargo" &&
-        pkg.batchId &&
-        pkg.customerName
+        (totalShippingInput === undefined || totalShippingInput === null || totalShippingInput === "")
       ) {
-        await recalcKargoCustomerOngkir(
-          pkg.batchId,
-          pkg.customerName,
-          pkg.deliveryRoute,
-        );
+        await applyShippingMinimumToKargoPackages([pkg.id]);
         const refreshed = await db
           .select()
           .from(packagesTable)
@@ -1790,11 +2352,11 @@ router.post(
   },
 );
 
-// POST /api/packages/verify-all — mark multiple packages as verified simultaneously
+// POST /api/packages/verify-all — mark multiple packages as verified simultaneously (Owner only)
 router.post(
   "/verify-all",
   requireAuth,
-  requireRole("admin", "owner"),
+  requireRole("owner"),
   async (req, res) => {
     try {
       const { batchId, packageIds, serviceType } = req.body;
@@ -1956,29 +2518,42 @@ router.get(
   },
 );
 
-// POST /api/packages/recalculate-batch — Recalculate all packages in a specific batch
+// POST /api/packages/recalculate-batch — Recalculate packages in a specific batch (or all batches), Owner only
 router.post(
   "/recalculate-batch",
   requireAuth,
-  requireRole("admin", "owner"),
+  requireRole("owner"),
   async (req, res) => {
     try {
-      const { batchId, defaultKargoRate } = req.body || {};
-      if (!batchId) {
-        res.status(400).json({ error: "batchId diperlukan" });
+      const { batchId, serviceType, defaultKargoRate } = req.body || {};
+      const hasSpecificBatch =
+        batchId !== undefined && batchId !== null && batchId !== "" && batchId !== "all";
+      const numBatchId = hasSpecificBatch ? Number(batchId) : null;
+      if (hasSpecificBatch && (!Number.isInteger(numBatchId) || (numBatchId ?? 0) <= 0)) {
+        res.status(400).json({ error: "batchId tidak valid" });
         return;
       }
 
-      const numBatchId = Number(batchId);
-      const batchPkgs = await db
-        .select()
-        .from(packagesTable)
-        .where(eq(packagesTable.batchId, numBatchId));
+      const targetService = serviceType && serviceType !== "all"
+        ? String(serviceType).toLowerCase().trim()
+        : null;
 
+      const batchPkgs = numBatchId !== null
+        ? await db
+            .select()
+            .from(packagesTable)
+            .where(eq(packagesTable.batchId, numBatchId))
+        : await db.select().from(packagesTable);
+
+      const scopedPkgs = targetService
+        ? batchPkgs.filter((p) => (p.serviceType || "").toLowerCase() === targetService)
+        : batchPkgs;
+
+      const baseRates = await getBaseRates();
       let updatedCount = 0;
 
-      // 1. Kargo packages: pure M³/Ton x rate, NO minimum floor
-      const kargoPkgs = batchPkgs.filter(
+      // 1. Kargo packages: MAX(M³, Ton) × rate + optional minimum from settings
+      const kargoPkgs = scopedPkgs.filter(
         (p) => (p.serviceType || "").toLowerCase() === "jastip kargo",
       );
       for (const p of kargoPkgs) {
@@ -1991,12 +2566,10 @@ router.post(
         }
         const rw = Number(p.realWeight) || 0;
         const usedWeight = Math.max(rw, vol) || vol || rw || 0.01;
-        const rate = Number(defaultKargoRate) || Number(p.shippingRate) || 1900000;
+        const rate = Number(defaultKargoRate) || baseRates.kargoRate;
         const baseTotal = Math.round(usedWeight * rate);
-        const minKargo = await getShippingMinimum("jastip kargo", p.deliveryRoute);
-        const calculatedTotal = minKargo?.enabled && minKargo.minimumAmount > 0
-          ? Math.max(baseTotal, minKargo.minimumAmount)
-          : baseTotal;
+        const minKargo = await getShippingMinimum("jastip kargo", p.deliveryRoute, p.batchId);
+        const calculatedTotal = applyShippingMinimum(baseTotal, minKargo);
 
         await db
           .update(packagesTable)
@@ -2011,48 +2584,70 @@ router.post(
         updatedCount++;
       }
 
-      // 2. Pelni packages in this batch: recalculate per customer group
-      const pelniPkgs = batchPkgs.filter(
+      // 2. Pelni packages: group per batchId + customerName
+      const pelniPkgs = scopedPkgs.filter(
         (p) => (p.serviceType || "").toLowerCase() === "jastip pelni",
       );
-      const pelniCustomers = Array.from(
-        new Set(pelniPkgs.map((p) => p.customerName).filter(Boolean)),
-      );
-      for (const c of pelniCustomers) {
-        const sample = pelniPkgs.find((p) => p.customerName === c);
-        await recalcPelniCustomerOngkir(numBatchId, c as string, sample?.deliveryRoute);
-        updatedCount += pelniPkgs.filter((p) => p.customerName === c).length;
+      const pelniGroups = new Map<string, { batchId: number; customerName: string; deliveryRoute?: string | null }>();
+      for (const p of pelniPkgs) {
+        if (!p.batchId || !p.customerName) continue;
+        const key = `${p.batchId}|${p.customerName.trim().toLowerCase()}`;
+        if (!pelniGroups.has(key)) {
+          pelniGroups.set(key, {
+            batchId: p.batchId,
+            customerName: p.customerName,
+            deliveryRoute: p.deliveryRoute,
+          });
+        }
       }
+      for (const g of pelniGroups.values()) {
+        await recalcPelniCustomerOngkir(g.batchId, g.customerName, g.deliveryRoute, baseRates);
+      }
+      updatedCount += pelniPkgs.filter((p) => p.batchId && p.customerName).length;
 
-      // 3. Pesawat packages in this batch: recalculate per customer group
-      const pesawatPkgs = batchPkgs.filter(
+      // 3. Pesawat packages: group per batchId + customerName
+      const pesawatPkgs = scopedPkgs.filter(
         (p) => (p.serviceType || "").toLowerCase() === "jastip pesawat",
       );
-      const pesawatCustomers = Array.from(
-        new Set(pesawatPkgs.map((p) => p.customerName).filter(Boolean)),
-      );
-      for (const c of pesawatCustomers) {
-        await recalcPesawatCustomerOngkir(numBatchId, c as string);
-        updatedCount += pesawatPkgs.filter((p) => p.customerName === c).length;
+      const pesawatGroups = new Map<string, { batchId: number; customerName: string }>();
+      for (const p of pesawatPkgs) {
+        if (!p.batchId || !p.customerName) continue;
+        const key = `${p.batchId}|${p.customerName.trim().toLowerCase()}`;
+        if (!pesawatGroups.has(key)) {
+          pesawatGroups.set(key, { batchId: p.batchId, customerName: p.customerName });
+        }
       }
+      for (const g of pesawatGroups.values()) {
+        await recalcPesawatCustomerOngkir(g.batchId, g.customerName, baseRates);
+      }
+      updatedCount += pesawatPkgs.filter((p) => p.batchId && p.customerName).length;
 
-      // 4. Hemat+ packages in this batch: recalculate per customer group
-      const hematPkgs = batchPkgs.filter(
+      // 4. Hemat+ packages: group per batchId + customerName
+      const hematPkgs = scopedPkgs.filter(
         (p) => (p.serviceType || "").toLowerCase() === "jastip hemat+",
       );
-      const hematCustomers = Array.from(
-        new Set(hematPkgs.map((p) => p.customerName).filter(Boolean)),
-      );
-      for (const c of hematCustomers) {
-        await recalcHematCustomerOngkir(numBatchId, c as string);
-        updatedCount += hematPkgs.filter((p) => p.customerName === c).length;
+      const hematGroups = new Map<string, { batchId: number; customerName: string }>();
+      for (const p of hematPkgs) {
+        if (!p.batchId || !p.customerName) continue;
+        const key = `${p.batchId}|${p.customerName.trim().toLowerCase()}`;
+        if (!hematGroups.has(key)) {
+          hematGroups.set(key, { batchId: p.batchId, customerName: p.customerName });
+        }
       }
+      for (const g of hematGroups.values()) {
+        await recalcHematCustomerOngkir(g.batchId, g.customerName, baseRates);
+      }
+      updatedCount += hematPkgs.filter((p) => p.batchId && p.customerName).length;
 
       res.json({
         success: true,
         batchId: numBatchId,
+        serviceType: targetService || "all",
         updatedCount,
-        message: `Berhasil menghitung ulang seluruh paket pada Batch #${numBatchId}.`,
+        message:
+          numBatchId !== null
+            ? `Berhasil menghitung ulang ${updatedCount} paket pada Batch #${numBatchId}.`
+            : `Berhasil menghitung ulang ${updatedCount} paket di semua batch.`,
       });
     } catch (err) {
       req.log.error(err);
@@ -2061,21 +2656,22 @@ router.post(
   },
 );
 
-// POST /api/packages/recalculate-kargo — Bulk recalculate Kargo packages to pure M³/Ton without minimum floor
+// POST /api/packages/recalculate-kargo — Bulk recalculate Kargo packages, Owner only
 router.post(
   "/recalculate-kargo",
   requireAuth,
-  requireRole("admin", "owner"),
+  requireRole("owner"),
   async (req, res) => {
     try {
       const { batchId, defaultRate } = req.body || {};
+      const baseRates = await getBaseRates();
 
       const allKargo = await db
         .select()
         .from(packagesTable)
         .where(eq(packagesTable.serviceType, "jastip kargo"));
 
-      const targetPkgs = batchId
+      const targetPkgs = batchId && batchId !== "all"
         ? allKargo.filter((p) => p.batchId === Number(batchId))
         : allKargo;
       let updatedCount = 0;
@@ -2091,13 +2687,11 @@ router.post(
         const rw = Number(p.realWeight) || 0;
         const usedWeight = Math.max(rw, vol) || vol || rw || 0.01;
 
-        // Rate priority: body defaultRate -> package shippingRate -> 1900000
-        let rate = Number(defaultRate) || Number(p.shippingRate) || 1900000;
+        // Rate priority: body defaultRate -> baseRates.kargoRate (dari settings)
+        const rate = Number(defaultRate) || baseRates.kargoRate;
         const baseTotal = Math.round(usedWeight * rate);
-        const minKargo = await getShippingMinimum("jastip kargo", p.deliveryRoute);
-        const calculatedTotal = minKargo?.enabled && minKargo.minimumAmount > 0
-          ? Math.max(baseTotal, minKargo.minimumAmount)
-          : baseTotal;
+        const minKargo = await getShippingMinimum("jastip kargo", p.deliveryRoute, p.batchId);
+        const calculatedTotal = applyShippingMinimum(baseTotal, minKargo);
 
         await db
           .update(packagesTable)
@@ -2115,9 +2709,9 @@ router.post(
       res.json({
         success: true,
         updatedCount,
-        message: batchId
+        message: batchId && batchId !== "all"
           ? `Berhasil menghitung ulang ${updatedCount} paket Kargo pada Batch #${batchId}.`
-          : `Berhasil menghitung ulang ${updatedCount} paket Jastip Kargo secara otomatis tanpa batas minimum.`,
+          : `Berhasil menghitung ulang ${updatedCount} paket Jastip Kargo.`,
       });
     } catch (err) {
       req.log.error(err);

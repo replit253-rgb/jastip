@@ -92,7 +92,8 @@ export default function VerifyBatchDetail({ params: propsParams }: { params?: { 
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
-  const base = user?.role === "owner" ? "/owner" : "/admin";
+  const isOwner = user?.role === "owner";
+  const base = isOwner ? "/owner" : "/admin";
 
   const { data: allPackages, isLoading: pkgLoading, refetch: refetchPackages } = useListPackages();
   const { data: batches } = useListBatches();
@@ -570,30 +571,32 @@ export default function VerifyBatchDetail({ params: propsParams }: { params?: { 
           </div>
         </div>
 
-        {/* Action Button: Verifikasi Semua Paket Batch */}
-        <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
-          <Button
-            variant={totalPkgs > 0 && totalVerified === totalPkgs ? "outline" : "default"}
-            className={
-              totalPkgs > 0 && totalVerified === totalPkgs
-                ? "border-green-300 text-green-700 bg-green-50 hover:bg-green-100 font-medium"
-                : "bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm"
-            }
-            disabled={totalPkgs === 0 || totalVerified === totalPkgs || isVerifyingAll}
-            onClick={() => setVerifyAllBatchDialogOpen(true)}
-          >
-            {isVerifyingAll ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <CheckCheck className="w-4 h-4 mr-2" />
-            )}
-            {totalPkgs === 0
-              ? "Tidak Ada Paket"
-              : totalVerified === totalPkgs
-              ? "Semua Paket Terverifikasi ✓"
-              : `Verifikasi Semua Paket (${totalPkgs - totalVerified})`}
-          </Button>
-        </div>
+        {/* Action Button: Verifikasi Semua Paket Batch (Owner only) */}
+        {isOwner && (
+          <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+            <Button
+              variant={totalPkgs > 0 && totalVerified === totalPkgs ? "outline" : "default"}
+              className={
+                totalPkgs > 0 && totalVerified === totalPkgs
+                  ? "border-green-300 text-green-700 bg-green-50 hover:bg-green-100 font-medium"
+                  : "bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm"
+              }
+              disabled={totalPkgs === 0 || totalVerified === totalPkgs || isVerifyingAll}
+              onClick={() => setVerifyAllBatchDialogOpen(true)}
+            >
+              {isVerifyingAll ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCheck className="w-4 h-4 mr-2" />
+              )}
+              {totalPkgs === 0
+                ? "Tidak Ada Paket"
+                : totalVerified === totalPkgs
+                ? "Semua Paket Terverifikasi ✓"
+                : `Verifikasi Semua Paket (${totalPkgs - totalVerified})`}
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* ── STEP 0: pilih jenis jastip ──────────────────────────────────────────── */}
@@ -656,7 +659,7 @@ export default function VerifyBatchDetail({ params: propsParams }: { params?: { 
             </Button>
             <span className="text-base font-bold">{selectedSvcEmoji} {selectedSvcLabel}</span>
           </div>
-          {selectedServiceType && (
+          {isOwner && selectedServiceType && (
             (() => {
               const svcUnverified = batchPkgs.filter(
                 (p: any) =>
@@ -829,7 +832,7 @@ export default function VerifyBatchDetail({ params: propsParams }: { params?: { 
                       {mismatchCount > 0 && <Badge variant="destructive" className="text-xs">{mismatchCount} ✗</Badge>}
                     </>
                   )}
-                  {(() => {
+                  {isOwner && (() => {
                     const groupBelum = selectedGroup.packages.filter(
                       (p: any) => p.statusVerifikasi !== "SUDAH_DIVERIFIKASI"
                     ).length;

@@ -16,6 +16,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { useAuth } from "@/lib/auth";
 
 // ── Kalkulasi ongkir ──────────────────────────────────────────────────────────
 const volumeDivisor: Record<string, number> = {
@@ -198,6 +199,8 @@ export default function AdminPackagesImport() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const base = user?.role === "owner" ? "/owner" : "/admin";
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -574,7 +577,13 @@ export default function AdminPackagesImport() {
         setIsSubmitting(false);
         return;
       }
-      const res = await importPackages.mutateAsync({ data: { packages: payload, batchId: selectedBatchId } as any });
+      const res = await importPackages.mutateAsync({
+        data: {
+          packages: payload,
+          batchId: selectedBatchId,
+          fileName: file?.name || undefined,
+        } as any,
+      });
       setProgress(100);
       setImportResult(res);
 
@@ -587,7 +596,7 @@ export default function AdminPackagesImport() {
         const ids: number[] = (res as any).ids ?? [];
         if (ids.length > 0) {
           setTimeout(() => {
-            setLocation(`/admin/barcode?ids=${ids.join(",")}`);
+            setLocation(`${base}/barcode?ids=${ids.join(",")}`);
           }, 1500);
         }
       }
@@ -619,7 +628,7 @@ export default function AdminPackagesImport() {
     <div className="space-y-6 max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Button variant="outline" size="icon" onClick={() => setLocation("/admin/packages")}>
+        <Button variant="outline" size="icon" onClick={() => setLocation(`${base}/packages`)}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>

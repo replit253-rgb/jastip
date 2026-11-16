@@ -7,18 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { History, Ship, ChevronRight, CheckCircle2, Lock, Archive } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Pagination } from "@/components/pagination";
+import {
+  formatRp,
+  fmtDate,
+  calculatePaymentSubtotals,
+  resolveBatchIdForPayment,
+} from "@/lib/payment-history";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function formatRp(n: any) {
-  if (!n && n !== 0) return "Rp 0";
-  return `Rp ${Number(n).toLocaleString("id-ID")}`;
-}
-
-function fmtDate(d: string) {
-  if (!d) return "-";
-  return new Date(d).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
-}
 
 function batchStatusColor(s: string) {
   if (s === "OPEN") return "bg-green-100 text-green-800 border-green-200";
@@ -72,12 +68,11 @@ export default function RiwayatPembayaran() {
     return m;
   }, [batches]);
 
-  // Group payments by batchId (use first packageId to look up batch)
+  // Group payments by batchId
   const batchGroups = useMemo(() => {
     const map = new Map<number, { batchId: number; payments: any[] }>();
     for (const pmt of payments as any[]) {
-      const ids: number[] = pmt.packageIds ?? [];
-      const batchId: number | null = ids.length ? (pkgMap[ids[0]]?.batchId ?? null) : null;
+      const batchId = resolveBatchIdForPayment(pmt, pkgMap);
       if (batchId === null) continue;
       if (!map.has(batchId)) map.set(batchId, { batchId, payments: [] });
       map.get(batchId)!.payments.push(pmt);
@@ -97,11 +92,10 @@ export default function RiwayatPembayaran() {
     return batchGroups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   }, [batchGroups, page]);
 
-  // Grand totals across all batches
-  const grandTotal = (payments as any[]).reduce((s, p) => s + Number(p.totalAmount || 0), 0);
-  const grandTunai = (payments as any[]).filter(p => p.paymentType === "tunai").reduce((s, p) => s + Number(p.totalAmount || 0), 0);
-  const grandTransfer = (payments as any[]).filter(p => p.paymentType === "transfer").reduce((s, p) => s + Number(p.totalAmount || 0), 0);
-  const grandPiutang = (payments as any[]).filter(p => p.paymentType === "piutang").reduce((s, p) => s + Number(p.totalAmount || 0), 0);
+  const grandSubtotals = useMemo(
+    () => calculatePaymentSubtotals(payments as any[]),
+    [payments],
+  );
 
   return (
     <div className="space-y-6">
@@ -116,10 +110,10 @@ export default function RiwayatPembayaran() {
       {/* Grand summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Total Semua", value: grandTotal, color: "text-primary", bg: "bg-primary/5 border-primary/20" },
-          { label: "Tunai", value: grandTunai, color: "text-green-700", bg: "bg-green-50 border-green-200" },
-          { label: "Transfer", value: grandTransfer, color: "text-blue-700", bg: "bg-blue-50 border-blue-200" },
-          { label: "Piutang", value: grandPiutang, color: "text-orange-700", bg: "bg-orange-50 border-orange-200" },
+          { label: "Total Keseluruhan", value: grandSubtotals.totalKeseluruhan, color: "text-primary", bg: "bg-primary/5 border-primary/20" },
+          { label: "Tunai", value: grandSubtotals.tunai, color: "text-green-700", bg: "bg-green-50 border-green-200" },
+          { label: "Transfer", value: grandSubtotals.transfer, color: "text-blue-700", bg: "bg-blue-50 border-blue-200" },
+          { label: "QRIS", value: grandSubtotals.qris, color: "text-purple-700", bg: "bg-purple-50 border-purple-200" },
         ].map((s) => (
           <Card key={s.label} className={`border ${s.bg}`}>
             <CardContent className="p-4">
@@ -150,11 +144,7 @@ export default function RiwayatPembayaran() {
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {pagedBatchGroups.map(({ batchId, payments: pmts }) => {
               const batch = batchMap[batchId];
-              const totalAll = pmts.reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
-              const totalTunai = pmts.filter((p: any) => p.paymentType === "tunai").reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
-              const totalTransfer = pmts.filter((p: any) => p.paymentType === "transfer").reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
-              const totalPiutang = pmts.filter((p: any) => p.paymentType === "piutang").reduce((s: number, p: any) => s + Number(p.totalAmount || 0), 0);
-              const piutangCount = pmts.filter((p: any) => p.paymentType === "piutang").length;
+              const sub = calculatePaymentSubtotals(pmts);
 
               return (
                 <Card
@@ -196,17 +186,14 @@ export default function RiwayatPembayaran() {
                     {/* Payment summary grid */}
                     <div className="grid grid-cols-2 gap-2">
                       {[
-                        { label: "Total", value: totalAll, color: "text-primary", bg: "bg-primary/5 border-primary/20" },
-                        { label: "Tunai", value: totalTunai, color: "text-green-700", bg: "bg-green-50 border-green-200" },
-                        { label: "Transfer", value: totalTransfer, color: "text-blue-700", bg: "bg-blue-50 border-blue-200" },
-                        { label: "Piutang", value: totalPiutang, color: "text-orange-700", bg: "bg-orange-50 border-orange-200" },
+                        { label: "Total", value: sub.totalKeseluruhan, color: "text-primary", bg: "bg-primary/5 border-primary/20" },
+                        { label: "Tunai", value: sub.tunai, color: "text-green-700", bg: "bg-green-50 border-green-200" },
+                        { label: "Transfer", value: sub.transfer, color: "text-blue-700", bg: "bg-blue-50 border-blue-200" },
+                        { label: "QRIS", value: sub.qris, color: "text-purple-700", bg: "bg-purple-50 border-purple-200" },
                       ].map((s) => (
                         <div key={s.label} className={`rounded-lg border p-2.5 ${s.bg}`}>
                           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{s.label}</p>
                           <p className={`text-sm font-black mt-0.5 leading-tight ${s.color}`}>{formatRp(s.value)}</p>
-                          {s.label === "Piutang" && piutangCount > 0 && (
-                            <p className="text-[10px] text-orange-600 mt-0.5">{piutangCount} belum lunas</p>
-                          )}
                         </div>
                       ))}
                     </div>
