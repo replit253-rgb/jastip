@@ -833,7 +833,7 @@ export default function BarcodeBatchDetail({
 
   function openServiceCardDeleteConfirm(svc: { key: string; label: string; count: number }) {
     if (!isOwner) return;
-    setIncludeManualInCardDelete(false);
+    setIncludeManualInCardDelete(true);
     setCardDeleteTarget({
       serviceKey: svc.key,
       serviceLabel: svc.label,
@@ -1970,9 +1970,8 @@ export default function BarcodeBatchDetail({
                 }
                 const deletableImport = cardInfo?.deletableImportCount ?? 0;
                 const deletableManual = cardInfo?.deletableManualCount ?? 0;
-                const locked = cardInfo?.lockedCount ?? 0;
-                const willDelete =
-                  deletableImport + (includeManualInCardDelete ? deletableManual : 0);
+                const deletableTotal = cardInfo?.deletableCount ?? (cardDeleteTarget?.activeCount ?? 0);
+                const willDelete = includeManualInCardDelete ? deletableTotal : deletableImport;
 
                 return (
                   <div className="text-sm text-muted-foreground space-y-3">
@@ -2030,9 +2029,9 @@ export default function BarcodeBatchDetail({
               const cardInfo = importSummary?.serviceCards?.find(
                 (c: any) => c.serviceKey === cardDeleteTarget?.serviceKey,
               );
-              const willDelete =
-                (cardInfo?.deletableImportCount ?? 0) +
-                (includeManualInCardDelete ? (cardInfo?.deletableManualCount ?? 0) : 0);
+              const deletableImport = cardInfo?.deletableImportCount ?? 0;
+              const deletableTotal = cardInfo?.deletableCount ?? (cardDeleteTarget?.activeCount ?? 0);
+              const willDelete = includeManualInCardDelete ? deletableTotal : deletableImport;
               return (
                 <AlertDialogAction
                   onClick={(e) => {
