@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useListBatches, useListPackages, getListPackagesQueryKey } from "@workspace/api-client-react";
 import { useAuth } from "@/lib/auth";
@@ -614,9 +615,19 @@ export default function OwnerSettings() {
               </div>
 
               <div className="space-y-1.5 border-t pt-4">
-                <Label>Toleransi Selisih Kas (Rp)</Label>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <Label>Toleransi Selisih Kas (Rp)</Label>
+                  {isOwner && (
+                    <Link
+                      href="/owner/shift/settings"
+                      className="text-xs font-medium text-primary hover:underline"
+                    >
+                      Atur kebijakan closing selisih lengkap →
+                    </Link>
+                  )}
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  Selisih sampai nominal ini dapat ditutup tanpa alasan tambahan. Nilai Rp0 berarti setiap selisih harus diberi alasan.
+                  Selisih sampai nominal ini dapat ditutup tanpa alasan tambahan. Nilai Rp0 berarti setiap selisih harus diberi alasan (khusus Admin; Owner tetap bisa closing langsung jika kebijakan aktif).
                 </p>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">Rp</span>

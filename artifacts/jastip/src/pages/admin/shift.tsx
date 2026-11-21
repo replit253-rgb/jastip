@@ -21,6 +21,8 @@ import {
   ShieldAlert,
   WalletCards,
   Printer,
+  SlidersHorizontal,
+  Info,
 } from "lucide-react";
 
 const DENOMINATIONS = [100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200];
@@ -35,7 +37,8 @@ function shiftLabel(value: string) {
 
 export default function AdminShift() {
   const { user } = useAuth();
-  const { shift, summary, isLoading, openShift, beginClosing, completeClosing } = useShift();
+  const isOwner = user?.role === "owner";
+  const { shift, summary, policy, isLoading, openShift, beginClosing, completeClosing } = useShift();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [shiftType, setShiftType] = useState<"PAGI" | "MALAM">("PAGI");
@@ -129,8 +132,11 @@ export default function AdminShift() {
   useEffect(() => {
     if (!shift) {
       setLoadingHistory(true);
-      fetch("/api/shifts/history")
-        .then((res) => res.json())
+      const token = localStorage.getItem("jaj_token");
+      fetch("/api/shifts/history", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+        .then((res) => (res.ok ? res.json() : []))
         .then((data) => {
           if (Array.isArray(data)) {
             setHistory(data);
@@ -139,7 +145,7 @@ export default function AdminShift() {
         .catch(() => {})
         .finally(() => setLoadingHistory(false));
     }
-  }, [shift]);
+  }, [shift, closingResult]);
 
   const handlePrintCurrentClosing = () => {
     if (!closingResult) return;
@@ -193,7 +199,10 @@ export default function AdminShift() {
     printWindow.document.close();
 
     try {
-      const response = await fetch(`/api/shifts/${item.id}/summary`);
+      const token = localStorage.getItem("jaj_token");
+      const response = await fetch(`/api/shifts/${item.id}/summary`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (!response.ok) throw new Error("Gagal memuat ringkasan kas");
       const summaryData = await response.json();
 
@@ -239,9 +248,16 @@ export default function AdminShift() {
   if (!shift) {
     return (
       <div className="mx-auto max-w-3xl space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Buka Shift Kasir</h1>
-          <p className="mt-1 text-muted-foreground">Buka shift sebelum mengakses scan dan transaksi pembayaran.</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Buka Shift Kasir</h1>
+            <p className="mt-1 text-muted-foreground">Buka shift sebelum mengakses scan dan transaksi pembayaran.</p>
+          </div>
+          {isOwner && (
+            <Button variant="outline" onClick={() => setLocation("/owner/shift/settings")}>
+              <SlidersHorizontal className="mr-2 h-4 w-4" /> Atur Toleransi Kas ({formatRp(policy.tolerance)})
+            </Button>
+          )}
         </div>
         {closingResult && (
           <Card className="border-green-200 bg-green-50/50 shadow-sm">
@@ -430,9 +446,19 @@ export default function AdminShift() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard Shift {shiftLabel(shift.shiftType)}</h1>
-          <p className="mt-1 text-muted-foreground">Shift aktif sejak {shift.actualStart ? new Date(shift.actualStart).toLocaleString("id-ID") : "-"}. Kas sistem tetap disembunyikan sampai closing.</p>
+          <p className="mt-1 text-muted-foreground">
+            Shift aktif sejak {shift.actualStart ? new Date(shift.actualStart).toLocaleString("id-ID") : "-"}. Toleransi selisih kas:{" "}
+            <strong className="text-foreground">{formatRp(policy.tolerance)}</strong>.
+          </p>
         </div>
-        <div className="rounded-full border border-green-200 bg-green-50 px-3 py-1.5 text-sm font-semibold text-green-700">Aktif</div>
+        <div className="flex flex-wrap items-center gap-2">
+          {isOwner && (
+            <Button variant="outline" size="sm" onClick={() => setLocation("/owner/shift/settings")}>
+              <SlidersHorizontal className="mr-2 h-4 w-4" /> Atur Toleransi Kas
+            </Button>
+          )}
+          <div className="rounded-full border border-green-200 bg-green-50 px-3 py-1.5 text-sm font-semibold text-green-700">Aktif</div>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -453,6 +479,32 @@ export default function AdminShift() {
             <p className="text-sm text-muted-foreground">Masukkan jumlah pecahan. Nilai kas sistem belum ditampilkan untuk menjaga blind closing.</p>
           </CardHeader>
           <CardContent className="space-y-5">
+            {isOwner && policy.ownerBypass ? (
+              <div className="rounded-lg border border-blue-200 bg-blue-50/70 p-3 flex items-start justify-between gap-3 text-xs text-blue-900">
+                <div className="flex items-start gap-2">
+                  <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                  <p>
+                    Toleransi selisih kas aktif: <strong>{formatRp(policy.tolerance)}</strong>. Sebagai <strong>Owner</strong>, Anda dapat langsung menyelesaikan closing meskipun ada selisih kas di luar toleransi.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0 h-7 text-xs bg-white"
+                  onClick={() => setLocation("/owner/shift/settings")}
+                >
+                  Atur Toleransi
+                </Button>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 flex items-start gap-2 text-xs text-amber-900">
+                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <p>
+                  Toleransi selisih kas saat ini <strong>{formatRp(policy.tolerance)}</strong>. Jika selisih melebihi toleransi, isi alasan selisih di bawah.
+                </p>
+              </div>
+            )}
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {DENOMINATIONS.map((denomination) => (
                 <div key={denomination} className="flex items-center gap-2">
@@ -463,7 +515,11 @@ export default function AdminShift() {
             </div>
             <div className="rounded-lg bg-muted/50 p-4"><p className="text-sm text-muted-foreground">Total kas aktual</p><p className="text-2xl font-bold">{formatRp(actualCash)}</p></div>
             <div className="space-y-2">
-              <Label>Alasan selisih (wajib jika melewati toleransi)</Label>
+              <Label>
+                {isOwner && policy.ownerBypass
+                  ? "Alasan / Catatan Selisih (opsional untuk Owner)"
+                  : `Alasan selisih (wajib jika melewati toleransi ${formatRp(policy.tolerance)})`}
+              </Label>
               <Input value={alasanSelisih} onChange={(event) => setAlasanSelisih(event.target.value)} placeholder="Contoh: uang kembalian tertukar" />
             </div>
             <div className="flex flex-wrap gap-2">

@@ -44,6 +44,7 @@ import OwnerTarif from "@/pages/owner/tarif";
 import ProfilePage from "@/pages/profile";
 import AdminShift from "@/pages/admin/shift";
 import ShiftHandover from "@/pages/admin/shift-handover";
+import OwnerShiftSettings from "@/pages/owner/shift-settings";
 import InvoicesPage from "@/pages/invoices";
 
 const queryClient = new QueryClient({
@@ -266,6 +267,9 @@ function Router() {
       </Route>
       <Route path="/owner/settings">
         {(params) => <ProtectedRoute role="owner" component={OwnerSettings} params={params} />}
+      </Route>
+      <Route path="/owner/shift/settings">
+        {(params) => <ProtectedRoute role="owner" component={OwnerShiftSettings} params={params} />}
       </Route>
       <Route path="/owner/shift/handover">
         {(params) => <ProtectedRoute role="owner" component={ShiftHandover} params={params} />}

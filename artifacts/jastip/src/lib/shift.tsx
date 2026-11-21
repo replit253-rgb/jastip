@@ -25,9 +25,16 @@ export type ShiftSummary = {
   cashExpenses: number;
 };
 
+export type ShiftVariancePolicy = {
+  tolerance: number;
+  ownerBypass: boolean;
+  adminAllowWithReason: boolean;
+};
+
 type ShiftContextValue = {
   shift: ShiftSession | null;
   summary: ShiftSummary | null;
+  policy: ShiftVariancePolicy;
   isLoading: boolean;
   refresh: () => Promise<void>;
   openShift: (input: {
@@ -42,6 +49,12 @@ type ShiftContextValue = {
     actualCash: number,
     alasanSelisih?: string,
   ) => Promise<any>;
+};
+
+const DEFAULT_POLICY: ShiftVariancePolicy = {
+  tolerance: 0,
+  ownerBypass: true,
+  adminAllowWithReason: false,
 };
 
 const ShiftContext = createContext<ShiftContextValue | undefined>(undefined);
@@ -71,12 +84,14 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [shift, setShift] = useState<ShiftSession | null>(null);
   const [summary, setSummary] = useState<ShiftSummary | null>(null);
+  const [policy, setPolicy] = useState<ShiftVariancePolicy>(DEFAULT_POLICY);
   const [isLoading, setIsLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     if (!user || !["admin", "owner"].includes(user.role)) {
       setShift(null);
       setSummary(null);
+      setPolicy(DEFAULT_POLICY);
       setIsLoading(false);
       return;
     }
@@ -86,6 +101,13 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
       const body = await shiftRequest("/current");
       setShift(body.shift || null);
       setSummary(body.summary || null);
+      if (body.policy) {
+        setPolicy({
+          tolerance: Number(body.policy.tolerance || 0),
+          ownerBypass: Boolean(body.policy.ownerBypass ?? true),
+          adminAllowWithReason: Boolean(body.policy.adminAllowWithReason ?? false),
+        });
+      }
     } catch {
       setShift(null);
       setSummary(null);
@@ -102,6 +124,7 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
     () => ({
       shift,
       summary,
+      policy,
       isLoading,
       refresh,
       openShift: async (input) => {
@@ -126,7 +149,7 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
         return result;
       },
     }),
-    [shift, summary, isLoading, refresh],
+    [shift, summary, policy, isLoading, refresh],
   );
 
   return <ShiftContext.Provider value={value}>{children}</ShiftContext.Provider>;

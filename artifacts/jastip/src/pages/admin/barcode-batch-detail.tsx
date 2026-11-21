@@ -1971,6 +1971,7 @@ export default function BarcodeBatchDetail({
                 const deletableImport = cardInfo?.deletableImportCount ?? 0;
                 const deletableManual = cardInfo?.deletableManualCount ?? 0;
                 const deletableTotal = cardInfo?.deletableCount ?? (cardDeleteTarget?.activeCount ?? 0);
+                const locked = cardInfo?.lockedCount ?? 0;
                 const willDelete = includeManualInCardDelete ? deletableTotal : deletableImport;
 
                 return (
@@ -2038,10 +2039,10 @@ export default function BarcodeBatchDetail({
                     e.preventDefault();
                     handleConfirmDeleteServiceCard();
                   }}
-                  disabled={isDeletingImports || loadingImports || willDelete === 0}
+                  disabled={isDeletingImports || loadingImports || ((cardDeleteTarget?.activeCount ?? 0) === 0 && willDelete === 0)}
                   className="bg-red-600 hover:bg-red-700 text-white"
                 >
-                  {isDeletingImports ? "Menghapus..." : `Ya, Hapus Card (${willDelete} paket)`}
+                  {isDeletingImports ? "Menghapus..." : `Ya, Hapus Card (${willDelete > 0 ? willDelete : (cardDeleteTarget?.activeCount ?? 0)} paket)`}
                 </AlertDialogAction>
               );
             })()}

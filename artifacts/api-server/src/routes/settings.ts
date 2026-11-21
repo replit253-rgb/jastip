@@ -24,6 +24,8 @@ const ALLOWED_KEYS = [
   "pelniTiersJakarta",
   "pelniTiersSurabaya",
   "cash_variance_tolerance",
+  "cash_variance_owner_bypass",
+  "cash_variance_admin_allow_with_reason",
   "receipt_print_mode",
   "qris_image_url",
 ] as const;
@@ -36,6 +38,8 @@ const KEY_LABEL: Record<string, string> = {
   pelniTiersJakarta: "Jastip Pelni (Jakarta)",
   pelniTiersSurabaya: "Jastip Pelni (Surabaya)",
   cash_variance_tolerance: "Toleransi Selisih Kas",
+  cash_variance_owner_bypass: "Closing Owner Tanpa Blokir Selisih",
+  cash_variance_admin_allow_with_reason: "Admin Closing Selisih Dengan Alasan",
   receipt_print_mode: "Mode Cetak Struk",
   qris_image_url: "QRIS — Upload Gambar",
 };
@@ -44,9 +48,13 @@ const KEY_LABEL: Record<string, string> = {
 router.get("/", requireAuth, requireRole("admin", "owner"), async (req, res) => {
   try {
     const rows = await db.select().from(settingsTable);
-    const result: Record<string, any> = {};
+    const result: Record<string, any> = {
+      cash_variance_tolerance: 0,
+      cash_variance_owner_bypass: true,
+      cash_variance_admin_allow_with_reason: false,
+    };
     for (const row of rows) {
-      // Coba parse sebagai JSON dulu (untuk tier arrays), jika gagal coba number
+      // Coba parse sebagai JSON dulu (untuk tier arrays / boolean), jika gagal coba number
       try {
         result[row.key] = JSON.parse(row.value);
       } catch {
@@ -454,6 +462,23 @@ router.patch("/", requireAuth, requireRole("owner"), async (req, res) => {
             return;
           }
         }
+        if (
+          key === "cash_variance_owner_bypass" ||
+          key === "cash_variance_admin_allow_with_reason"
+        ) {
+          const normalizedBool =
+            val === true || val === "true"
+              ? "true"
+              : val === false || val === "false"
+                ? "false"
+                : null;
+          if (!normalizedBool) {
+            res.status(400).json({ error: `${key} harus berupa boolean true/false` });
+            return;
+          }
+          updates.push({ key, value: normalizedBool });
+          continue;
+        }
         if (key === "receipt_print_mode" && !["AUTO", "ASK", "OFF"].includes(String(val))) {
           res.status(400).json({
             error: "receipt_print_mode harus AUTO, ASK, atau OFF",
@@ -494,7 +519,11 @@ router.patch("/", requireAuth, requireRole("owner"), async (req, res) => {
     }
 
     const rows = await db.select().from(settingsTable);
-    const result: Record<string, any> = {};
+    const result: Record<string, any> = {
+      cash_variance_tolerance: 0,
+      cash_variance_owner_bypass: true,
+      cash_variance_admin_allow_with_reason: false,
+    };
     for (const row of rows) {
       try {
         result[row.key] = JSON.parse(row.value);

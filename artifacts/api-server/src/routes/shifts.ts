@@ -43,13 +43,13 @@ function parsePositiveId(value: unknown, fieldName: string): number {
   return parsed;
 }
 
-async function getToleranceAmount() {
-  const row = await db
-    .select()
-    .from(settingsTable)
-    .where(eq(settingsTable.key, "cash_variance_tolerance"))
-    .limit(1);
-  return toRupiahInteger(row[0]?.value ?? 0);
+async function getShiftVariancePolicy() {
+  const rows = await db.select().from(settingsTable);
+  const map = new Map<string, string>(rows.map((r: any) => [r.key, String(r.value)]));
+  const tolerance = toRupiahInteger(map.get("cash_variance_tolerance") ?? 0);
+  const ownerBypass = map.get("cash_variance_owner_bypass") !== "false";
+  const adminAllowWithReason = map.get("cash_variance_admin_allow_with_reason") === "true";
+  return { tolerance, ownerBypass, adminAllowWithReason };
 }
 
 async function getShiftForActor(id: number, user: any) {
@@ -64,7 +64,7 @@ async function getShiftForActor(id: number, user: any) {
   return shift;
 }
 
-// GET /api/shifts/current — active shift and non-sensitive dashboard totals.
+// GET /api/shifts/current — active shift, non-sensitive dashboard totals, and variance policy.
 router.get(
   "/current",
   requireAuth,
@@ -72,15 +72,18 @@ router.get(
   async (req, res) => {
     try {
       const user = (req as any).user;
-      const shift = await getActiveShiftForUser(Number(user.id));
+      const [shift, policy] = await Promise.all([
+        getActiveShiftForUser(Number(user.id)),
+        getShiftVariancePolicy(),
+      ]);
       if (!shift) {
-        res.json({ shift: null, summary: null });
+        res.json({ shift: null, summary: null, policy });
         return;
       }
 
       const cash = await calculateShiftCash(shift);
       const { systemCash: _hiddenSystemCash, ...summary } = cash;
-      res.json({ shift, summary });
+      res.json({ shift, summary, policy });
     } catch (err) {
       (req as any).log?.error?.(err);
       res.status(500).json({ error: "Gagal mengambil shift aktif" });
@@ -95,6 +98,28 @@ router.get(
   requireRole("admin", "owner"),
   async (req, res) => {
     try {
+      if ((db as any)._isMock) {
+        const [shifts, users] = await Promise.all([
+          db.select().from(shiftSessionsTable).where(eq(shiftSessionsTable.status, "AKTIF")),
+          db.select().from(usersTable),
+        ]);
+        const userMap = new Map(users.map((u: any) => [u.id, u.name]));
+        const enriched = shifts
+          .map((s: any) => ({
+            id: s.id,
+            adminId: s.adminId,
+            adminName: userMap.get(s.adminId) || null,
+            shiftType: s.shiftType,
+            terminalId: s.terminalId,
+            actualStart: s.actualStart,
+            openingBalance: s.openingBalance,
+            status: s.status,
+          }))
+          .sort((a: any, b: any) => new Date(b.actualStart).getTime() - new Date(a.actualStart).getTime());
+        res.json(enriched);
+        return;
+      }
+
       const rows = await db
         .select({
           id: shiftSessionsTable.id,
@@ -137,9 +162,9 @@ router.get(
           adminId: shiftSessionsTable.adminId,
         })
         .from(shiftSessionsTable);
-      const adminByShift = new Map(shifts.map((shift) => [shift.id, shift.adminId]));
+      const adminByShift = new Map(shifts.map((shift: any) => [shift.id, shift.adminId]));
       const pending = handovers.filter(
-        (handover) =>
+        (handover: any) =>
           user.role === "owner" ||
           adminByShift.get(handover.toShiftSessionId) === user.id,
       );
@@ -158,7 +183,43 @@ router.get(
   requireRole("admin", "owner"),
   async (req, res) => {
     try {
-      const user = (req as any).user;
+      if ((db as any)._isMock) {
+        const [shifts, users, closings] = await Promise.all([
+          db.select().from(shiftSessionsTable).where(eq(shiftSessionsTable.status, "CLOSED")),
+          db.select().from(usersTable),
+          db.select().from(shiftClosingsTable),
+        ]);
+        const userMap = new Map(users.map((u: any) => [u.id, u.name]));
+        const closingByShift = new Map<number, any>();
+        for (const c of closings) {
+          closingByShift.set(c.shiftSessionId, c);
+        }
+        const rows = shifts
+          .map((s: any) => {
+            const c = closingByShift.get(s.id);
+            return {
+              id: s.id,
+              adminId: s.adminId,
+              adminName: userMap.get(s.adminId) || null,
+              shiftType: s.shiftType,
+              terminalId: s.terminalId,
+              actualStart: s.actualStart,
+              actualEnd: s.actualEnd,
+              openingBalance: s.openingBalance,
+              status: s.status,
+              closingId: c?.id ?? null,
+              systemCash: c?.systemCash ?? null,
+              actualCash: c?.actualCash ?? null,
+              selisih: c?.selisih ?? null,
+              alasanSelisih: c?.alasanSelisih ?? null,
+              closedAt: c?.closedAt ?? null,
+            };
+          })
+          .sort((a: any, b: any) => new Date(b.actualEnd || 0).getTime() - new Date(a.actualEnd || 0).getTime());
+        res.json(rows);
+        return;
+      }
+
       const query = db
         .select({
           id: shiftSessionsTable.id,
@@ -343,26 +404,44 @@ router.post(
 
       const actualCash = parseNonNegativeInteger(req.body.actualCash, "actualCash");
       const selisih = actualCash - closing.systemCash;
-      const tolerance = await getToleranceAmount();
+      const policy = await getShiftVariancePolicy();
+      const tolerance = policy.tolerance;
       const alasanSelisih =
         typeof req.body.alasanSelisih === "string"
           ? req.body.alasanSelisih.trim()
           : "";
+      let effectiveAlasan = alasanSelisih;
+      const exceedsTolerance = Math.abs(selisih) > tolerance;
 
-      if (Math.abs(selisih) > tolerance && !alasanSelisih) {
-        res.status(400).json({
-          error: "Alasan selisih wajib diisi karena melewati toleransi.",
-          code: "CASH_VARIANCE_REASON_REQUIRED",
-        });
-        return;
-      }
-
-      if (Math.abs(selisih) > tolerance && user.role !== "owner") {
-        res.status(403).json({
-          error: "Selisih di luar toleransi harus disetujui Owner.",
-          code: "OWNER_APPROVAL_REQUIRED",
-        });
-        return;
+      if (exceedsTolerance) {
+        if (user.role === "owner") {
+          if (!effectiveAlasan) {
+            if (policy.ownerBypass) {
+              effectiveAlasan = "Disetujui Owner (penyesuaian kas otomatis)";
+            } else {
+              res.status(400).json({
+                error: "Alasan selisih wajib diisi karena melewati toleransi.",
+                code: "CASH_VARIANCE_REASON_REQUIRED",
+              });
+              return;
+            }
+          }
+        } else {
+          if (!effectiveAlasan) {
+            res.status(400).json({
+              error: "Alasan selisih wajib diisi karena melewati toleransi.",
+              code: "CASH_VARIANCE_REASON_REQUIRED",
+            });
+            return;
+          }
+          if (!policy.adminAllowWithReason) {
+            res.status(403).json({
+              error: "Selisih di luar toleransi harus disetujui Owner.",
+              code: "OWNER_APPROVAL_REQUIRED",
+            });
+            return;
+          }
+        }
       }
 
       const now = new Date();
@@ -371,8 +450,8 @@ router.post(
         .set({
           actualCash,
           selisih,
-          alasanSelisih: alasanSelisih || null,
-          approvedBy: Math.abs(selisih) > tolerance ? Number(user.id) : null,
+          alasanSelisih: effectiveAlasan || null,
+          approvedBy: exceedsTolerance ? Number(user.id) : null,
           closedAt: now,
         })
         .where(eq(shiftClosingsTable.id, closing.id))

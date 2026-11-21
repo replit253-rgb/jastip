@@ -363,7 +363,9 @@ const mockPackages: any[] = [
 const mockSessions: any[] = [];
 const mockTransactions: any[] = [];
 const mockPayments: any[] = [];
-const mockShifts: any[] = [];
+const mockShiftSessions: any[] = [];
+const mockShiftClosings: any[] = [];
+const mockShiftHandovers: any[] = [];
 const mockPengeluaran: any[] = [];
 const mockVoids: any[] = [];
 const mockInvoices: any[] = [];
@@ -389,6 +391,8 @@ const mockShippingMinimum: any[] = [
 ];
 const mockSettings: any[] = [
   { key: "cash_variance_tolerance", value: "0" },
+  { key: "cash_variance_owner_bypass", value: "true" },
+  { key: "cash_variance_admin_allow_with_reason", value: "false" },
   { key: "tarif_laut_kg", value: "20000" },
   { key: "tarif_udara_kg", value: "77000" },
   { key: "pesawatRate", value: "77000" },
@@ -412,7 +416,9 @@ const mockSettings: any[] = [
 function getStoreForTable(table: any): any[] {
   const tableName = String(table?.[Symbol.for("drizzle:Name")] || table?.name || table || "").toLowerCase();
   if (tableName.includes("user")) return mockUsers;
-  if (tableName.includes("shift")) return mockShifts;
+  if (tableName.includes("shift_closing") || tableName.includes("shiftclosing")) return mockShiftClosings;
+  if (tableName.includes("shift_handover") || tableName.includes("shifthandover")) return mockShiftHandovers;
+  if (tableName.includes("shift")) return mockShiftSessions;
   if (tableName.includes("session")) return mockSessions;
   if (tableName.includes("package_import") || tableName.includes("packageimport")) return mockPackageImports;
   if (tableName.includes("package")) return mockPackages;
@@ -488,11 +494,13 @@ function evaluateCondition(item: any, condition: any): boolean {
         return evaluateCondition(item, chunks[0]);
       }
 
-      // Single binary expression in chunks: Column Op Param
+      // Single binary expression in chunks: Column Op Param (or unary isNull/isNotNull)
       let colName = "";
       let op = "=";
       let targetVal: any = undefined;
       let foundParam = false;
+      let isNullCheck = false;
+      let isNotNullCheck = false;
 
       for (const chunk of chunks) {
         if (chunk?.queryChunks) {
@@ -509,7 +517,10 @@ function evaluateCondition(item: any, condition: any): boolean {
         }
 
         const str = Array.isArray(chunk?.value) ? chunk.value.join("") : (typeof chunk?.value === "string" ? chunk.value : "");
-        if (str.includes(" in ")) op = "in";
+        const strLower = str.toLowerCase();
+        if (strLower.includes(" is not null")) isNotNullCheck = true;
+        else if (strLower.includes(" is null")) isNullCheck = true;
+        else if (str.includes(" in ")) op = "in";
         else if (str.includes(" = ")) op = "=";
         else if (str.includes(" <> ") || str.includes(" != ")) op = "!=";
         else if (str.includes(" >= ")) op = ">=";
@@ -527,6 +538,12 @@ function evaluateCondition(item: any, condition: any): boolean {
           targetVal = chunk.value.value;
           foundParam = true;
         }
+      }
+
+      if (colName && (isNullCheck || isNotNullCheck)) {
+        const camelCol = colName.replace(/_([a-z])/g, (_, g) => g.toUpperCase());
+        const itemVal = item[colName] !== undefined ? item[colName] : item[camelCol];
+        return isNotNullCheck ? itemVal !== null && itemVal !== undefined : itemVal === null || itemVal === undefined;
       }
 
       if (colName && foundParam) {
